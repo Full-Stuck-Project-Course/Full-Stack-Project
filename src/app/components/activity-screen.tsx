@@ -60,9 +60,9 @@ export function ActivityScreen({ mode }: ActivityScreenProps) {
   });
 
   return (
-    <div className="h-full w-full bg-gray-50 overflow-auto pb-20" dir={direction}>
+    <div className="h-full w-full bg-gray-50 overflow-auto pb-20 lg:pb-0" dir={direction}>
       {/* Header */}
-      <div className="bg-white pt-14 pb-6 px-6 border-b border-gray-200 sticky top-0 z-10">
+      <div className="bg-white pt-14 pb-6 px-6 border-b border-gray-200 sticky top-0 z-10 lg:pt-8">
         <div className={`flex items-center justify-between mb-4 ${direction === 'rtl' ? 'flex-row-reverse' : ''}`}>
           <h2>{t('activity.title')}</h2>
           <LanguageSwitcher />
@@ -87,7 +87,7 @@ export function ActivityScreen({ mode }: ActivityScreenProps) {
       </div>
 
       {/* Rides List */}
-      <div className="p-4 space-y-3">
+      <div className="p-4 space-y-3 lg:max-w-4xl lg:mx-auto">
         {filteredRides.length === 0 && (
           <div className="text-center py-12">
             <div className="text-gray-400 mb-2">{t('activity.noRides')}</div>

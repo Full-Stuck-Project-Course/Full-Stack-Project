@@ -23,16 +23,16 @@ export function SettingsScreen({ mode }: SettingsScreenProps) {
   const [tempContact, setTempContact] = useState<EmergencyContact>({ name: '', phone: '' });
 
   return (
-    <div className="h-full w-full bg-gray-50 overflow-auto pb-20" dir={direction}>
+    <div className="h-full w-full bg-gray-50 overflow-auto pb-20 lg:pb-0" dir={direction}>
       {/* Header */}
-      <div className="bg-gradient-to-br from-[#0A84FF] to-blue-600 pt-14 pb-8 px-6">
+      <div className="bg-gradient-to-br from-[#0A84FF] to-blue-600 pt-14 pb-8 px-6 lg:pt-8">
         <div className={`flex items-center justify-between mb-4 ${direction === 'rtl' ? 'flex-row-reverse' : ''}`}>
           <h2 className="text-white">{t('settings.title')}</h2>
           <LanguageSwitcher />
         </div>
       </div>
 
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6 lg:max-w-4xl lg:mx-auto lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
         {/* Language Preference */}
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-gray-100">

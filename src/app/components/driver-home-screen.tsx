@@ -47,9 +47,9 @@ export function DriverHomeScreen({ onAcceptRide }: DriverHomeScreenProps) {
   ];
 
   return (
-    <div className="relative h-full w-full bg-gray-100" dir={direction}>
+    <div className="relative h-full w-full bg-gray-100 lg:flex lg:gap-6 lg:p-6" dir={direction}>
       {/* Map Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-gray-100 to-green-50">
+      <div className="absolute inset-0 lg:relative lg:flex-1 lg:rounded-2xl lg:overflow-hidden bg-gradient-to-br from-blue-50 via-gray-100 to-green-50">
         <div className="absolute inset-0 opacity-20">
           {[...Array(15)].map((_, i) => (
             <div
@@ -80,9 +80,9 @@ export function DriverHomeScreen({ onAcceptRide }: DriverHomeScreenProps) {
         ))}
       </div>
 
-      {/* Top Bar */}
-      <div className="absolute top-0 left-0 right-0 pt-14 px-4 z-20 max-h-[50%] overflow-auto">
-        <div className="bg-white rounded-2xl shadow-lg p-4">
+      {/* Top Bar / Desktop Sidebar */}
+      <div className="absolute top-0 left-0 right-0 pt-14 px-4 z-20 max-h-[50%] overflow-auto lg:relative lg:top-0 lg:pt-0 lg:px-0 lg:w-96 lg:max-h-none lg:flex-shrink-0">
+        <div className="bg-white rounded-2xl shadow-lg p-4 lg:p-6 lg:h-full lg:overflow-auto">
           <div className={`flex items-center justify-between mb-3 ${direction === 'rtl' ? 'flex-row-reverse' : ''}`}>
             <h3 className="text-lg">Nearby Ride Requests</h3>
             <LanguageSwitcher />
@@ -201,7 +201,7 @@ export function DriverHomeScreen({ onAcceptRide }: DriverHomeScreenProps) {
       </div>
 
       {/* Ride Requests List */}
-      <div className="absolute bottom-16 left-0 right-0 max-h-[45%] bg-white rounded-t-3xl shadow-2xl p-6 pb-2 z-20 overflow-auto">
+      <div className="absolute bottom-16 left-0 right-0 max-h-[45%] lg:hidden bg-white rounded-t-3xl shadow-2xl p-6 pb-2 z-20 overflow-auto">
         <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-4" />
 
         <div className="space-y-3">

@@ -17,13 +17,13 @@ export function HomeScreen({ onRequestRide }: HomeScreenProps) {
   const [isBottomSheetCollapsed, setIsBottomSheetCollapsed] = useState(false);
 
   return (
-    <div className="relative h-full w-full bg-gray-100" dir={direction}>
+    <div className="relative h-full w-full bg-gray-100 lg:flex lg:gap-6 lg:p-6" dir={direction}>
       {/* Language Switcher */}
       <div className={`absolute top-14 z-30 ${direction === 'rtl' ? 'left-4' : 'right-4'}`}>
         <LanguageSwitcher />
       </div>
       {/* Map Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-gray-100 to-green-50">
+      <div className="absolute inset-0 lg:relative lg:flex-1 lg:rounded-2xl lg:overflow-hidden bg-gradient-to-br from-blue-50 via-gray-100 to-green-50">
         <div className="absolute inset-0 opacity-20">
           {[...Array(20)].map((_, i) => (
             <div
@@ -48,9 +48,9 @@ export function HomeScreen({ onRequestRide }: HomeScreenProps) {
         </div>
       </div>
 
-      {/* Top Search Bar */}
-      <div className="absolute top-20 left-0 right-0 px-4 z-20 max-h-[55%] overflow-auto">
-        <div className="bg-white rounded-2xl shadow-lg p-4">
+      {/* Top Search Bar / Desktop Sidebar */}
+      <div className="absolute top-20 left-0 right-0 px-4 z-20 max-h-[55%] overflow-auto lg:relative lg:top-0 lg:px-0 lg:w-96 lg:max-h-none lg:flex-shrink-0">
+        <div className="bg-white rounded-2xl shadow-lg p-4 lg:p-6 lg:h-full lg:overflow-auto">
           <div className={`flex items-center gap-3 ${direction === 'rtl' ? 'flex-row-reverse' : ''}`}>
             <div className="w-2 h-2 rounded-full bg-[#0A84FF]" />
             <input
@@ -143,9 +143,9 @@ export function HomeScreen({ onRequestRide }: HomeScreenProps) {
         </div>
       </div>
 
-      {/* Bottom Sheet */}
+      {/* Bottom Sheet / Desktop Panel */}
       <div
-        className="absolute bottom-16 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-20 transition-all duration-300"
+        className="absolute bottom-16 left-0 right-0 lg:hidden bg-white rounded-t-3xl shadow-2xl z-20 transition-all duration-300"
         style={{ maxHeight: isBottomSheetCollapsed ? '80px' : '500px' }}
       >
         <button
@@ -157,9 +157,14 @@ export function HomeScreen({ onRequestRide }: HomeScreenProps) {
 
         <div className={`px-6 ${isBottomSheetCollapsed ? 'hidden' : 'pb-6'}`}>
 
-        <h3 className="mb-4">{t('home.chooseRide')}</h3>
+        <h3 className="mb-4 lg:hidden">{t('home.chooseRide')}</h3>
 
-        <div className="space-y-3 mb-6">
+        {/* Desktop: Ride options shown in sidebar */}
+        <div className="hidden lg:block mb-6">
+          <h3 className="mb-4">{t('home.chooseRide')}</h3>
+        </div>
+
+        <div className="space-y-3 mb-6 lg:mb-4">
           {/* Economy Option */}
           <button
             onClick={() => setSelectedCarType('economy')}

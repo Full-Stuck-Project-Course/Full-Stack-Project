@@ -32,9 +32,9 @@ export function SignUpScreen({ onSignUp, onBack, onLoginClick, defaultRole = 'pa
   };
 
   return (
-    <div className="h-full w-full bg-white flex flex-col overflow-auto" dir={direction}>
+    <div className="h-full w-full bg-white flex flex-col overflow-auto lg:items-center lg:justify-center lg:bg-gray-50" dir={direction}>
       {/* Header */}
-      <div className="bg-gradient-to-br from-[#0A84FF] to-blue-600 pt-14 pb-8 px-6">
+      <div className="bg-gradient-to-br from-[#0A84FF] to-blue-600 pt-14 pb-8 px-6 lg:w-full lg:max-w-2xl lg:rounded-t-2xl">
         <div className="flex items-center justify-between mb-6">
           <button
             onClick={onBack}
@@ -49,7 +49,7 @@ export function SignUpScreen({ onSignUp, onBack, onLoginClick, defaultRole = 'pa
       </div>
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="flex-1 p-6 space-y-6">
+      <form onSubmit={handleSubmit} className="flex-1 p-6 space-y-6 lg:w-full lg:max-w-2xl lg:bg-white lg:rounded-b-2xl lg:shadow-xl">
         {/* Name */}
         <div className="space-y-2">
           <label className="text-sm text-gray-600">{t('signup.name')}</label>
