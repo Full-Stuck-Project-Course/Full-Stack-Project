@@ -1,44 +1,51 @@
 @echo off
 setlocal
 
-:: Save root folder path once
 set ROOT=%~dp0
 set BACKEND=%ROOT%backend
 set FRONTEND=%ROOT%frontend
 
-echo Checking and installing dependencies...
+echo ============================================
+echo          CarPool App - Starting Up
+echo ============================================
+echo.
 
 :: Check Node.js
 node -v >nul 2>&1
 if errorlevel 1 (
-    echo Node.js not found. Please install from https://nodejs.org
+    echo ERROR: Node.js not found.
+    echo Please install from https://nodejs.org
     pause
-    exit
+    exit /b 1
 )
 
-:: Check nodemon globally
-nodemon -v >nul 2>&1
+:: Check nodemon
+call nodemon -v >nul 2>&1
 if errorlevel 1 (
-    echo Installing nodemon...
-    npm install -g nodemon
+    echo Installing nodemon globally...
+    call npm install -g nodemon
 )
 
-:: Install backend dependencies if needed
+:: Install backend node_modules if missing
 if not exist "%BACKEND%\node_modules" (
-    echo Installing backend packages...
+    echo Installing backend dependencies...
     cd /d "%BACKEND%"
-    npm install
+    call npm install
 )
 
-:: Install frontend dependencies if needed
+:: Install frontend node_modules if missing
 if not exist "%FRONTEND%\node_modules" (
-    echo Installing frontend packages...
+    echo Installing frontend dependencies...
     cd /d "%FRONTEND%"
-    npm install
+    call npm install
 )
 
-echo Starting app...
-start "Backend"  cmd /k "cd /d "%BACKEND%" && npm run dev"
-start "Frontend" cmd /k "cd /d "%FRONTEND%" && npm start"
+echo.
+echo Starting Backend and Frontend...
+echo.
+
+:: Use /d parameter of start to set working directory (avoids nested quotes)
+start "CarPool Backend"  /d "%BACKEND%"  cmd /k "npm run dev"
+start "CarPool Frontend" /d "%FRONTEND%" cmd /k "npm start"
 
 endlocal
