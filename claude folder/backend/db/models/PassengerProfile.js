@@ -1,3 +1,5 @@
+// db/models/PassengerProfile.js
+
 const mongoose = require("mongoose");
 
 const passengerProfileSchema = new mongoose.Schema({
@@ -34,26 +36,23 @@ const passengerProfileSchema = new mongoose.Schema({
     },
 
     savedLocations: [{
-
-        name: {
-            type: String
-        },
-
-        address: {
-            type: String
-        },
-
-        lat: {
-            type: Number
-        },
-
-        lng: {
-            type: Number
-        }
-
+        name:    { type: String },
+        address: { type: String },
+        lat:     { type: Number },
+        lng:     { type: Number }
     }],
 
     loyaltyPoints: {
+        type: Number,
+        default: 0
+    },
+
+    totalSpent: {
+        type: Number,
+        default: 0
+    },
+
+    referralBonusRides: {
         type: Number,
         default: 0
     }
@@ -62,7 +61,4 @@ const passengerProfileSchema = new mongoose.Schema({
     timestamps: true
 });
 
-module.exports = mongoose.model(
-    "PassengerProfile",
-    passengerProfileSchema
-);
+module.exports = mongoose.model("PassengerProfile", passengerProfileSchema);

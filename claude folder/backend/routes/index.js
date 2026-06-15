@@ -1,7 +1,8 @@
 // routes/index.js
 
-const express = require("express");
-const router = express.Router();
+const express  = require("express");
+const router   = express.Router();
+const upload   = require("../middleware/upload");
 
 const userController         = require("../controllers/userController");
 const rideController         = require("../controllers/rideController");
@@ -14,15 +15,33 @@ const driverAlertController  = require("../controllers/driverAlertController");
 const rideStopController     = require("../controllers/rideStopController");
 const notificationController = require("../controllers/notificationController");
 const carpoolController      = require("../controllers/carpoolController");
+const mapsController         = require("../controllers/mapsController");
+const uploadController       = require("../controllers/uploadController");
 
 // ── Auth / Users ──────────────────────────────────────────────────────────────
-router.post  ("/users/register",            userController.register);
-router.post  ("/users/login",               userController.login);
-router.get   ("/users",                     userController.getAllUsers);
-router.get   ("/users/:id",                 userController.getUserById);
-router.put   ("/users/:id",                 userController.updateUser);
-router.put   ("/users/:id/password",        userController.changePassword);
-router.delete("/users/:id",                 userController.deleteUser);
+router.post  ("/users/register",           userController.register);
+router.post  ("/users/login",              userController.login);
+router.post  ("/users/forgot-password",    userController.forgotPassword);
+router.post  ("/users/reset-password",     userController.resetPassword);
+router.get   ("/users",                    userController.getAllUsers);
+router.get   ("/users/:id",                userController.getUserById);
+router.put   ("/users/:id",                userController.updateUser);
+router.put   ("/users/:id/password",       userController.changePassword);
+router.delete("/users/:id",                userController.deleteUser);
+
+// ── Google Maps / Pricing ─────────────────────────────────────────────────────
+router.get("/maps/distance-price",  mapsController.getDistanceAndPrice);
+router.get("/maps/nearby-drivers",  mapsController.getNearbyDrivers);
+router.get("/maps/demand",          mapsController.getDemandInfo);
+router.get("/maps/best-departure",  mapsController.getBestDeparture);
+
+// ── Uploads ───────────────────────────────────────────────────────────────────
+router.post("/uploads/profile",  upload.single("profileImage"), uploadController.uploadProfile);
+router.post("/uploads/id-photo", upload.single("idPhoto"),      uploadController.uploadIdPhoto);
+router.post("/uploads/license",  upload.single("licensePhoto"), uploadController.uploadLicense);
+router.get ("/uploads/pending",  uploadController.getPendingVerifications);
+router.put ("/uploads/verify-id/:userId",              uploadController.verifyId);
+router.put ("/uploads/verify-driver/:driverProfileId", uploadController.verifyDriverLicense);
 
 // ── Rides ─────────────────────────────────────────────────────────────────────
 router.post  ("/rides",                     rideController.createRide);
@@ -76,11 +95,11 @@ router.get   ("/ratings/passenger/:passengerId",   ratingController.getRatingsBy
 router.get   ("/ratings/ride/:rideId",             ratingController.getRatingByRide);
 
 // ── Driver Alerts ─────────────────────────────────────────────────────────────
-router.post  ("/driver-alerts",                          driverAlertController.createDriverAlert);
-router.get   ("/driver-alerts/driver/:driverId",         driverAlertController.getAlertsByDriver);
-router.put   ("/driver-alerts/driver/:driverId/read-all",driverAlertController.markAllAlertsAsRead);
-router.put   ("/driver-alerts/:id/read",                 driverAlertController.markAlertAsRead);
-router.delete("/driver-alerts/:id",                      driverAlertController.deleteAlert);
+router.post  ("/driver-alerts",                           driverAlertController.createDriverAlert);
+router.get   ("/driver-alerts/driver/:driverId",          driverAlertController.getAlertsByDriver);
+router.put   ("/driver-alerts/driver/:driverId/read-all", driverAlertController.markAllAlertsAsRead);
+router.put   ("/driver-alerts/:id/read",                  driverAlertController.markAlertAsRead);
+router.delete("/driver-alerts/:id",                       driverAlertController.deleteAlert);
 
 // ── Ride Stops ────────────────────────────────────────────────────────────────
 router.post  ("/ride-stops",              rideStopController.createRideStop);

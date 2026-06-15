@@ -1,25 +1,40 @@
 // controllers/userController.js
 
-const User = require("../db/models/User");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+const User    = require("../db/models/User");
+const bcrypt  = require("bcryptjs");
+const jwt     = require("jsonwebtoken");
+const crypto  = require("crypto");
 
 // POST /users/register
 async function register(req, res) {
     try {
-        const { fullName, email, password, phone, preferredLanguage, role } = req.body;
+        const { fullName, email, password, phone, preferredLanguage, role, referralCode } = req.body;
 
-        const existing = await User.findOne({ email });
-        if (existing) return res.status(409).json({ error: "Email already in use" });
+        const existing = await User.findOne({ $or: [{ email }, { phone }] });
+        if (existing) {
+            if (existing.email === email.toLowerCase()) return res.status(409).json({ error: "Email already in use" });
+            return res.status(409).json({ error: "Phone already in use" });
+        }
 
         const passwordHash = await bcrypt.hash(password, 10);
 
+        let referredBy = null;
+        if (referralCode) {
+            const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
+            if (referrer) referredBy = referrer._id;
+        }
+
         const user = await User.create({
             fullName, email, passwordHash, phone,
-            preferredLanguage, role
+            preferredLanguage, role, referredBy
         });
 
-        res.status(201).json({ message: "User registered successfully", userId: user._id });
+        // Give referrer bonus points
+        if (referredBy) {
+            await User.findByIdAndUpdate(referredBy, { $inc: { loyaltyPoints: 100 } });
+        }
+
+        res.status(201).json({ message: "User registered successfully", userId: user._id, referralCode: user.referralCode });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -45,7 +60,65 @@ async function login(req, res) {
         user.lastLoginAt = new Date();
         await user.save();
 
-        res.status(200).json({ message: "Login successful", token, userId: user._id, role: user.role });
+        res.status(200).json({
+            message: "Login successful",
+            token,
+            userId: user._id,
+            role: user.role,
+            fullName: user.fullName,
+            preferredLanguage: user.preferredLanguage
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+// POST /users/forgot-password
+async function forgotPassword(req, res) {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: "Email is required" });
+
+        const user = await User.findOne({ email: email.toLowerCase() });
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        const token = crypto.randomBytes(32).toString("hex");
+        user.resetPasswordToken   = token;
+        user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
+        await user.save();
+
+        // In production: send email. For localhost, return the token.
+        const resetLink = `http://localhost:3000/reset-password?token=${token}`;
+        res.status(200).json({
+            message: "Password reset link generated",
+            resetLink,
+            resetToken: token
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+// POST /users/reset-password
+async function resetPassword(req, res) {
+    try {
+        const { token, newPassword } = req.body;
+        if (!token || !newPassword) return res.status(400).json({ error: "Token and new password required" });
+        if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+
+        const user = await User.findOne({
+            resetPasswordToken:   token,
+            resetPasswordExpires: { $gt: new Date() }
+        });
+
+        if (!user) return res.status(400).json({ error: "Invalid or expired reset token" });
+
+        user.passwordHash         = await bcrypt.hash(newPassword, 10);
+        user.resetPasswordToken   = null;
+        user.resetPasswordExpires = null;
+        await user.save();
+
+        res.status(200).json({ message: "Password reset successfully" });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -54,7 +127,7 @@ async function login(req, res) {
 // GET /users
 async function getAllUsers(req, res) {
     try {
-        const users = await User.find().select("-passwordHash");
+        const users = await User.find().select("-passwordHash -resetPasswordToken");
         res.status(200).json(users);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -64,7 +137,7 @@ async function getAllUsers(req, res) {
 // GET /users/:id
 async function getUserById(req, res) {
     try {
-        const user = await User.findById(req.params.id).select("-passwordHash");
+        const user = await User.findById(req.params.id).select("-passwordHash -resetPasswordToken");
         if (!user) return res.status(404).json({ error: "User not found" });
         res.status(200).json(user);
     } catch (error) {
@@ -75,15 +148,15 @@ async function getUserById(req, res) {
 // PUT /users/:id
 async function updateUser(req, res) {
     try {
-        // Prevent updating passwordHash directly via this route
         delete req.body.passwordHash;
+        delete req.body.resetPasswordToken;
+        delete req.body.resetPasswordExpires;
 
         const user = await User.findByIdAndUpdate(req.params.id, req.body, {
             new: true, runValidators: true
-        }).select("-passwordHash");
+        }).select("-passwordHash -resetPasswordToken");
 
         if (!user) return res.status(404).json({ error: "User not found" });
-
         res.status(200).json({ message: "User updated successfully", user });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -100,6 +173,8 @@ async function changePassword(req, res) {
 
         const valid = await bcrypt.compare(currentPassword, user.passwordHash);
         if (!valid) return res.status(401).json({ error: "Current password is incorrect" });
+
+        if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
         user.passwordHash = await bcrypt.hash(newPassword, 10);
         await user.save();
@@ -121,4 +196,4 @@ async function deleteUser(req, res) {
     }
 }
 
-module.exports = { register, login, getAllUsers, getUserById, updateUser, changePassword, deleteUser };
+module.exports = { register, login, forgotPassword, resetPassword, getAllUsers, getUserById, updateUser, changePassword, deleteUser };

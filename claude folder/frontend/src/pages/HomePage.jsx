@@ -1,68 +1,159 @@
 // src/pages/HomePage.jsx
 
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useLang } from "../context/LanguageContext";
+import api from "../api/axios";
 
 const s = {
-    page: { padding: "40px 32px", maxWidth: 900, margin: "0 auto" },
-    welcome: { fontSize: 28, fontWeight: 700, marginBottom: 6 },
-    sub: { color: "#666", marginBottom: 36, fontSize: 16 },
-    grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 },
+    page: { padding: "32px 24px", maxWidth: 960, margin: "0 auto" },
+    welcome: { fontSize: 28, fontWeight: 800, marginBottom: 4, color: "var(--text)" },
+    sub: { color: "var(--text-muted)", marginBottom: 28, fontSize: 15 },
+    grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 16, marginBottom: 32 },
     card: {
-        background: "#fff", borderRadius: 14, padding: "28px 24px",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.07)", cursor: "pointer",
+        background: "var(--surface)", borderRadius: 16, padding: "26px 20px",
+        boxShadow: "var(--shadow)", cursor: "pointer",
         transition: "transform 0.15s, box-shadow 0.15s",
-        textAlign: "center"
+        textAlign: "center", border: "1px solid var(--border)"
     },
-    icon: { fontSize: 40, marginBottom: 12 },
-    cardTitle: { fontWeight: 700, fontSize: 17, marginBottom: 6 },
-    cardDesc: { color: "#888", fontSize: 13 }
+    icon: { fontSize: 38, marginBottom: 10 },
+    cardTitle: { fontWeight: 700, fontSize: 16, marginBottom: 4 },
+    cardDesc: { color: "var(--text-muted)", fontSize: 13 },
+    demandBox: {
+        background: "var(--surface)", borderRadius: 14, padding: 20,
+        boxShadow: "var(--shadow)", border: "1px solid var(--border)",
+        marginBottom: 24
+    },
+    pointsBadge: {
+        display: "inline-flex", alignItems: "center", gap: 6,
+        background: "linear-gradient(135deg, #fef3c7, #fde68a)",
+        border: "1px solid #f59e0b", borderRadius: 20,
+        padding: "6px 16px", marginBottom: 20, fontWeight: 700, fontSize: 14
+    },
+    statsRow: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 32 },
+    stat: { background: "var(--surface)", borderRadius: 12, padding: 16, textAlign: "center", boxShadow: "var(--shadow)" }
 };
 
-const actions = [
-    { icon: "🚕", title: "הזמן נסיעה", desc: "הזמן נסיעה מהירה לכל יעד", path: "/book" },
-    { icon: "🤝", title: "שיתוף נסיעה", desc: "מצא נוסעים לאותו כיוון", path: "/book?type=carpool" },
-    { icon: "📦", title: "משלוח", desc: "שלח חבילה בקלות", path: "/book?type=delivery" },
-    { icon: "📋", title: "היסטוריה", desc: "כל הנסיעות שלך", path: "/history" },
-];
+function hover(el, enter) {
+    if (enter) {
+        el.style.transform = "translateY(-4px)";
+        el.style.boxShadow = "var(--shadow-lg)";
+    } else {
+        el.style.transform = "";
+        el.style.boxShadow = "var(--shadow)";
+    }
+}
 
 export default function HomePage() {
-    const { user } = useAuth();
-    const navigate = useNavigate();
+    const { user }   = useAuth();
+    const { t }      = useLang();
+    const navigate   = useNavigate();
+    const [demand, setDemand] = useState(null);
+    const [passenger, setPassenger] = useState(null);
+
+    const isDriver    = user?.role === "driver" || user?.role === "both";
+    const isPassenger = user?.role === "passenger" || user?.role === "both";
+
+    useEffect(() => {
+        api.get("/maps/demand").then(r => setDemand(r.data)).catch(() => {});
+        if (isPassenger) {
+            api.get("/passengers").then(r => {
+                const p = r.data.find(p => p.userId === user?.userId || p.userId?._id === user?.userId);
+                setPassenger(p);
+            }).catch(() => {});
+        }
+    }, []);
+
+    const actions = [
+        { icon: "🚕", title: t("bookRideBtn"),     desc: "הזמן נסיעה מהירה לכל יעד",          path: "/book",          color: "var(--primary)" },
+        { icon: "🤝", title: t("carpoolBtn"),       desc: "חסוך כסף עם קרפול",                  path: "/book?type=carpool" },
+        { icon: "📋", title: t("historyBtn"),       desc: "כל הנסיעות שלך",                     path: "/history" },
+        ...(isPassenger ? [{ icon: "⭐", title: t("passengerDashBtn"), desc: "נקודות, נסיעות עתידיות", path: "/passenger" }] : []),
+        ...(isDriver    ? [{ icon: "🚗", title: t("driverDashBtn"),   desc: "נהל את הנסיעות שלך",    path: "/driver", featured: true }] : []),
+    ];
 
     return (
         <div style={s.page}>
-            <h1 style={s.welcome}>שלום 👋</h1>
-            <p style={s.sub}>לאן תרצה לנסוע היום?</p>
+            {/* Header */}
+            <h1 style={s.welcome}>שלום, {user?.fullName?.split(" ")[0] || "שלום"} 👋</h1>
+            <p style={s.sub}>{t("whereToday")}</p>
 
+            {/* Loyalty points */}
+            {passenger?.loyaltyPoints > 0 && (
+                <div style={s.pointsBadge} aria-label={`${passenger.loyaltyPoints} נקודות נאמנות`}>
+                    ✨ {passenger.loyaltyPoints} {t("loyaltyPoints")}
+                </div>
+            )}
+
+            {/* Demand alert for drivers */}
+            {isDriver && demand && demand.demand === "high" && (
+                <div style={{
+                    ...s.demandBox,
+                    background: "linear-gradient(135deg, #fef3c7, #fff)",
+                    borderColor: "#f59e0b"
+                }} role="alert">
+                    <div style={{ fontWeight: 700, fontSize: 16, color: "#92400e", marginBottom: 4 }}>
+                        🔥 {demand.message}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#b45309" }}>
+                        {demand.openRequests} בקשות פתוחות כרגע · מכפיל מחיר: ×{demand.surgeMultiplier}
+                    </div>
+                </div>
+            )}
+
+            {/* Quick stats */}
+            {passenger && (
+                <div style={s.statsRow}>
+                    <div style={s.stat}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--primary)" }}>{passenger.totalRides || 0}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("totalRides")}</div>
+                    </div>
+                    <div style={s.stat}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--warning)" }}>⭐ {passenger.ratingAverage || "—"}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("avgRating")}</div>
+                    </div>
+                    <div style={s.stat}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--success)" }}>{passenger.loyaltyPoints || 0}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("loyaltyPoints")}</div>
+                    </div>
+                </div>
+            )}
+
+            {/* Action cards */}
             <div style={s.grid}>
                 {actions.map(a => (
-                    <div key={a.path} style={s.card}
+                    <div key={a.path} style={{
+                        ...s.card,
+                        ...(a.featured ? { background: "var(--primary)", color: "#fff" } : {})
+                    }}
                         onClick={() => navigate(a.path)}
-                        onMouseEnter={e => {
-                            e.currentTarget.style.transform = "translateY(-4px)";
-                            e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,0.12)";
-                        }}
-                        onMouseLeave={e => {
-                            e.currentTarget.style.transform = "";
-                            e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.07)";
-                        }}>
+                        onMouseEnter={e => hover(e.currentTarget, true)}
+                        onMouseLeave={e => hover(e.currentTarget, false)}
+                        role="button" tabIndex={0}
+                        onKeyDown={e => e.key === "Enter" && navigate(a.path)}
+                        aria-label={a.title}>
                         <div style={s.icon}>{a.icon}</div>
                         <div style={s.cardTitle}>{a.title}</div>
-                        <div style={s.cardDesc}>{a.desc}</div>
+                        <div style={{ ...s.cardDesc, ...(a.featured ? { color: "rgba(255,255,255,0.8)" } : {}) }}>{a.desc}</div>
                     </div>
                 ))}
+            </div>
 
-                {(user?.role === "driver" || user?.role === "both") && (
-                    <div style={{ ...s.card, background: "#4f46e5", color: "#fff" }}
-                        onClick={() => navigate("/driver")}
-                        onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-4px)"; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = ""; }}>
-                        <div style={s.icon}>🚗</div>
-                        <div style={s.cardTitle}>לוח נהג</div>
-                        <div style={{ ...s.cardDesc, color: "rgba(255,255,255,0.8)" }}>נהל את הנסיעות שלך</div>
-                    </div>
-                )}
+            {/* Referral section */}
+            <div style={{ ...s.demandBox, background: "linear-gradient(135deg, #f0fdf4, #fff)", borderColor: "var(--success)" }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>🎁 {t("referFriend")}</div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
+                    הזמן חברים ל-HailNow וקבל נקודות נאמנות על כל חבר שמצטרף!
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input readOnly value={user?.referralCode || "טוען..."} style={{ flex: 1, fontWeight: 700, letterSpacing: 2 }} />
+                    <button
+                        onClick={() => { navigator.clipboard?.writeText(user?.referralCode || ""); alert("קוד הועתק!"); }}
+                        style={{ background: "var(--success)", color: "#fff", padding: "10px 16px", whiteSpace: "nowrap" }}>
+                        העתק
+                    </button>
+                </div>
             </div>
         </div>
     );

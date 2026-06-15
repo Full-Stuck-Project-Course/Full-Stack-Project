@@ -5,21 +5,21 @@ import { createContext, useContext, useState, useEffect } from "react";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-    const [user, setUser] = useState(null);
+    const [user,    setUser]    = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const token = localStorage.getItem("token");
+        const token  = localStorage.getItem("token");
         const stored = localStorage.getItem("user");
         if (token && stored) {
-            setUser(JSON.parse(stored));
+            try { setUser(JSON.parse(stored)); } catch { /* invalid stored data */ }
         }
         setLoading(false);
     }, []);
 
     const login = (userData, token) => {
         localStorage.setItem("token", token);
-        localStorage.setItem("user", JSON.stringify(userData));
+        localStorage.setItem("user",  JSON.stringify(userData));
         setUser(userData);
     };
 
@@ -29,8 +29,14 @@ export function AuthProvider({ children }) {
         setUser(null);
     };
 
+    const updateUser = (patch) => {
+        const updated = { ...user, ...patch };
+        localStorage.setItem("user", JSON.stringify(updated));
+        setUser(updated);
+    };
+
     return (
-        <AuthContext.Provider value={{ user, login, logout, loading }}>
+        <AuthContext.Provider value={{ user, login, logout, updateUser, loading }}>
             {children}
         </AuthContext.Provider>
     );

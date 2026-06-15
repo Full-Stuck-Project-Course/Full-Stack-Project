@@ -3,97 +3,158 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
-const STATUS_COLORS = {
-    completed: "#10b981", cancelled: "#ef4444", in_progress: "#8b5cf6",
-    searching: "#f59e0b", accepted: "#3b82f6", driver_arriving: "#3b82f6"
+const STATUS_LABELS = {
+    completed:       { label: "הושלמה",  color: "#10b981", icon: "✅" },
+    cancelled:       { label: "בוטלה",   color: "#ef4444", icon: "❌" },
+    searching:       { label: "מחפש",    color: "#f59e0b", icon: "🔍" },
+    accepted:        { label: "אושרה",   color: "#10b981", icon: "✅" },
+    driver_arriving: { label: "נהג בדרך", color: "#3b82f6", icon: "🚗" },
+    in_progress:     { label: "בנסיעה",  color: "#8b5cf6", icon: "🛣️" }
 };
 
-const STATUS_HE = {
-    completed: "הושלם", cancelled: "בוטל", in_progress: "בתהליך",
-    searching: "מחפש", accepted: "נקבע נהג", driver_arriving: "נהג בדרך"
-};
-
-const s = {
-    page: { padding: "40px 32px", maxWidth: 700, margin: "0 auto" },
-    title: { fontSize: 24, fontWeight: 700, marginBottom: 24 },
-    card: {
-        background: "#fff", borderRadius: 12, padding: "18px 22px",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 12,
-        cursor: "pointer", transition: "box-shadow 0.15s"
-    },
-    header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-    badge: (status) => ({
-        background: (STATUS_COLORS[status] || "#888") + "18",
-        color: STATUS_COLORS[status] || "#888",
-        padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700
-    }),
-    route: { fontSize: 14, color: "#555", marginBottom: 6 },
-    meta: { display: "flex", gap: 20, fontSize: 13, color: "#999" },
-    empty: { textAlign: "center", padding: 60, color: "#aaa", fontSize: 16 }
-};
+const FILTERS = [
+    { key: "all",       label: "הכל" },
+    { key: "completed", label: "✅ הושלמו" },
+    { key: "cancelled", label: "❌ בוטלו" },
+    { key: "scheduled", label: "📅 מתוכננות" }
+];
 
 export default function RideHistoryPage() {
-    const { user } = useAuth();
-    const navigate = useNavigate();
-    const [rides, setRides] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState("all");
+    const { user }     = useAuth();
+    const { t }        = useLang();
+    const navigate     = useNavigate();
+    const [rides,      setRides]  = useState([]);
+    const [filter,     setFilter] = useState("all");
+    const [loading,    setLoading] = useState(true);
+    const [totalSpent, setTotalSpent] = useState(0);
 
     useEffect(() => {
         (async () => {
             try {
-                const { data } = await api.get("/rides", {
-                    params: { passengerId: user.passengerId || user.userId }
-                });
-                setRides(data);
+                const { data } = await api.get("/rides");
+                setRides(data || []);
+                setTotalSpent(data.filter(r => r.status === "completed").reduce((sum, r) => sum + (r.finalPrice || 0), 0));
             } finally { setLoading(false); }
         })();
     }, []);
 
-    const filtered = filter === "all" ? rides : rides.filter(r => r.status === filter);
+    const filtered = rides.filter(r => {
+        if (filter === "all") return true;
+        if (filter === "scheduled") return r.scheduledTime && new Date(r.scheduledTime) > new Date() && r.status === "searching";
+        return r.status === filter;
+    });
 
-    if (loading) return <div style={{ padding: 40, textAlign: "center" }}>טוען...</div>;
+    const cancelRide = async (rideId, e) => {
+        e.stopPropagation();
+        if (!window.confirm("לבטל את הנסיעה?")) return;
+        await api.put(`/rides/${rideId}/cancel`, { cancelledBy: "passenger" });
+        setRides(rs => rs.map(r => r._id === rideId ? { ...r, status: "cancelled" } : r));
+    };
+
+    if (loading) return <div className="spinner" />;
 
     return (
-        <div style={s.page}>
-            <h1 style={s.title}>היסטוריית נסיעות</h1>
+        <div style={{ padding: "28px 20px", maxWidth: 680, margin: "0 auto" }} className="fade-in">
+            <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>{t("history")}</h1>
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-                {["all", "completed", "cancelled"].map(f => (
-                    <button key={f}
-                        style={{ padding: "6px 16px", borderRadius: 20, border: "2px solid",
-                            borderColor: filter === f ? "#4f46e5" : "#dde1ea",
-                            background: filter === f ? "#4f46e5" : "#fff",
-                            color: filter === f ? "#fff" : "#666", fontSize: 13, fontWeight: 600 }}
-                        onClick={() => setFilter(f)}>
-                        {f === "all" ? "הכל" : f === "completed" ? "הושלמו" : "בוטלו"}
+            {/* Summary */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 20 }}>
+                {[
+                    { label: "סה\"כ נסיעות", val: rides.length,                                                  color: "var(--primary)" },
+                    { label: "הושלמו",        val: rides.filter(r => r.status === "completed").length,            color: "var(--success)" },
+                    { label: "סה\"כ הוצאות", val: `₪${totalSpent.toFixed(0)}`,                                  color: "var(--warning)" }
+                ].map(st => (
+                    <div key={st.label} style={{ background: "var(--surface)", borderRadius: 12, padding: "14px 12px", textAlign: "center", boxShadow: "var(--shadow)" }}>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: st.color }}>{st.val}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{st.label}</div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Filter tabs */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+                {FILTERS.map(f => (
+                    <button key={f.key} onClick={() => setFilter(f.key)}
+                        style={{
+                            padding: "7px 16px", borderRadius: 20, border: "2px solid",
+                            borderColor: filter === f.key ? "var(--primary)" : "var(--border)",
+                            background: filter === f.key ? "var(--primary)" : "var(--surface)",
+                            color: filter === f.key ? "#fff" : "var(--text-muted)",
+                            fontWeight: 600, fontSize: 13
+                        }}>
+                        {f.label}
                     </button>
                 ))}
             </div>
 
+            {/* Ride list */}
             {filtered.length === 0 ? (
-                <div style={s.empty}>אין נסיעות להצגה</div>
-            ) : filtered.map(ride => (
-                <div key={ride._id} style={s.card}
-                    onClick={() => navigate(`/ride/${ride._id}`)}
-                    onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 18px rgba(0,0,0,0.12)"}
-                    onMouseLeave={e => e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)"}>
-                    <div style={s.header}>
-                        <span style={{ fontWeight: 600, fontSize: 15 }}>
-                            {ride.pickupLocation?.address} → {ride.destinationLocation?.address}
-                        </span>
-                        <span style={s.badge(ride.status)}>{STATUS_HE[ride.status]}</span>
-                    </div>
-                    <div style={s.meta}>
-                        <span>📅 {new Date(ride.createdAt).toLocaleDateString("he-IL")}</span>
-                        <span>💰 {ride.finalPrice ? `₪${ride.finalPrice}` : "—"}</span>
-                        <span>👥 {ride.passengerCount} נוסעים</span>
-                        <span>{ride.rideType === "carpool" ? "🤝 קרפול" : ride.rideType === "delivery" ? "📦 משלוח" : "🚕 נסיעה"}</span>
-                    </div>
+                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
+                    <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>
+                    <div>{t("noRides")}</div>
+                    <button className="btn-primary" style={{ marginTop: 16, maxWidth: 180 }} onClick={() => navigate("/book")}>
+                        {t("bookRide")}
+                    </button>
                 </div>
-            ))}
+            ) : (
+                filtered.map(ride => {
+                    const st = STATUS_LABELS[ride.status] || STATUS_LABELS.completed;
+                    const isActive = ["searching", "accepted", "driver_arriving", "in_progress"].includes(ride.status);
+                    return (
+                        <div key={ride._id}
+                            onClick={() => navigate(`/ride/${ride._id}`)}
+                            style={{
+                                background: "var(--surface)", borderRadius: 14, padding: 18,
+                                boxShadow: "var(--shadow)", marginBottom: 10, cursor: "pointer",
+                                border: `1px solid ${isActive ? st.color + "40" : "var(--border)"}`,
+                                transition: "box-shadow 0.15s"
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.boxShadow = "var(--shadow-lg)"}
+                            onMouseLeave={e => e.currentTarget.style.boxShadow = "var(--shadow)"}
+                            role="button" tabIndex={0}
+                            onKeyDown={e => e.key === "Enter" && navigate(`/ride/${ride._id}`)}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+                                        📍 {ride.pickupLocation?.address} → {ride.destinationLocation?.address}
+                                    </div>
+                                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap" }}>
+                                        <span>{new Date(ride.createdAt).toLocaleDateString("he-IL")}</span>
+                                        <span>👥 {ride.passengerCount}</span>
+                                        {ride.finalPrice > 0 && (
+                                            <span style={{ fontWeight: 700, color: "var(--primary)" }}>₪{ride.finalPrice}</span>
+                                        )}
+                                        <span>{ride.rideType === "carpool" ? "🤝 קרפול" : "🚕 נסיעה"}</span>
+                                    </div>
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                                    <span style={{
+                                        background: st.color + "18", color: st.color,
+                                        padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap"
+                                    }}>
+                                        {st.icon} {st.label}
+                                    </span>
+                                    {ride.status === "completed" && (
+                                        <button onClick={e => { e.stopPropagation(); navigate(`/rate/${ride._id}`); }}
+                                            style={{ background: "#fef3c7", color: "#92400e", padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                                            ⭐ דרג
+                                        </button>
+                                    )}
+                                    {ride.status === "searching" && (
+                                        <button onClick={e => cancelRide(ride._id, e)}
+                                            style={{ background: "#fee2e2", color: "var(--danger)", padding: "4px 10px", borderRadius: 8, fontSize: 12 }}>
+                                            ✕ בטל
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })
+            )}
         </div>
     );
 }

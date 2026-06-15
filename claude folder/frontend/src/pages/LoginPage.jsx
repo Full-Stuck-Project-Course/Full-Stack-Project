@@ -3,68 +3,110 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
 const s = {
-    page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f6fa" },
-    card: { background: "#fff", borderRadius: 16, padding: "40px 36px", width: 400, boxShadow: "0 4px 24px rgba(0,0,0,0.08)" },
-    title: { fontSize: 26, fontWeight: 700, marginBottom: 6, color: "#1a1a2e" },
-    sub: { color: "#888", marginBottom: 28, fontSize: 14 },
-    label: { display: "block", marginBottom: 6, fontWeight: 500, fontSize: 14 },
+    page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", padding: 16 },
+    card: { background: "var(--surface)", borderRadius: 18, padding: "40px 36px", width: "100%", maxWidth: 420, boxShadow: "var(--shadow-lg)" },
+    logo: { textAlign: "center", fontSize: 48, marginBottom: 8 },
+    title: { fontSize: 26, fontWeight: 800, marginBottom: 4, color: "var(--text)" },
+    sub: { color: "var(--text-muted)", marginBottom: 28, fontSize: 14 },
+    label: { display: "block", marginBottom: 6, fontWeight: 600, fontSize: 14 },
     group: { marginBottom: 18 },
-    btn: { width: "100%", background: "#4f46e5", color: "#fff", padding: "12px", borderRadius: 8, fontSize: 16, marginTop: 4 },
-    footer: { textAlign: "center", marginTop: 20, fontSize: 14, color: "#666" },
-    link: { color: "#4f46e5", fontWeight: 600 }
+    forgot: { textAlign: "left", marginTop: 6, fontSize: 13 },
+    footer: { textAlign: "center", marginTop: 20, fontSize: 14, color: "var(--text-muted)" },
+    link: { color: "var(--primary)", fontWeight: 700 }
 };
 
 export default function LoginPage() {
-    const { login } = useAuth();
-    const navigate = useNavigate();
-    const [form, setForm] = useState({ email: "", password: "" });
-    const [error, setError] = useState("");
-    const [loading, setLoading] = useState(false);
+    const { login }    = useAuth();
+    const { t }        = useLang();
+    const navigate     = useNavigate();
+    const [form, setF] = useState({ email: "", password: "" });
+    const [error, setE] = useState("");
+    const [loading, setL] = useState(false);
+    const [showPw, setShow] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError("");
-        setLoading(true);
+        setE("");
+        if (!form.email) return setE("נא להזין אימייל");
+        if (!form.password) return setE("נא להזין סיסמה");
+
+        setL(true);
         try {
             const { data } = await api.post("/users/login", form);
-            login({ userId: data.userId, role: data.role }, data.token);
+            login(
+                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage },
+                data.token
+            );
             navigate("/");
         } catch (err) {
-            setError(err.response?.data?.error || "שגיאה בהתחברות");
+            setE(err.response?.data?.error || "שגיאה בהתחברות");
         } finally {
-            setLoading(false);
+            setL(false);
         }
     };
 
     return (
         <div style={s.page}>
-            <div style={s.card}>
-                <div style={{ textAlign: "center", fontSize: 40, marginBottom: 12 }}>🚗</div>
-                <h1 style={s.title}>ברוך הבא</h1>
-                <p style={s.sub}>היכנס לחשבון שלך</p>
-                <form onSubmit={handleSubmit}>
+            <div style={s.card} className="fade-in">
+                <div style={s.logo}>🚕</div>
+                <h1 style={s.title}>{t("welcome")}</h1>
+                <p style={s.sub}>היכנס לחשבונך ב-HailNow</p>
+
+                <form onSubmit={handleSubmit} noValidate>
                     <div style={s.group}>
-                        <label style={s.label}>אימייל</label>
-                        <input type="email" placeholder="you@example.com"
+                        <label style={s.label} htmlFor="email">{t("email")}</label>
+                        <input
+                            id="email" type="email" placeholder="you@example.com"
                             value={form.email}
-                            onChange={e => setForm({ ...form, email: e.target.value })} required />
+                            onChange={e => setF({ ...form, email: e.target.value })}
+                            autoComplete="email" required
+                            aria-required="true"
+                        />
                     </div>
+
                     <div style={s.group}>
-                        <label style={s.label}>סיסמה</label>
-                        <input type="password" placeholder="••••••••"
-                            value={form.password}
-                            onChange={e => setForm({ ...form, password: e.target.value })} required />
+                        <label style={s.label} htmlFor="password">{t("password")}</label>
+                        <div style={{ position: "relative" }}>
+                            <input
+                                id="password"
+                                type={showPw ? "text" : "password"}
+                                placeholder="••••••••"
+                                value={form.password}
+                                onChange={e => setF({ ...form, password: e.target.value })}
+                                autoComplete="current-password" required
+                                aria-required="true"
+                                style={{ paddingLeft: 44 }}
+                            />
+                            <button type="button"
+                                onClick={() => setShow(s => !s)}
+                                style={{
+                                    position: "absolute", left: 12, top: "50%",
+                                    transform: "translateY(-50%)", background: "none",
+                                    padding: 0, fontSize: 16, color: "var(--text-muted)"
+                                }}
+                                aria-label={showPw ? "הסתר סיסמה" : "הצג סיסמה"}>
+                                {showPw ? "🙈" : "👁️"}
+                            </button>
+                        </div>
+                        <div style={s.forgot}>
+                            <Link to="/forgot-password" style={s.link}>{t("forgotPassword")}</Link>
+                        </div>
                     </div>
-                    {error && <p className="error-msg">{error}</p>}
-                    <button type="submit" style={s.btn} disabled={loading}>
-                        {loading ? "מתחבר..." : "התחבר"}
+
+                    {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
+
+                    <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: 8 }}>
+                        {loading ? t("loading") : t("login")}
                     </button>
                 </form>
+
                 <p style={s.footer}>
-                    אין לך חשבון? <Link to="/register" style={s.link}>הירשם כאן</Link>
+                    אין לך חשבון?{" "}
+                    <Link to="/register" style={s.link}>{t("register")}</Link>
                 </p>
             </div>
         </div>

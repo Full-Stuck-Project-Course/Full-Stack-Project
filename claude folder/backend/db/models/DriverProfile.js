@@ -18,9 +18,25 @@ const driverProfileSchema = new mongoose.Schema({
         unique: true
     },
 
+    licenseImagePath: {
+        type: String,
+        default: null
+    },
+
+    licenseExpiry: {
+        type: Date,
+        default: null
+    },
+
     isVerified: {
         type: Boolean,
         default: false
+    },
+
+    verificationStatus: {
+        type: String,
+        enum: ["not_submitted", "pending", "approved", "rejected"],
+        default: "pending"
     },
 
     ratingAverage: {
@@ -40,6 +56,11 @@ const driverProfileSchema = new mongoose.Schema({
         default: 0
     },
 
+    totalFines: {
+        type: Number,
+        default: 0
+    },
+
     status: {
         type: String,
         enum: ["available", "busy", "offline"],
@@ -48,7 +69,8 @@ const driverProfileSchema = new mongoose.Schema({
 
     currentLocation: {
         lat: { type: Number, default: null },
-        lng: { type: Number, default: null }
+        lng: { type: Number, default: null },
+        updatedAt: { type: Date, default: null }
     },
 
     preferredMusic: {
@@ -58,7 +80,7 @@ const driverProfileSchema = new mongoose.Schema({
 
     hobbies: [{ type: String }],
 
-    spokenLanguages: [{ type: String }],
+    spokenLanguages: [{ type: String, default: ["he"] }],
 
     gender: {
         type: String,
@@ -69,6 +91,13 @@ const driverProfileSchema = new mongoose.Schema({
     acceptsCarpoolRides: {
         type: Boolean,
         default: true
+    },
+
+    // No pets, no smoking preferences
+    vehicleConditions: {
+        noPets:     { type: Boolean, default: false },
+        noSmoking:  { type: Boolean, default: true },
+        noFood:     { type: Boolean, default: false }
     }
 
 }, {

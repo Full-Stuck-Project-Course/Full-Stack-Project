@@ -1,6 +1,7 @@
 // db/models/User.js
 
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 
 const userSchema = new mongoose.Schema({
     fullName: {
@@ -58,10 +59,59 @@ const userSchema = new mongoose.Schema({
     lastLoginAt: {
         type: Date,
         default: null
+    },
+
+    // Password reset
+    resetPasswordToken: {
+        type: String,
+        default: null
+    },
+
+    resetPasswordExpires: {
+        type: Date,
+        default: null
+    },
+
+    // Identity verification
+    idPhotoPath: {
+        type: String,
+        default: null
+    },
+
+    idVerificationStatus: {
+        type: String,
+        enum: ["not_submitted", "pending", "approved", "rejected"],
+        default: "not_submitted"
+    },
+
+    // Referral system
+    referralCode: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+
+    referredBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null
+    },
+
+    // Loyalty
+    loyaltyPoints: {
+        type: Number,
+        default: 0
     }
 
 }, {
     timestamps: true
+});
+
+userSchema.pre("save", function (next) {
+    if (!this.referralCode) {
+        this.referralCode = crypto.randomBytes(4).toString("hex").toUpperCase();
+    }
+    next();
 });
 
 module.exports = mongoose.model("User", userSchema);
