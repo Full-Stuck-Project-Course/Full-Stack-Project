@@ -50,7 +50,7 @@ button {
     cursor: pointer;
     border: none;
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: calc(var(--font-size) - 1px);
     font-weight: 600;
     padding: 10px 20px;
     font-family: inherit;
@@ -65,7 +65,7 @@ input, select, textarea {
     padding: 10px 14px;
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: calc(var(--font-size) - 1px);
     font-family: inherit;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
@@ -156,9 +156,55 @@ input::placeholder { color: var(--text-muted); }
     align-items: center;
     padding: 3px 10px;
     border-radius: 20px;
-    font-size: 12px;
+    font-size: calc(var(--font-size) - 4px);
     font-weight: 700;
 }
+
+/* Inline styles in React override inherited font-size, so accessibility mode
+   maps the fixed inline sizes used across the app to larger equivalents. */
+body.font-large [style*="font-size: 11px"], body.font-large [style*="font-size:11px"] { font-size: 13px !important; }
+body.font-large [style*="font-size: 12px"], body.font-large [style*="font-size:12px"] { font-size: 14px !important; }
+body.font-large [style*="font-size: 13px"], body.font-large [style*="font-size:13px"] { font-size: 15px !important; }
+body.font-large [style*="font-size: 14px"], body.font-large [style*="font-size:14px"] { font-size: 16px !important; }
+body.font-large [style*="font-size: 15px"], body.font-large [style*="font-size:15px"] { font-size: 18px !important; }
+body.font-large [style*="font-size: 16px"], body.font-large [style*="font-size:16px"] { font-size: 19px !important; }
+body.font-large [style*="font-size: 18px"], body.font-large [style*="font-size:18px"] { font-size: 21px !important; }
+body.font-large [style*="font-size: 20px"], body.font-large [style*="font-size:20px"] { font-size: 23px !important; }
+body.font-large [style*="font-size: 21px"], body.font-large [style*="font-size:21px"] { font-size: 24px !important; }
+body.font-large [style*="font-size: 22px"], body.font-large [style*="font-size:22px"] { font-size: 25px !important; }
+body.font-large [style*="font-size: 24px"], body.font-large [style*="font-size:24px"] { font-size: 28px !important; }
+body.font-large [style*="font-size: 26px"], body.font-large [style*="font-size:26px"] { font-size: 30px !important; }
+body.font-large [style*="font-size: 28px"], body.font-large [style*="font-size:28px"] { font-size: 32px !important; }
+body.font-large [style*="font-size: 32px"], body.font-large [style*="font-size:32px"] { font-size: 37px !important; }
+body.font-large [style*="font-size: 36px"], body.font-large [style*="font-size:36px"] { font-size: 41px !important; }
+body.font-large [style*="font-size: 38px"], body.font-large [style*="font-size:38px"] { font-size: 44px !important; }
+body.font-large [style*="font-size: 40px"], body.font-large [style*="font-size:40px"] { font-size: 46px !important; }
+body.font-large [style*="font-size: 44px"], body.font-large [style*="font-size:44px"] { font-size: 51px !important; }
+body.font-large [style*="font-size: 48px"], body.font-large [style*="font-size:48px"] { font-size: 55px !important; }
+body.font-large [style*="font-size: 56px"], body.font-large [style*="font-size:56px"] { font-size: 64px !important; }
+body.font-large [style*="font-size: 72px"], body.font-large [style*="font-size:72px"] { font-size: 83px !important; }
+
+body.font-xlarge [style*="font-size: 11px"], body.font-xlarge [style*="font-size:11px"] { font-size: 14px !important; }
+body.font-xlarge [style*="font-size: 12px"], body.font-xlarge [style*="font-size:12px"] { font-size: 16px !important; }
+body.font-xlarge [style*="font-size: 13px"], body.font-xlarge [style*="font-size:13px"] { font-size: 17px !important; }
+body.font-xlarge [style*="font-size: 14px"], body.font-xlarge [style*="font-size:14px"] { font-size: 18px !important; }
+body.font-xlarge [style*="font-size: 15px"], body.font-xlarge [style*="font-size:15px"] { font-size: 20px !important; }
+body.font-xlarge [style*="font-size: 16px"], body.font-xlarge [style*="font-size:16px"] { font-size: 21px !important; }
+body.font-xlarge [style*="font-size: 18px"], body.font-xlarge [style*="font-size:18px"] { font-size: 23px !important; }
+body.font-xlarge [style*="font-size: 20px"], body.font-xlarge [style*="font-size:20px"] { font-size: 26px !important; }
+body.font-xlarge [style*="font-size: 21px"], body.font-xlarge [style*="font-size:21px"] { font-size: 27px !important; }
+body.font-xlarge [style*="font-size: 22px"], body.font-xlarge [style*="font-size:22px"] { font-size: 29px !important; }
+body.font-xlarge [style*="font-size: 24px"], body.font-xlarge [style*="font-size:24px"] { font-size: 31px !important; }
+body.font-xlarge [style*="font-size: 26px"], body.font-xlarge [style*="font-size:26px"] { font-size: 34px !important; }
+body.font-xlarge [style*="font-size: 28px"], body.font-xlarge [style*="font-size:28px"] { font-size: 36px !important; }
+body.font-xlarge [style*="font-size: 32px"], body.font-xlarge [style*="font-size:32px"] { font-size: 42px !important; }
+body.font-xlarge [style*="font-size: 36px"], body.font-xlarge [style*="font-size:36px"] { font-size: 47px !important; }
+body.font-xlarge [style*="font-size: 38px"], body.font-xlarge [style*="font-size:38px"] { font-size: 49px !important; }
+body.font-xlarge [style*="font-size: 40px"], body.font-xlarge [style*="font-size:40px"] { font-size: 52px !important; }
+body.font-xlarge [style*="font-size: 44px"], body.font-xlarge [style*="font-size:44px"] { font-size: 57px !important; }
+body.font-xlarge [style*="font-size: 48px"], body.font-xlarge [style*="font-size:48px"] { font-size: 62px !important; }
+body.font-xlarge [style*="font-size: 56px"], body.font-xlarge [style*="font-size:56px"] { font-size: 73px !important; }
+body.font-xlarge [style*="font-size: 72px"], body.font-xlarge [style*="font-size:72px"] { font-size: 94px !important; }
 
 /* Status colors */
 .status-searching    { background: #fef3c7; color: #92400e; }
