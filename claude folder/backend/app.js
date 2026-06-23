@@ -13,6 +13,7 @@ app.use(express.json());
 
 // Serve uploaded files statically
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/public",  express.static(path.join(__dirname, "public")));
 
 app.use("/api", routes);
 

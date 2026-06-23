@@ -71,19 +71,19 @@ function AccessibilityMenu({ t }) {
 
     return (
         <div style={{ position: "relative" }} ref={ref}>
-            <button style={C.iconBtn} onClick={() => setOpen(o => !o)} aria-label={t("accessibility")}>
+            <button style={C.iconBtn} onClick={() => setOpen(o => !o)} aria-label={"נגישות"}>
                 ♿
             </button>
             {open && (
                 <div style={C.dropdown}>
                     <div style={{ padding: "8px 14px 6px", fontSize: 13, color: "var(--text-muted)", fontWeight: 700 }}>
-                        {t("accessibility")}
+                        {"נגישות"}
                     </div>
-                    <div style={C.dropItem} onClick={toggleContrast}>🌓 {t("highContrast")}</div>
-                    <div style={{ padding: "6px 14px", fontSize: 13, color: "var(--text-muted)" }}>{t("fontSize")}</div>
-                    <div style={C.dropItem} onClick={() => setFontSize("")}>A {t("normal")}</div>
-                    <div style={C.dropItem} onClick={() => setFontSize("font-large")}>A+ {t("large")}</div>
-                    <div style={C.dropItem} onClick={() => setFontSize("font-xlarge")}>A++ {t("xlarge")}</div>
+                    <div style={C.dropItem} onClick={toggleContrast}>🌓 {"ניגודיות גבוהה"}</div>
+                    <div style={{ padding: "6px 14px", fontSize: 13, color: "var(--text-muted)" }}>{"גודל גופן"}</div>
+                    <div style={C.dropItem} onClick={() => setFontSize("")}>A {"רגיל"}</div>
+                    <div style={C.dropItem} onClick={() => setFontSize("font-large")}>A+ {"גדול"}</div>
+                    <div style={C.dropItem} onClick={() => setFontSize("font-xlarge")}>A++ {"גדול מאוד"}</div>
                 </div>
             )}
         </div>
@@ -153,7 +153,7 @@ function NotificationsBtn({ userId, t }) {
 
 export default function Navbar() {
     const { user, logout } = useAuth();
-    const { t, lang, switchLang } = useLang();
+    const { t } = useLang();
     const navigate = useNavigate();
     const { pathname } = useLocation();
 
@@ -169,30 +169,24 @@ export default function Navbar() {
     return (
         <nav style={C.nav} role="navigation" aria-label="תפריט ראשי">
             <Link to="/" style={C.logo}>
-                <span>🚕</span> {t("appName")}
+                <span>🚕</span> {"HailNow"}
             </Link>
 
             <div style={C.links}>
-                <Link to="/"         style={lk("/")}>{t("home")}</Link>
-                <Link to="/book"     style={lk("/book")}>{t("bookRide")}</Link>
-                <Link to="/history"  style={lk("/history")}>{t("history")}</Link>
-                {isDriver    && <Link to="/driver"    style={lk("/driver")}>{t("driverDash")}</Link>}
-                {isPassenger && <Link to="/passenger" style={lk("/passenger")}>{t("passengerDash")}</Link>}
-                <Link to="/profile"  style={lk("/profile")}>{t("profile")}</Link>
+                <Link to="/"         style={lk("/")}>{t("בית")}</Link>
+                <Link to="/book"     style={lk("/book")}>{t("הזמן נסיעה")}</Link>
+                <Link to="/history"  style={lk("/history")}>{t("היסטוריה")}</Link>
+                {isDriver    && <Link to="/driver"    style={lk("/driver")}>{t("לוח נהג")}</Link>}
+                {isPassenger && <Link to="/passenger" style={lk("/passenger")}>{t("לוח נוסע")}</Link>}
+                <Link to="/profile"  style={lk("/profile")}>{t("פרופיל")}</Link>
 
                 <NotificationsBtn userId={user?.userId} t={t} />
-
-                <button style={C.iconBtn}
-                    onClick={() => switchLang(lang === "he" ? "en" : "he")}
-                    aria-label="שנה שפה">
-                    {lang === "he" ? "EN" : "עב"}
-                </button>
 
                 <AccessibilityMenu t={t} />
 
                 <button style={{ ...C.iconBtn, background: "rgba(255,255,255,0.2)" }}
                     onClick={handleLogout}>
-                    {t("logout")}
+                    {t("התנתק")}
                 </button>
             </div>
         </nav>

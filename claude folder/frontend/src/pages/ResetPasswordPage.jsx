@@ -49,7 +49,7 @@ export default function ResetPasswordPage() {
         e.preventDefault();
         setE("");
         if (!token) return setE("קישור לא תקין. בקש קישור חדש.");
-        if (form.newPassword.length < 8) return setE("הסיסמה חייבת להכיל לפחות 8 תווים");
+        if (form.newPassword.length < 8) return setE("סיסמה חייבת להכיל לפחות 8 תווים");
         if (form.newPassword !== form.confirm) return setE("הסיסמאות אינן תואמות");
         if (strength < 2) return setE("הסיסמה חלשה מדי — הוסף אותיות גדולות, מספרים או תווים מיוחדים");
 
@@ -58,7 +58,7 @@ export default function ResetPasswordPage() {
             await api.post("/users/reset-password", { token, newPassword: form.newPassword });
             setDone(true);
         } catch (err) {
-            setE(err.response?.data?.error || "שגיאה באיפוס הסיסמה");
+            setE(err.response?.data?.error || "שגיאה");
         } finally {
             setL(false);
         }
@@ -68,12 +68,12 @@ export default function ResetPasswordPage() {
         <div style={s.page}>
             <div style={s.card} className="fade-in">
                 <div style={{ textAlign: "center", fontSize: 56, marginBottom: 16 }}>✅</div>
-                <h1 style={{ ...s.title, textAlign: "center" }}>הסיסמה אופסה בהצלחה!</h1>
+                <h1 style={{ ...s.title, textAlign: "center" }}>{"הסיסמה אופסה בהצלחה!"}</h1>
                 <p style={{ textAlign: "center", color: "var(--text-muted)", margin: "12px 0 24px" }}>
-                    כעת תוכל להתחבר עם הסיסמה החדשה שלך.
+                    {"כעת תוכל להתחבר עם הסיסמה החדשה שלך."}
                 </p>
                 <button className="btn-primary" onClick={() => navigate("/login")}>
-                    {t("login")} ←
+                    {"התחבר"} ←
                 </button>
             </div>
         </div>
@@ -83,22 +83,22 @@ export default function ResetPasswordPage() {
         <div style={s.page}>
             <div style={s.card} className="fade-in">
                 <div style={{ textAlign: "center", fontSize: 44, marginBottom: 12 }}>🔑</div>
-                <h1 style={s.title}>{t("resetPassword")}</h1>
-                <p style={s.sub}>הזן סיסמה חדשה חזקה לחשבונך.</p>
+                <h1 style={s.title}>{"איפוס סיסמה"}</h1>
+                <p style={s.sub}>{"הזן סיסמה חדשה חזקה לחשבונך."}</p>
 
                 {!token && (
                     <div className="error-msg" role="alert" style={{ marginBottom: 16 }}>
-                        ⚠️ קישור לא תקין. <Link to="/forgot-password" style={s.link}>בקש קישור חדש</Link>
+                        ⚠️ {"קישור לא תקין. בקש קישור חדש."} <Link to="/forgot-password" style={s.link}>{"שלח קישור לאיפוס"}</Link>
                     </div>
                 )}
 
                 <form onSubmit={handleSubmit} noValidate>
                     <div style={s.group}>
-                        <label style={s.label}>{t("newPassword")}</label>
+                        <label style={s.label}>{"סיסמה חדשה"}</label>
                         <div style={{ position: "relative" }}>
                             <input
                                 type={showPw ? "text" : "password"}
-                                placeholder="לפחות 8 תווים"
+                                placeholder={"לפחות 8 תווים"}
                                 value={form.newPassword}
                                 onChange={e => setF(f => ({ ...f, newPassword: e.target.value }))}
                                 style={{ paddingLeft: 44 }}
@@ -119,24 +119,24 @@ export default function ResetPasswordPage() {
                     </div>
 
                     <div style={s.group}>
-                        <label style={s.label}>אימות סיסמה</label>
+                        <label style={s.label}>{"אימות סיסמה"}</label>
                         <input
                             type={showPw ? "text" : "password"}
-                            placeholder="הזן שוב"
+                            placeholder={"הזן שוב"}
                             value={form.confirm}
                             onChange={e => setF(f => ({ ...f, confirm: e.target.value }))}
                             autoComplete="new-password"
                             style={{ borderColor: form.confirm && form.confirm !== form.newPassword ? "var(--danger)" : undefined }}
                         />
                         {form.confirm && form.confirm !== form.newPassword && (
-                            <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>הסיסמאות אינן תואמות</p>
+                            <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>{"הסיסמאות אינן תואמות"}</p>
                         )}
                     </div>
 
                     {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
 
                     <button type="submit" className="btn-primary" disabled={loading || !token} style={{ marginTop: 8 }}>
-                        {loading ? t("loading") : "אפס סיסמה"}
+                        {loading ? "טוען..." : "אפס סיסמה"}
                     </button>
                 </form>
             </div>

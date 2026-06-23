@@ -17,6 +17,7 @@ const notificationController = require("../controllers/notificationController");
 const carpoolController      = require("../controllers/carpoolController");
 const mapsController         = require("../controllers/mapsController");
 const uploadController       = require("../controllers/uploadController");
+const translateController    = require("../controllers/translateController");
 
 // ── Auth / Users ──────────────────────────────────────────────────────────────
 router.post  ("/users/register",           userController.register);
@@ -30,18 +31,51 @@ router.put   ("/users/:id/password",       userController.changePassword);
 router.delete("/users/:id",                userController.deleteUser);
 
 // ── Google Maps / Pricing ─────────────────────────────────────────────────────
-router.get("/maps/distance-price",  mapsController.getDistanceAndPrice);
-router.get("/maps/nearby-drivers",  mapsController.getNearbyDrivers);
-router.get("/maps/demand",          mapsController.getDemandInfo);
-router.get("/maps/best-departure",  mapsController.getBestDeparture);
+router.get("/maps/distance-price",   mapsController.getDistanceAndPrice);
+router.get("/maps/nearby-drivers",   mapsController.getNearbyDrivers);
+router.get("/maps/demand",           mapsController.getDemandInfo);
+router.get("/maps/best-departure",   mapsController.getBestDeparture);
+router.get("/maps/price-prediction", mapsController.getPricePrediction);
+router.get("/maps/driver-eta",       mapsController.getDriverETA);
 
-// ── Uploads ───────────────────────────────────────────────────────────────────
+// ── File Upload (generic - per presentation pattern) ──────────────────────────
+router.post("/file", upload.single("file"), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    const base = "http://" + (process.env.DOMAIN_BASE || "localhost") + ":" + (process.env.PORT || 5000) + "/";
+    res.status(200).json({ url: base + req.file.path.replace(/\\/g, "/") });
+});
+
+// ── Uploads (specific endpoints) ──────────────────────────────────────────────
 router.post("/uploads/profile",  upload.single("profileImage"), uploadController.uploadProfile);
 router.post("/uploads/id-photo", upload.single("idPhoto"),      uploadController.uploadIdPhoto);
 router.post("/uploads/license",  upload.single("licensePhoto"), uploadController.uploadLicense);
 router.get ("/uploads/pending",  uploadController.getPendingVerifications);
 router.put ("/uploads/verify-id/:userId",              uploadController.verifyId);
 router.put ("/uploads/verify-driver/:driverProfileId", uploadController.verifyDriverLicense);
+
+// ── Translation ───────────────────────────────────────────────────────────────
+router.post("/translate",       translateController.translate);
+router.post("/translate/batch", translateController.translateBatch);
+
+// ── Points Redemption ─────────────────────────────────────────────────────────
+router.post("/points/redeem", async (req, res) => {
+    try {
+        const { userId, pointsToRedeem } = req.body;
+        const User = require("../db/models/User");
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        if (!pointsToRedeem || pointsToRedeem <= 0) return res.status(400).json({ error: "Invalid points amount" });
+        if (user.loyaltyPoints < pointsToRedeem) return res.status(400).json({ error: "Not enough points" });
+
+        const discount = pointsToRedeem * 0.1; // 1 point = 0.1 ILS
+        user.loyaltyPoints -= pointsToRedeem;
+        await user.save();
+
+        res.json({ discount, remainingPoints: user.loyaltyPoints });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
 
 // ── Rides ─────────────────────────────────────────────────────────────────────
 router.post  ("/rides",                     rideController.createRide);

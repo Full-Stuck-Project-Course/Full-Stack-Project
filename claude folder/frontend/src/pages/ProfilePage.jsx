@@ -123,7 +123,7 @@ export default function ProfilePage() {
 
     return (
         <div style={s.page} className="fade-in">
-            <h1 style={s.title}>{t("myProfile")}</h1>
+            <h1 style={s.title}>{"הפרופיל שלי"}</h1>
 
             {/* Profile card */}
             <div style={s.card}>
@@ -151,14 +151,17 @@ export default function ProfilePage() {
                 </div>
 
                 {profile?.loyaltyPoints > 0 && (
-                    <div style={{ background: "#fef3c7", borderRadius: 10, padding: "10px 14px", fontSize: 14, fontWeight: 700, color: "#92400e", marginBottom: 12 }}>
-                        ✨ {profile.loyaltyPoints} {t("loyaltyPoints")}
+                    <div style={{ background: "#fef3c7", borderRadius: 10, padding: "12px 14px", fontSize: 14, fontWeight: 700, color: "#92400e", marginBottom: 12 }}>
+                        <div>✨ {profile.loyaltyPoints} {"נקודות נאמנות"}</div>
+                        <div style={{ fontSize: 12, fontWeight: 400, marginTop: 4 }}>
+                            שווה ₪{(profile.loyaltyPoints * 0.1).toFixed(1)} — ניתן לפדות בכל הזמנת נסיעה
+                        </div>
                     </div>
                 )}
 
                 {profile?.referralCode && (
                     <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "10px 14px", fontSize: 13, marginBottom: 4 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 4 }}>🎁 {t("referralCode")}</div>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>🎁 {"קוד הפניה"}</div>
                         <div style={{ display: "flex", gap: 8 }}>
                             <input readOnly value={profile.referralCode} style={{ fontWeight: 700, letterSpacing: 2, flex: 1 }} />
                             <button onClick={() => { navigator.clipboard?.writeText(profile.referralCode); alert("הועתק!"); }}
@@ -172,38 +175,38 @@ export default function ProfilePage() {
 
             {/* Edit form */}
             <div style={s.card}>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>✏️ {t("editProfile")}</div>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>✏️ {"עריכת פרטים"}</div>
                 <form onSubmit={handleSave}>
                     <div style={s.group}>
-                        <label style={s.label}>{t("fullName")}</label>
+                        <label style={s.label}>{"שם מלא"}</label>
                         <input value={form.fullName || ""}
                             onChange={e => set("fullName", e.target.value)} />
                     </div>
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{t("phone")}</label>
+                            <label style={s.label}>{"טלפון"}</label>
                             <input value={form.phone || ""}
                                 onChange={e => set("phone", e.target.value)} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label}>{t("language")}</label>
+                            <label style={s.label}>{"שפה"}</label>
                             <select value={form.preferredLanguage || "he"}
                                 onChange={e => set("preferredLanguage", e.target.value)}>
-                                <option value="he">{t("hebrew")}</option>
-                                <option value="en">{t("english")}</option>
+                                <option value="he">{"עברית"}</option>
+                                <option value="en">{"English"}</option>
                             </select>
                         </div>
                     </div>
                     {error && <p className="error-msg">⚠️ {error}</p>}
                     <button type="submit" className="btn-primary" disabled={saving} style={{ width: "auto" }}>
-                        {saved ? "✓ נשמר!" : t("save")}
+                        {saved ? "✓ נשמר!" : "שמור"}
                     </button>
                 </form>
             </div>
 
             {/* ID verification */}
             <div style={s.card}>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>🪪 {t("uploadIdPhoto")}</div>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>🪪 {"העלה תעודת זהות"}</div>
                 {profile?.idPhotoPath ? (
                     <div>
                         <img src={`http://localhost:5000${profile.idPhotoPath}`} alt="תעודת זהות"
@@ -228,7 +231,7 @@ export default function ProfilePage() {
                     {["currentPassword", "newPassword", "confirm"].map((field, i) => (
                         <div key={field} style={s.group}>
                             <label style={s.label}>
-                                {i === 0 ? "סיסמה נוכחית" : i === 1 ? t("newPassword") : "אימות סיסמה חדשה"}
+                                {i === 0 ? "סיסמה נוכחית" : i === 1 ? "סיסמה חדשה" : "אימות סיסמה חדשה"}
                             </label>
                             <input
                                 type={showPw ? "text" : "password"}
@@ -254,10 +257,10 @@ export default function ProfilePage() {
             {user?.role === "passenger" && (
                 <div style={{ ...s.card, textAlign: "center", borderColor: "var(--success)" }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>🚗</div>
-                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{t("switchToDriver")}</div>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{"עבור למצב נהג"}</div>
                     <button style={{ background: "var(--success)", color: "#fff", padding: "10px 24px", borderRadius: 10 }}
                         onClick={() => navigate("/driver-setup")}>
-                        {t("driverSetup")} →
+                        {"הגדרת פרופיל נהג"} →
                     </button>
                 </div>
             )}

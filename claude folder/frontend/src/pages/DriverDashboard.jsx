@@ -24,18 +24,24 @@ const s = {
         color: a ? "#fff" : "var(--text-muted)",
         fontWeight: 700, fontSize: 14, cursor: "pointer"
     }),
-    alert: { background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 10, padding: "12px 16px", marginBottom: 10, fontSize: 14 }
+    alert: { background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 10, padding: "12px 16px", marginBottom: 10, fontSize: 14 },
+    popup: {
+        position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+        background: "var(--surface)", borderRadius: 16, padding: "18px 22px",
+        boxShadow: "0 12px 40px rgba(0,0,0,0.2)", border: "2px solid var(--primary)",
+        zIndex: 500, minWidth: 320, maxWidth: 420, animation: "fadeIn 0.3s ease"
+    }
 };
-
-const STATUS_OPTS = [
-    { value: "available", label: "🟢 זמין",       color: "#10b981" },
-    { value: "busy",      label: "🟡 עסוק",       color: "#f59e0b" },
-    { value: "offline",   label: "🔴 לא מחובר",   color: "#6b7280" }
-];
 
 export default function DriverDashboard() {
     const { user }      = useAuth();
     const { t }         = useLang();
+
+    const STATUS_OPTS = [
+        { value: "available", label: "🟢 " + "זמין",  color: "#10b981" },
+        { value: "busy",      label: "🟡 " + "עסוק",       color: "#f59e0b" },
+        { value: "offline",   label: "🔴 " + "לא מחובר",    color: "#6b7280" }
+    ];
     const navigate      = useNavigate();
     const [driver,      setDriver]      = useState(null);
     const [openRides,   setOpenRides]   = useState([]);
@@ -44,6 +50,7 @@ export default function DriverDashboard() {
     const [demand,      setDemand]      = useState(null);
     const [loading,     setLoading]     = useState(true);
     const [driverLoc,   setDriverLoc]   = useState(null);
+    const [popup,       setPopup]       = useState(null);
     const socketRef = useRef(null);
 
     const fetchAll = async () => {
@@ -73,24 +80,34 @@ export default function DriverDashboard() {
         fetchAll();
         const poll = setInterval(fetchAll, 15000);
 
-        // Get driver location
         if (navigator.geolocation) {
             const watchId = navigator.geolocation.watchPosition(pos => {
                 const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 setDriverLoc(loc);
-                if (driver) {
-                    api.put(`/drivers/${driver._id}/location`, { lat: loc.lat, lng: loc.lng }).catch(() => {});
-                }
             });
             return () => { clearInterval(poll); navigator.geolocation.clearWatch(watchId); };
         }
         return () => clearInterval(poll);
-    }, [driver?._id]);
+    }, []);
 
+    // Update driver location on server
+    useEffect(() => {
+        if (driver && driverLoc) {
+            api.put(`/drivers/${driver._id}/location`, { lat: driverLoc.lat, lng: driverLoc.lng }).catch(() => {});
+        }
+    }, [driverLoc, driver?._id]);
+
+    // Socket.io for real-time ride request popups
     useEffect(() => {
         const socket = io("http://localhost:5000");
         socketRef.current = socket;
         if (driver) socket.emit("join-driver", driver._id);
+
+        socket.on("nearby-ride-request", (data) => {
+            setPopup(data);
+            setTimeout(() => setPopup(null), 15000);
+        });
+
         return () => socket.disconnect();
     }, [driver?._id]);
 
@@ -104,6 +121,7 @@ export default function DriverDashboard() {
         if (!driver) return;
         try {
             await api.put(`/rides/${rideId}/accept`, { driverId: driver._id });
+            setPopup(null);
             navigate(`/ride/${rideId}`);
         } catch (err) {
             alert(err.response?.data?.error || "שגיאה");
@@ -115,7 +133,6 @@ export default function DriverDashboard() {
         setAlerts(a => a.filter(x => x._id !== alertId));
     };
 
-    // Sort open rides by proximity to driver
     const sortedRides = driver && driverLoc
         ? [...openRides].sort((a, b) => {
             const distA = a.pickupLocation?.lat ? Math.sqrt((a.pickupLocation.lat - driverLoc.lat) ** 2 + (a.pickupLocation.lng - driverLoc.lng) ** 2) : 999;
@@ -123,6 +140,24 @@ export default function DriverDashboard() {
             return distA - distB;
         })
         : openRides;
+
+    // Map markers: all ride requests + demand hotspots
+    const requestMarkers = openRides
+        .filter(r => r.pickupLocation?.lat)
+        .map(r => ({
+            lat: r.pickupLocation.lat,
+            lng: r.pickupLocation.lng,
+            label: `📍 ${r.pickupLocation.address}`,
+            rideId: r._id,
+            type: "request"
+        }));
+
+    // Demand hotspot markers
+    const hotspotMarkers = (demand?.hotspots || []).map(h => ({
+        lat: h.lat, lng: h.lng,
+        label: `🔥 אזור ביקוש (${h.count} בקשות)`,
+        type: "hotspot"
+    }));
 
     if (loading) return <div className="spinner" />;
 
@@ -132,20 +167,25 @@ export default function DriverDashboard() {
             <h2 style={{ marginBottom: 12 }}>עדיין לא רשום כנהג</h2>
             <p style={{ color: "var(--text-muted)", marginBottom: 20 }}>השלם את הרשמת הנהג כדי להתחיל לקבל נסיעות.</p>
             <button className="btn-primary" style={{ maxWidth: 240 }} onClick={() => navigate("/driver-setup")}>
-                {t("driverSetup")} →
+                {"הגדרת פרופיל נהג"} →
             </button>
         </div>
     );
 
     return (
         <div style={s.page}>
-            <h1 style={s.title}>{t("driverDash")}</h1>
+            <h1 style={s.title}>{"לוח נהג"}</h1>
 
             {/* Demand alert */}
             {demand && (
                 <div style={{ ...s.alert, background: demand.demand === "high" ? "#fef3c7" : "#f0fdf4", borderColor: demand.demand === "high" ? "#f59e0b" : "#86efac" }}>
                     {demand.demand === "high" ? "🔥" : "💤"} {demand.message}
                     {demand.surgeMultiplier > 1 && ` · מכפיל מחיר: ×${demand.surgeMultiplier}`}
+                    {demand.hotspots?.length > 0 && (
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                            📍 אזורים חמים: {demand.hotspots.slice(0, 3).map((h, i) => `(${h.count} בקשות)`).join(" · ")}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -153,29 +193,29 @@ export default function DriverDashboard() {
             <div style={s.grid}>
                 <div style={s.stat}>
                     <div style={s.statVal}>{driver.totalRides}</div>
-                    <div style={s.statLbl}>{t("totalRides")}</div>
+                    <div style={s.statLbl}>{"נסיעות"}</div>
                 </div>
                 <div style={s.stat}>
                     <div style={{ ...s.statVal, color: "#f59e0b" }}>⭐ {driver.ratingAverage?.toFixed(1)}</div>
-                    <div style={s.statLbl}>{t("avgRating")}</div>
+                    <div style={s.statLbl}>{"דירוג ממוצע"}</div>
                 </div>
-                <div style={{ ...s.stat }}>
+                <div style={s.stat}>
                     <div style={{ ...s.statVal, color: "#10b981" }}>₪{driver.totalEarnings?.toFixed(0)}</div>
-                    <div style={s.statLbl}>{t("earnings")}</div>
+                    <div style={s.statLbl}>{"הכנסות"}</div>
                 </div>
                 <div style={s.stat}>
                     <div style={{ ...s.statVal, color: "#ef4444" }}>₪{driver.totalFines || 0}</div>
-                    <div style={s.statLbl}>קנסות</div>
+                    <div style={s.statLbl}>{"קנסות"}</div>
                 </div>
                 <div style={s.stat}>
                     <div style={s.statVal}>{openRides.length}</div>
-                    <div style={s.statLbl}>{t("openRequests")}</div>
+                    <div style={s.statLbl}>{"בקשות פתוחות"}</div>
                 </div>
             </div>
 
             {/* Status */}
             <div style={s.card}>
-                <div style={{ fontWeight: 700, marginBottom: 12 }}>סטטוס זמינות</div>
+                <div style={{ fontWeight: 700, marginBottom: 12 }}>{"סטטוס זמינות"}</div>
                 <div style={{ display: "flex", gap: 8 }}>
                     {STATUS_OPTS.map(opt => (
                         <button key={opt.value}
@@ -190,7 +230,7 @@ export default function DriverDashboard() {
             {/* Driver alerts */}
             {alerts.filter(a => !a.isRead).length > 0 && (
                 <div style={s.card}>
-                    <div style={{ fontWeight: 700, marginBottom: 10 }}>🔔 התראות ({alerts.filter(a => !a.isRead).length})</div>
+                    <div style={{ fontWeight: 700, marginBottom: 10 }}>🔔 {"התראות"} ({alerts.filter(a => !a.isRead).length})</div>
                     {alerts.filter(a => !a.isRead).map(alert => (
                         <div key={alert._id} style={{ ...s.alert, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <div>
@@ -209,7 +249,6 @@ export default function DriverDashboard() {
                 <div style={{ fontWeight: 700, marginBottom: 14, fontSize: 15 }}>
                     🔔 בקשות נסיעה ({sortedRides.length})
                 </div>
-
                 {sortedRides.length === 0 ? (
                     <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)" }}>
                         אין בקשות כרגע
@@ -231,33 +270,33 @@ export default function DriverDashboard() {
                             </div>
                         </div>
                         {driver.status === "available" && (
-                            <button
-                                onClick={() => acceptRide(ride._id)}
+                            <button onClick={() => acceptRide(ride._id)}
                                 style={{ background: "var(--success)", color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-                                {t("acceptRide")} ✓
+                                {"קבל נסיעה"} ✓
                             </button>
                         )}
                     </div>
                 ))}
             </div>
 
-            {/* Location map */}
-            {driverLoc && (
-                <div style={s.card}>
-                    <div style={{ fontWeight: 700, marginBottom: 12 }}>📍 המיקום שלך</div>
-                    <MapComponent
-                        center={driverLoc}
-                        zoom={14}
-                        height={220}
-                        driverMarker={driverLoc}
-                        markers={sortedRides.filter(r => r.pickupLocation?.lat).map(r => ({
-                            lat: r.pickupLocation.lat,
-                            lng: r.pickupLocation.lng,
-                            label: r.pickupLocation.address
-                        }))}
-                    />
+            {/* Map — driver location + all request locations + demand hotspots */}
+            <div style={s.card}>
+                <div style={{ fontWeight: 700, marginBottom: 12 }}>
+                    🗺️ מפת בקשות וביקוש ({requestMarkers.length} בקשות פתוחות)
                 </div>
-            )}
+                <MapComponent
+                    center={driverLoc || { lat: 31.7683, lng: 35.2137 }}
+                    zoom={13}
+                    height={320}
+                    driverMarker={driverLoc}
+                    markers={[...requestMarkers, ...hotspotMarkers]}
+                />
+                {demand?.hotspots?.length > 0 && (
+                    <div style={{ marginTop: 10, fontSize: 13, color: "var(--text-muted)" }}>
+                        🔥 = אזור ביקוש גבוה &nbsp;|&nbsp; 📍 = בקשת נסיעה
+                    </div>
+                )}
+            </div>
 
             {/* Recent ratings */}
             {ratings.length > 0 && (
@@ -281,6 +320,32 @@ export default function DriverDashboard() {
                 style={{ background: "none", color: "var(--primary)", fontWeight: 600, fontSize: 14, padding: 0, marginTop: 8 }}>
                 ⚙️ עריכת פרופיל נהג
             </button>
+
+            {/* Popup for nearby ride requests */}
+            {popup && (
+                <div style={s.popup} className="fade-in" role="alert">
+                    <div style={{ fontWeight: 800, color: "var(--primary)", marginBottom: 8, fontSize: 16 }}>
+                        🚨 בקשת נסיעה חדשה!
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>📍 {popup.pickup?.address}</div>
+                    <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 6 }}>🏁 {popup.destination?.address}</div>
+                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                        <span>📏 {popup.distanceFromDriver} ק"מ ממך</span>
+                        <span>👥 {popup.passengerCount}</span>
+                        {popup.finalPrice > 0 && <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{popup.finalPrice}</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => acceptRide(popup.rideId)}
+                            style={{ flex: 2, background: "var(--success)", color: "#fff", padding: "10px 18px", borderRadius: 10, fontWeight: 700 }}>
+                            {"קבל נסיעה"} ✓
+                        </button>
+                        <button onClick={() => setPopup(null)}
+                            style={{ flex: 1, background: "var(--border)", color: "var(--text-muted)", padding: "10px 14px", borderRadius: 10 }}>
+                            דחה
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -55,8 +55,14 @@ export default function HomePage() {
     const isDriver    = user?.role === "driver" || user?.role === "both";
     const isPassenger = user?.role === "passenger" || user?.role === "both";
 
+    const [referralCode, setReferralCode] = useState(user?.referralCode || "");
+
     useEffect(() => {
         api.get("/maps/demand").then(r => setDemand(r.data)).catch(() => {});
+        // Fetch user profile for referral code
+        api.get(`/users/${user?.userId}`).then(r => {
+            if (r.data.referralCode) setReferralCode(r.data.referralCode);
+        }).catch(() => {});
         if (isPassenger) {
             api.get("/passengers").then(r => {
                 const p = r.data.find(p => p.userId === user?.userId || p.userId?._id === user?.userId);
@@ -66,23 +72,23 @@ export default function HomePage() {
     }, []);
 
     const actions = [
-        { icon: "🚕", title: t("bookRideBtn"),     desc: "הזמן נסיעה מהירה לכל יעד",          path: "/book",          color: "var(--primary)" },
-        { icon: "🤝", title: t("carpoolBtn"),       desc: "חסוך כסף עם קרפול",                  path: "/book?type=carpool" },
-        { icon: "📋", title: t("historyBtn"),       desc: "כל הנסיעות שלך",                     path: "/history" },
-        ...(isPassenger ? [{ icon: "⭐", title: t("passengerDashBtn"), desc: "נקודות, נסיעות עתידיות", path: "/passenger" }] : []),
-        ...(isDriver    ? [{ icon: "🚗", title: t("driverDashBtn"),   desc: "נהל את הנסיעות שלך",    path: "/driver", featured: true }] : []),
+        { icon: "🚕", title: "הזמן נסיעה",     desc: "הזמן נסיעה מהירה לכל יעד",          path: "/book",          color: "var(--primary)" },
+        { icon: "🤝", title: "קרפול",       desc: "חסוך כסף עם קרפול",                  path: "/book?type=carpool" },
+        { icon: "📋", title: "היסטוריה",       desc: "כל הנסיעות שלך",                     path: "/history" },
+        ...(isPassenger ? [{ icon: "⭐", title: "לוח נוסע", desc: "נקודות, נסיעות עתידיות", path: "/passenger" }] : []),
+        ...(isDriver    ? [{ icon: "🚗", title: "לוח נהג",   desc: "נהל את הנסיעות שלך",    path: "/driver", featured: true }] : []),
     ];
 
     return (
         <div style={s.page}>
             {/* Header */}
-            <h1 style={s.welcome}>שלום, {user?.fullName?.split(" ")[0] || "שלום"} 👋</h1>
-            <p style={s.sub}>{t("whereToday")}</p>
+            <h1 style={s.welcome}>{"שלום"}, {user?.fullName?.split(" ")[0] || "שלום"} 👋</h1>
+            <p style={s.sub}>{"לאן תרצה לנסוע היום?"}</p>
 
             {/* Loyalty points */}
             {passenger?.loyaltyPoints > 0 && (
                 <div style={s.pointsBadge} aria-label={`${passenger.loyaltyPoints} נקודות נאמנות`}>
-                    ✨ {passenger.loyaltyPoints} {t("loyaltyPoints")}
+                    ✨ {passenger.loyaltyPoints} {"נקודות נאמנות"}
                 </div>
             )}
 
@@ -97,7 +103,7 @@ export default function HomePage() {
                         🔥 {demand.message}
                     </div>
                     <div style={{ fontSize: 13, color: "#b45309" }}>
-                        {demand.openRequests} בקשות פתוחות כרגע · מכפיל מחיר: ×{demand.surgeMultiplier}
+                        {demand.openRequests} {"בקשות פתוחות"} · מכפיל מחיר: ×{demand.surgeMultiplier}
                     </div>
                 </div>
             )}
@@ -107,15 +113,15 @@ export default function HomePage() {
                 <div style={s.statsRow}>
                     <div style={s.stat}>
                         <div style={{ fontSize: 22, fontWeight: 800, color: "var(--primary)" }}>{passenger.totalRides || 0}</div>
-                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("totalRides")}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{"נסיעות"}</div>
                     </div>
                     <div style={s.stat}>
                         <div style={{ fontSize: 22, fontWeight: 800, color: "var(--warning)" }}>⭐ {passenger.ratingAverage || "—"}</div>
-                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("avgRating")}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{"דירוג ממוצע"}</div>
                     </div>
                     <div style={s.stat}>
                         <div style={{ fontSize: 22, fontWeight: 800, color: "var(--success)" }}>{passenger.loyaltyPoints || 0}</div>
-                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("loyaltyPoints")}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{"נקודות נאמנות"}</div>
                     </div>
                 </div>
             )}
@@ -142,14 +148,14 @@ export default function HomePage() {
 
             {/* Referral section */}
             <div style={{ ...s.demandBox, background: "linear-gradient(135deg, #f0fdf4, #fff)", borderColor: "var(--success)" }}>
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>🎁 {t("referFriend")}</div>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>🎁 {"הפנה חבר"}</div>
                 <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
-                    הזמן חברים ל-HailNow וקבל נקודות נאמנות על כל חבר שמצטרף!
+                    {"הזמן חברים ל-HailNow וקבל נקודות נאמנות על כל חבר שמצטרף!"}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input readOnly value={user?.referralCode || "טוען..."} style={{ flex: 1, fontWeight: 700, letterSpacing: 2 }} />
+                    <input readOnly value={referralCode || "טוען..."} style={{ flex: 1, fontWeight: 700, letterSpacing: 2 }} />
                     <button
-                        onClick={() => { navigator.clipboard?.writeText(user?.referralCode || ""); alert("קוד הועתק!"); }}
+                        onClick={() => { navigator.clipboard?.writeText(referralCode || ""); alert("קוד הועתק!"); }}
                         style={{ background: "var(--success)", color: "#fff", padding: "10px 16px", whiteSpace: "nowrap" }}>
                         העתק
                     </button>

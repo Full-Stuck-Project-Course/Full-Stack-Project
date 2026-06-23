@@ -203,7 +203,7 @@ export default function DriverSetupPage() {
 
     return (
         <div style={s.page} className="fade-in">
-            <h1 style={s.title}>{t("driverSetup")}</h1>
+            <h1 style={s.title}>{"הגדרת פרופיל נהג"}</h1>
             <p style={s.sub}>שלב {step + 1} מתוך {STEPS.length} — {STEPS[step]}</p>
 
             <div style={s.stepBar}>
@@ -214,7 +214,7 @@ export default function DriverSetupPage() {
             {step === 0 && (
                 <div style={s.card}>
                     <div style={s.group}>
-                        <label style={s.label}>{t("licenseNumber")} * <span style={{ color: "var(--danger)" }}>חובה</span></label>
+                        <label style={s.label}>{"מספר רישיון נהיגה"} * <span style={{ color: "var(--danger)" }}>חובה</span></label>
                         <input placeholder="12345678" value={driverForm.licenseNumber}
                             onChange={e => setD("licenseNumber", e.target.value)} />
                     </div>
@@ -282,31 +282,31 @@ export default function DriverSetupPage() {
                 <div style={s.card}>
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{t("company")} *</label>
+                            <label style={s.label}>{"חברה"} *</label>
                             <input placeholder="טויוטה, יונדאי..." value={vehicleForm.company}
                                 onChange={e => setV("company", e.target.value)} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label}>{t("model")} *</label>
+                            <label style={s.label}>{"דגם"} *</label>
                             <input placeholder="קורולה, i35..." value={vehicleForm.model}
                                 onChange={e => setV("model", e.target.value)} />
                         </div>
                     </div>
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{t("year")} *</label>
+                            <label style={s.label}>{"שנה"} *</label>
                             <input type="number" placeholder="2020" min="1990" max={new Date().getFullYear()}
                                 value={vehicleForm.year} onChange={e => setV("year", e.target.value)} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label}>{t("color")} *</label>
+                            <label style={s.label}>{"צבע"} *</label>
                             <input placeholder="לבן, שחור..." value={vehicleForm.color}
                                 onChange={e => setV("color", e.target.value)} />
                         </div>
                     </div>
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{t("licensePlate")} *</label>
+                            <label style={s.label}>{"לוחית רישוי"} *</label>
                             <input placeholder="12-345-67" value={vehicleForm.licensePlate}
                                 onChange={e => setV("licensePlate", e.target.value)} />
                         </div>
@@ -318,7 +318,7 @@ export default function DriverSetupPage() {
                         </div>
                     </div>
                     <div style={s.group}>
-                        <label style={s.label}>{t("vehicleType")}</label>
+                        <label style={s.label}>{"סוג רכב"}</label>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             {VEHICLE_TYPES.map(vt => (
                                 <span key={vt}
@@ -377,7 +377,7 @@ export default function DriverSetupPage() {
                     </button>
                 ) : (
                     <button type="button" className="btn-primary" style={{ flex: 2 }} disabled={loading} onClick={handleSubmit}>
-                        {loading ? t("loading") : "שמור וסיים ✓"}
+                        {loading ? "טוען..." : "שמור וסיים ✓"}
                     </button>
                 )}
             </div>

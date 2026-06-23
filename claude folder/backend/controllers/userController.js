@@ -66,7 +66,9 @@ async function login(req, res) {
             userId: user._id,
             role: user.role,
             fullName: user.fullName,
-            preferredLanguage: user.preferredLanguage
+            preferredLanguage: user.preferredLanguage,
+            referralCode: user.referralCode,
+            loyaltyPoints: user.loyaltyPoints || 0
         });
     } catch (error) {
         res.status(400).json({ error: error.message });

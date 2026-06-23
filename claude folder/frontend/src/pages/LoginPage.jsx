@@ -38,7 +38,7 @@ export default function LoginPage() {
         try {
             const { data } = await api.post("/users/login", form);
             login(
-                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage },
+                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints },
                 data.token
             );
             navigate("/");
@@ -53,12 +53,12 @@ export default function LoginPage() {
         <div style={s.page}>
             <div style={s.card} className="fade-in">
                 <div style={s.logo}>🚕</div>
-                <h1 style={s.title}>{t("welcome")}</h1>
-                <p style={s.sub}>היכנס לחשבונך ב-HailNow</p>
+                <h1 style={s.title}>{"ברוך הבא"}</h1>
+                <p style={s.sub}>{"היכנס לחשבונך ב-HailNow"}</p>
 
                 <form onSubmit={handleSubmit} noValidate>
                     <div style={s.group}>
-                        <label style={s.label} htmlFor="email">{t("email")}</label>
+                        <label style={s.label} htmlFor="email">{"אימייל"}</label>
                         <input
                             id="email" type="email" placeholder="you@example.com"
                             value={form.email}
@@ -69,7 +69,7 @@ export default function LoginPage() {
                     </div>
 
                     <div style={s.group}>
-                        <label style={s.label} htmlFor="password">{t("password")}</label>
+                        <label style={s.label} htmlFor="password">{"סיסמה"}</label>
                         <div style={{ position: "relative" }}>
                             <input
                                 id="password"
@@ -93,20 +93,20 @@ export default function LoginPage() {
                             </button>
                         </div>
                         <div style={s.forgot}>
-                            <Link to="/forgot-password" style={s.link}>{t("forgotPassword")}</Link>
+                            <Link to="/forgot-password" style={s.link}>{"שכחת סיסמה?"}</Link>
                         </div>
                     </div>
 
                     {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
 
                     <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: 8 }}>
-                        {loading ? t("loading") : t("login")}
+                        {loading ? "טוען..." : "התחבר"}
                     </button>
                 </form>
 
                 <p style={s.footer}>
-                    אין לך חשבון?{" "}
-                    <Link to="/register" style={s.link}>{t("register")}</Link>
+                    {"אין לך חשבון?"}{" "}
+                    <Link to="/register" style={s.link}>{"הירשם"}</Link>
                 </p>
             </div>
         </div>

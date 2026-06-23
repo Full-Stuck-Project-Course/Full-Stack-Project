@@ -30,14 +30,14 @@ export default function ForgotPasswordPage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
-        if (!email.match(/^\S+@\S+\.\S+$/)) return setError("נא להזין כתובת אימייל תקינה");
+        if (!email.match(/^\S+@\S+\.\S+$/)) return setError("כתובת אימייל לא תקינה");
 
         setLoading(true);
         try {
             const { data } = await api.post("/users/forgot-password", { email });
             setResetLink(data.resetLink);
         } catch (err) {
-            setError(err.response?.data?.error || "שגיאה בשליחת הבקשה");
+            setError(err.response?.data?.error || "שגיאה");
         } finally {
             setLoading(false);
         }
@@ -47,13 +47,13 @@ export default function ForgotPasswordPage() {
         <div style={s.page}>
             <div style={s.card} className="fade-in">
                 <div style={{ textAlign: "center", fontSize: 44, marginBottom: 12 }}>🔐</div>
-                <h1 style={s.title}>{t("forgotPassword")}</h1>
-                <p style={s.sub}>הזן את האימייל שלך ונשלח לך קישור לאיפוס הסיסמה.</p>
+                <h1 style={s.title}>{"שכחת סיסמה?"}</h1>
+                <p style={s.sub}>{"הזן את האימייל שלך ונשלח לך קישור לאיפוס הסיסמה."}</p>
 
                 {!resetLink ? (
                     <form onSubmit={handleSubmit} noValidate>
                         <div style={s.group}>
-                            <label style={s.label} htmlFor="forgot-email">{t("email")}</label>
+                            <label style={s.label} htmlFor="forgot-email">{"אימייל"}</label>
                             <input
                                 id="forgot-email" type="email" placeholder="you@example.com"
                                 value={email}
@@ -65,15 +65,14 @@ export default function ForgotPasswordPage() {
                         {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
 
                         <button type="submit" className="btn-primary" disabled={loading}>
-                            {loading ? t("loading") : t("sendReset")}
+                            {loading ? "טוען..." : "שלח קישור לאיפוס"}
                         </button>
                     </form>
                 ) : (
                     <div style={s.resetBox}>
-                        <div style={{ fontWeight: 700, marginBottom: 10, color: "#166534" }}>✅ קישור לאיפוס נוצר!</div>
+                        <div style={{ fontWeight: 700, marginBottom: 10, color: "#166534" }}>✅ {"קישור לאיפוס נוצר!"}</div>
                         <p style={{ fontSize: 13, color: "#166534", marginBottom: 14, lineHeight: 1.6 }}>
-                            בסביבת פיתוח (localhost) הקישור מוצג כאן ישירות.<br/>
-                            בפרודקשן היה נשלח לאימייל שלך.
+                            {"בסביבת פיתוח הקישור מוצג כאן. בפרודקשן היה נשלח לאימייל."}
                         </p>
                         <Link to={resetLink.replace("http://localhost:3000", "")}
                             style={{
@@ -81,14 +80,14 @@ export default function ForgotPasswordPage() {
                                 padding: "10px 16px", borderRadius: 8, textAlign: "center",
                                 fontWeight: 700, fontSize: 14
                             }}>
-                            לחץ כאן לאיפוס הסיסמה →
+                            {"לחץ כאן לאיפוס הסיסמה"} →
                         </Link>
                     </div>
                 )}
 
                 <p style={s.footer}>
-                    נזכרת בסיסמה?{" "}
-                    <Link to="/login" style={s.link}>{t("login")}</Link>
+                    {"נזכרת בסיסמה?"}{" "}
+                    <Link to="/login" style={s.link}>{"התחבר"}</Link>
                 </p>
             </div>
         </div>

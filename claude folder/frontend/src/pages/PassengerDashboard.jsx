@@ -58,12 +58,12 @@ export default function PassengerDashboard() {
 
     return (
         <div style={s.page} className="fade-in">
-            <h1 style={s.title}>{t("passengerDash")}</h1>
+            <h1 style={s.title}>{"לוח נוסע"}</h1>
 
             {/* Loyalty points */}
             {passenger && (
                 <div style={{ marginBottom: 20 }}>
-                    <span style={s.badgePoints}>✨ {passenger.loyaltyPoints || 0} {t("loyaltyPoints")}</span>
+                    <span style={s.badgePoints}>✨ {passenger.loyaltyPoints || 0} {"נקודות נאמנות"}</span>
                 </div>
             )}
 
@@ -71,31 +71,31 @@ export default function PassengerDashboard() {
             <div style={s.grid}>
                 <div style={s.stat}>
                     <div style={s.statVal}>{passenger?.totalRides || 0}</div>
-                    <div style={s.statLbl}>{t("totalRides")}</div>
+                    <div style={s.statLbl}>{"נסיעות"}</div>
                 </div>
                 <div style={s.stat}>
                     <div style={{ ...s.statVal, color: "#f59e0b" }}>⭐ {passenger?.ratingAverage || "—"}</div>
-                    <div style={s.statLbl}>{t("avgRating")}</div>
+                    <div style={s.statLbl}>{"דירוג ממוצע"}</div>
                 </div>
                 <div style={s.stat}>
                     <div style={{ ...s.statVal, color: "#10b981" }}>₪{passenger?.totalSpent?.toFixed(0) || 0}</div>
-                    <div style={s.statLbl}>סה"כ הוצאות</div>
+                    <div style={s.statLbl}>{"סה״כ הוצאות"}</div>
                 </div>
                 <div style={s.stat}>
                     <div style={{ ...s.statVal, color: "var(--primary)" }}>{upcoming.length}</div>
-                    <div style={s.statLbl}>{t("upcomingRides")}</div>
+                    <div style={s.statLbl}>{"נסיעות עתידיות"}</div>
                 </div>
             </div>
 
             {/* Upcoming rides */}
             <div style={s.card}>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>📅 {t("upcomingRides")}</div>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>📅 {"נסיעות עתידיות"}</div>
                 {upcoming.length === 0 ? (
                     <div style={{ textAlign: "center", padding: "16px 0", color: "var(--text-muted)" }}>
-                        {t("noRides")}
+                        {"אין נסיעות להצגה"}
                         <br />
                         <button className="btn-primary" style={{ marginTop: 12, maxWidth: 180 }} onClick={() => navigate("/book")}>
-                            {t("bookRide")}
+                            {"הזמן נסיעה"}
                         </button>
                     </div>
                 ) : upcoming.map(ride => (
@@ -130,7 +130,7 @@ export default function PassengerDashboard() {
             {/* Past rides */}
             {pastRides.length > 0 && (
                 <div style={s.card}>
-                    <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>📋 {t("pastRides")}</div>
+                    <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>📋 {"נסיעות קודמות"}</div>
                     {pastRides.map(ride => (
                         <div key={ride._id} style={s.rideRow}>
                             <div style={{ flex: 1 }}>
@@ -151,8 +151,58 @@ export default function PassengerDashboard() {
                     ))}
                     <button type="button" onClick={() => navigate("/history")}
                         style={{ background: "none", color: "var(--primary)", fontWeight: 600, fontSize: 14, marginTop: 8 }}>
-                        {t("history")} ←
+                        {"היסטוריה"} ←
                     </button>
+                </div>
+            )}
+
+            {/* Saved addresses */}
+            {passenger && (
+                <div style={s.card}>
+                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📌 כתובות שמורות</div>
+                    {(passenger.savedLocations || []).length > 0 ? (
+                        <div>
+                            {passenger.savedLocations.map((loc, i) => (
+                                <div key={i} style={{ padding: "8px 0", borderBottom: i < passenger.savedLocations.length - 1 ? "1px solid var(--border)" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div>
+                                        <div style={{ fontWeight: 600, fontSize: 14 }}>{loc.name === "home" ? "🏠 בית" : loc.name === "work" ? "💼 עבודה" : `📍 ${loc.name}`}</div>
+                                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{loc.address}</div>
+                                    </div>
+                                    <button onClick={() => {
+                                        api.delete(`/passengers/${passenger._id}/saved-locations/${loc._id}`).then(() => {
+                                            setPassenger(p => ({ ...p, savedLocations: p.savedLocations.filter((_, idx) => idx !== i) }));
+                                        });
+                                    }} style={{ background: "none", color: "var(--danger)", fontSize: 16, padding: 0 }}>✕</button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 10 }}>אין כתובות שמורות עדיין</div>
+                    )}
+                    <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>הוסף כתובת:</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                            <select id="addr-name" style={{ width: 100 }} defaultValue="home">
+                                <option value="home">🏠 בית</option>
+                                <option value="work">💼 עבודה</option>
+                                <option value="other">📍 אחר</option>
+                            </select>
+                            <input id="addr-address" placeholder="כתובת מלאה" style={{ flex: 1 }} />
+                            <button onClick={async () => {
+                                const name = document.getElementById("addr-name").value;
+                                const address = document.getElementById("addr-address").value;
+                                if (!address) return;
+                                try {
+                                    await api.post(`/passengers/${passenger._id}/saved-locations`, { name, address, lat: 0, lng: 0 });
+                                    const { data: pData } = await api.get(`/passengers/${passenger._id}`);
+                                    setPassenger(pData);
+                                    document.getElementById("addr-address").value = "";
+                                } catch {}
+                            }} style={{ background: "var(--primary)", color: "#fff", padding: "8px 14px", whiteSpace: "nowrap" }}>
+                                + הוסף
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -185,13 +235,13 @@ export default function PassengerDashboard() {
             {(user?.role === "passenger") && (
                 <div style={{ ...s.card, textAlign: "center", background: "linear-gradient(135deg, #eef2ff, #fff)" }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>🚗</div>
-                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{t("switchToDriver")}</div>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{"עבור למצב נהג"}</div>
                     <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
                         הפוך לנהג והתחל להרוויח עם HailNow
                     </div>
                     <button style={{ background: "var(--primary)", color: "#fff", padding: "10px 24px", borderRadius: 10 }}
                         onClick={() => navigate("/driver-setup")}>
-                        {t("driverSetup")} →
+                        {"הגדרת פרופיל נהג"} →
                     </button>
                 </div>
             )}
