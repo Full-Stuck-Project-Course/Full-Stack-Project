@@ -6,10 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="e52d2a56-f49c-4631-81a3-34d8b4c6bdb4" name="Changes" comment="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/codex folder/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/codex folder/frontend/package-lock.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -75,44 +73,60 @@
   <component name="ProjectLevelVcsManager">
     <ConfirmationsSetting value="2" id="Add" />
   </component>
+  <component name="ProjectSessionTemplates">
+    <option name="panelTemplate">
+      <template>
+        <option name="modeId" value="Agent" />
+        <option name="model">
+          <model>
+            <option name="modelType" value="builtin_family" />
+            <option name="modelValue" value="auto" />
+          </model>
+        </option>
+        <option name="targetType" value="BACKGROUND" />
+      </template>
+    </option>
+  </component>
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "Batch.RUN_RIDELOOP.executor": "Run",
-    "Batch.start.executor": "Run",
-    "JavaScript Debug.index.html.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Node.js.backend > app.js.executor": "Run",
-    "Node.js.backend > mongo.js.executor": "Run",
-    "Node.js.backend > server.js.executor": "Run",
-    "Node.js.server.js.executor": "Run",
-    "Node.js.vite.config.ts.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "git-widget-placeholder": "main",
-    "javascript.nodejs.core.library.configured.version": "25.9.0",
-    "javascript.nodejs.core.library.typings.version": "25.9.3",
-    "javascript.preferred.runtime.type.id": "node",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "ts.external.directory.path": "C:\\Program Files\\JetBrains\\WebStorm 2025.3.4\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;Batch.RUN_RIDELOOP.executor&quot;: &quot;Run&quot;,
+    &quot;Batch.start.executor&quot;: &quot;Run&quot;,
+    &quot;JavaScript Debug.index.html.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Node.js.backend &gt; app.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.backend &gt; mongo.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.backend &gt; server.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.server.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.vite.config.ts.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;javascript.nodejs.core.library.configured.version&quot;: &quot;25.9.0&quot;,
+    &quot;javascript.nodejs.core.library.typings.version&quot;: &quot;25.9.4&quot;,
+    &quot;javascript.preferred.runtime.type.id&quot;: &quot;node&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/David Yuval/OneDrive - Bar-Ilan University - Students/אוניברסיטה/לימודי מידע/שנה ב סמסטר ב/פיתוח Full Stack מתקדם/Full-Stack-Project&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\WebStorm 2025.3.4\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-64587f7adf9c-JavaScript-WS-262.7581.20" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-WS-261.25134.101" />
       </set>
     </attachedChunks>
   </component>
@@ -138,6 +152,17 @@
       <workItem from="1780347763117" duration="31000" />
       <workItem from="1780931170142" duration="123000" />
       <workItem from="1781521339608" duration="554000" />
+      <workItem from="1781521983730" duration="101000" />
+      <workItem from="1781546714616" duration="206000" />
+      <workItem from="1781548099641" duration="83000" />
+      <workItem from="1781599308157" duration="38000" />
+      <workItem from="1781599366740" duration="4000" />
+      <workItem from="1782129824993" duration="30000" />
+      <workItem from="1782129939767" duration="10000" />
+      <workItem from="1782130012297" duration="90000" />
+      <workItem from="1782130235926" duration="84000" />
+      <workItem from="1782130347191" duration="7000" />
+      <workItem from="1782221763521" duration="1031000" />
     </task>
     <task id="LOCAL‎-00001" summary="remove syllabus file">
       <option name="closed" value="true" />
