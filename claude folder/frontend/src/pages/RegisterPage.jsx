@@ -44,7 +44,7 @@ export default function RegisterPage() {
     const { t }     = useLang();
     const navigate  = useNavigate();
 
-    const steps = ["פרטים אישיים", "תפקיד והעדפות", "מסמכים"];
+    const STEPS = ["פרטים אישיים", "תפקיד והעדפות", "מסמכים"];
 
     const validate = (stepIdx, formData) => {
         const errors = {};
