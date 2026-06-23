@@ -5,8 +5,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
-const STEPS = ["פרטים אישיים", "תפקיד והעדפות", "מסמכים"];
-
 const s = {
     page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", padding: 16 },
     card: { background: "var(--surface)", borderRadius: 18, padding: "36px 32px", width: "100%", maxWidth: 480, boxShadow: "var(--shadow-lg)" },
@@ -37,29 +35,6 @@ const s = {
     }
 };
 
-function validate(step, form) {
-    const errors = {};
-    if (step === 0) {
-        if (!form.fullName.trim() || form.fullName.trim().length < 2)
-            errors.fullName = "שם מלא חייב להכיל לפחות 2 תווים";
-        if (!form.phone.match(/^05\d{8}$/))
-            errors.phone = "מספר טלפון לא תקין (לדוגמה: 0501234567)";
-        if (!form.email.match(/^\S+@\S+\.\S+$/))
-            errors.email = "כתובת אימייל לא תקינה";
-        if (form.password.length < 8)
-            errors.password = "סיסמה חייבת להכיל לפחות 8 תווים";
-        if (form.password !== form.confirmPassword)
-            errors.confirmPassword = "הסיסמאות אינן תואמות";
-    }
-    if (step === 1) {
-        if (!form.role) errors.role = "יש לבחור תפקיד";
-    }
-    if (step === 2) {
-        if (!form.idPhotoPreview) errors.idPhoto = "יש להעלות תעודת זהות";
-    }
-    return errors;
-}
-
 function FieldErr({ msg }) {
     if (!msg) return null;
     return <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {msg}</p>;
@@ -68,6 +43,32 @@ function FieldErr({ msg }) {
 export default function RegisterPage() {
     const { t }     = useLang();
     const navigate  = useNavigate();
+
+    const steps = ["פרטים אישיים", "תפקיד והעדפות", "מסמכים"];
+
+    const validate = (stepIdx, formData) => {
+        const errors = {};
+        if (stepIdx === 0) {
+            if (!formData.fullName.trim() || formData.fullName.trim().length < 2)
+                errors.fullName = "שם מלא חייב להכיל לפחות 2 תווים";
+            if (!formData.phone.match(/^05\d{8}$/))
+                errors.phone = "מספר טלפון לא תקין (לדוגמה: 0501234567)";
+            if (!formData.email.match(/^\S+@\S+\.\S+$/))
+                errors.email = "כתובת אימייל לא תקינה";
+            if (formData.password.length < 8)
+                errors.password = "סיסמה חייבת להכיל לפחות 8 תווים";
+            if (formData.password !== formData.confirmPassword)
+                errors.confirmPassword = "הסיסמאות אינן תואמות";
+        }
+        if (stepIdx === 1) {
+            if (!formData.role) errors.role = "יש לבחור תפקיד";
+        }
+        if (stepIdx === 2) {
+            if (!formData.idPhotoPreview) errors.idPhoto = "יש להעלות תעודת זהות";
+        }
+        return errors;
+    };
+
     const [step, setStep] = useState(0);
     const [form, setForm] = useState({
         fullName: "", phone: "", email: "", password: "", confirmPassword: "",
@@ -150,7 +151,7 @@ export default function RegisterPage() {
         <div style={s.page}>
             <div style={s.card} className="fade-in">
                 <div style={{ textAlign: "center", fontSize: 36, marginBottom: 8 }}>🚕</div>
-                <h1 style={s.title}>{t("register")}</h1>
+                <h1 style={s.title}>{"הירשם"}</h1>
                 <p style={s.sub}>שלב {step + 1} מתוך {STEPS.length} — {STEPS[step]}</p>
 
                 {/* Progress bar */}
@@ -162,7 +163,7 @@ export default function RegisterPage() {
                 {step === 0 && (
                     <div>
                         <div style={s.group}>
-                            <label style={s.label} htmlFor="fullName">{t("fullName")} *</label>
+                            <label style={s.label} htmlFor="fullName">{"שם מלא"} *</label>
                             <input id="fullName" placeholder="ישראל ישראלי"
                                 value={form.fullName}
                                 onChange={e => set("fullName", e.target.value)}
@@ -172,7 +173,7 @@ export default function RegisterPage() {
                             <FieldErr msg={errors.fullName} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label} htmlFor="phone">{t("phone")} *</label>
+                            <label style={s.label} htmlFor="phone">{"טלפון"} *</label>
                             <input id="phone" type="tel" placeholder="0501234567"
                                 value={form.phone}
                                 onChange={e => set("phone", e.target.value)}
@@ -182,7 +183,7 @@ export default function RegisterPage() {
                             <FieldErr msg={errors.phone} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label} htmlFor="reg-email">{t("email")} *</label>
+                            <label style={s.label} htmlFor="reg-email">{"אימייל"} *</label>
                             <input id="reg-email" type="email" placeholder="you@example.com"
                                 value={form.email}
                                 onChange={e => set("email", e.target.value)}
@@ -192,7 +193,7 @@ export default function RegisterPage() {
                             <FieldErr msg={errors.email} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label} htmlFor="reg-pw">{t("password")} *</label>
+                            <label style={s.label} htmlFor="reg-pw">{"סיסמה"} *</label>
                             <div style={{ position: "relative" }}>
                                 <input id="reg-pw"
                                     type={showPw ? "text" : "password"}
@@ -235,7 +236,7 @@ export default function RegisterPage() {
                 {step === 1 && (
                     <div>
                         <div style={s.group}>
-                            <label style={s.label}>{t("role")} *</label>
+                            <label style={s.label}>{"תפקיד"} *</label>
                             <div style={{ display: "flex", gap: 10 }}>
                                 {ROLES.map(r => (
                                     <div key={r.value} style={s.roleCard(form.role === r.value)}
@@ -254,11 +255,11 @@ export default function RegisterPage() {
 
                         <div style={s.row}>
                             <div style={s.group}>
-                                <label style={s.label}>{t("language")}</label>
+                                <label style={s.label}>{"שפה"}</label>
                                 <select value={form.preferredLanguage}
                                     onChange={e => set("preferredLanguage", e.target.value)}>
-                                    <option value="he">{t("hebrew")}</option>
-                                    <option value="en">{t("english")}</option>
+                                    <option value="he">{"עברית"}</option>
+                                    <option value="en">{"English"}</option>
                                 </select>
                             </div>
                             <div style={s.group}>
@@ -285,7 +286,7 @@ export default function RegisterPage() {
 
                         {/* ID Photo */}
                         <div style={s.group}>
-                            <label style={s.label}>{t("uploadIdPhoto")} * <span style={{ color: "var(--danger)" }}>חובה</span></label>
+                            <label style={s.label}>{"העלה תעודת זהות"} * <span style={{ color: "var(--danger)" }}>חובה</span></label>
                             <label style={{
                                 ...s.fileBox,
                                 borderColor: errors.idPhoto ? "var(--danger)" : form.idPhotoPreview ? "var(--success)" : undefined
@@ -307,7 +308,7 @@ export default function RegisterPage() {
 
                         {/* Profile Photo */}
                         <div style={s.group}>
-                            <label style={s.label}>{t("uploadProfile")} (אופציונלי לנוסעים, חובה לנהגים)</label>
+                            <label style={s.label}>{"תמונת פרופיל"} (אופציונלי לנוסעים, חובה לנהגים)</label>
                             <label style={{ ...s.fileBox, borderColor: form.profilePhotoPreview ? "var(--success)" : undefined }}>
                                 {form.profilePhotoPreview ? (
                                     <img src={form.profilePhotoPreview} alt="תמונת פרופיל"
@@ -342,14 +343,14 @@ export default function RegisterPage() {
                     ) : (
                         <button type="button" onClick={handleSubmit}
                             className="btn-primary" style={{ flex: 2 }} disabled={loading}>
-                            {loading ? t("loading") : "סיים הרשמה ✓"}
+                            {loading ? "טוען..." : "סיים הרשמה ✓"}
                         </button>
                     )}
                 </div>
 
                 <p style={s.footer}>
                     יש לך חשבון?{" "}
-                    <Link to="/login" style={s.link}>{t("login")}</Link>
+                    <Link to="/login" style={s.link}>{"התחבר"}</Link>
                 </p>
             </div>
         </div>

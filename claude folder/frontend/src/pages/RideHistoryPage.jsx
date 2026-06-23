@@ -6,25 +6,25 @@ import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
-const STATUS_LABELS = {
-    completed:       { label: "הושלמה",  color: "#10b981", icon: "✅" },
-    cancelled:       { label: "בוטלה",   color: "#ef4444", icon: "❌" },
-    searching:       { label: "מחפש",    color: "#f59e0b", icon: "🔍" },
-    accepted:        { label: "אושרה",   color: "#10b981", icon: "✅" },
-    driver_arriving: { label: "נהג בדרך", color: "#3b82f6", icon: "🚗" },
-    in_progress:     { label: "בנסיעה",  color: "#8b5cf6", icon: "🛣️" }
-};
-
-const FILTERS = [
-    { key: "all",       label: "הכל" },
-    { key: "completed", label: "✅ הושלמו" },
-    { key: "cancelled", label: "❌ בוטלו" },
-    { key: "scheduled", label: "📅 מתוכננות" }
-];
-
 export default function RideHistoryPage() {
     const { user }     = useAuth();
     const { t }        = useLang();
+
+    const STATUS_LABELS = {
+        completed:       { label: "הושלמה",      color: "#10b981", icon: "✅" },
+        cancelled:       { label: "בוטלה",      color: "#ef4444", icon: "❌" },
+        searching:       { label: "מחפש",      color: "#f59e0b", icon: "🔍" },
+        accepted:        { label: "אושרה",       color: "#10b981", icon: "✅" },
+        driver_arriving: { label: "נהג בדרך", color: "#3b82f6", icon: "🚗" },
+        in_progress:     { label: "בנסיעה",     color: "#8b5cf6", icon: "🛣️" }
+    };
+
+    const FILTERS = [
+        { key: "all",       label: "הכל" },
+        { key: "completed", label: "✅ " + "הושלמו" },
+        { key: "cancelled", label: "❌ " + "בוטלו" },
+        { key: "scheduled", label: "📅 " + "מתוכננות" }
+    ];
     const navigate     = useNavigate();
     const [rides,      setRides]  = useState([]);
     const [filter,     setFilter] = useState("all");
@@ -58,14 +58,14 @@ export default function RideHistoryPage() {
 
     return (
         <div style={{ padding: "28px 20px", maxWidth: 680, margin: "0 auto" }} className="fade-in">
-            <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>{t("history")}</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>{"היסטוריה"}</h1>
 
             {/* Summary */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 20 }}>
                 {[
-                    { label: "סה\"כ נסיעות", val: rides.length,                                                  color: "var(--primary)" },
-                    { label: "הושלמו",        val: rides.filter(r => r.status === "completed").length,            color: "var(--success)" },
-                    { label: "סה\"כ הוצאות", val: `₪${totalSpent.toFixed(0)}`,                                  color: "var(--warning)" }
+                    { label: "סה״כ נסיעות", val: rides.length,                                                  color: "var(--primary)" },
+                    { label: "הושלמו",       val: rides.filter(r => r.status === "completed").length,            color: "var(--success)" },
+                    { label: "סה״כ הוצאות",  val: `₪${totalSpent.toFixed(0)}`,                                  color: "var(--warning)" }
                 ].map(st => (
                     <div key={st.label} style={{ background: "var(--surface)", borderRadius: 12, padding: "14px 12px", textAlign: "center", boxShadow: "var(--shadow)" }}>
                         <div style={{ fontSize: 20, fontWeight: 800, color: st.color }}>{st.val}</div>
@@ -94,9 +94,9 @@ export default function RideHistoryPage() {
             {filtered.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
                     <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>
-                    <div>{t("noRides")}</div>
+                    <div>{"אין נסיעות להצגה"}</div>
                     <button className="btn-primary" style={{ marginTop: 16, maxWidth: 180 }} onClick={() => navigate("/book")}>
-                        {t("bookRide")}
+                        {"הזמן נסיעה"}
                     </button>
                 </div>
             ) : (
@@ -140,13 +140,13 @@ export default function RideHistoryPage() {
                                     {ride.status === "completed" && (
                                         <button onClick={e => { e.stopPropagation(); navigate(`/rate/${ride._id}`); }}
                                             style={{ background: "#fef3c7", color: "#92400e", padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
-                                            ⭐ דרג
+                                            ⭐ {"דרג"}
                                         </button>
                                     )}
                                     {ride.status === "searching" && (
                                         <button onClick={e => cancelRide(ride._id, e)}
                                             style={{ background: "#fee2e2", color: "var(--danger)", padding: "4px 10px", borderRadius: 8, fontSize: 12 }}>
-                                            ✕ בטל
+                                            ✕ {"ביטול"}
                                         </button>
                                     )}
                                 </div>

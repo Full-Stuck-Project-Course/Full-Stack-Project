@@ -9,15 +9,16 @@ const BASE = path.join(__dirname, "../uploads");
 const storage = multer.diskStorage({
     destination(req, file, cb) {
         let folder = "profiles";
+        if (file.fieldname === "file")         folder = ".";
         if (file.fieldname === "idPhoto")      folder = "ids";
         if (file.fieldname === "licensePhoto") folder = "licenses";
-        const dir = path.join(BASE, folder);
+        const dir = folder === "." ? path.join(__dirname, "../public") : path.join(BASE, folder);
         fs.mkdirSync(dir, { recursive: true });
         cb(null, dir);
     },
     filename(req, file, cb) {
-        const ext  = path.extname(file.originalname);
-        const name = Date.now() + "-" + Math.round(Math.random() * 1e6) + ext;
+        const ext = file.originalname.split(".").filter(Boolean).slice(1).join(".");
+        const name = Date.now() + "." + ext;
         cb(null, name);
     }
 });

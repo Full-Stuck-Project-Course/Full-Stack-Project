@@ -27,14 +27,19 @@ const s = {
         borderRadius: 12, padding: "16px 20px", marginTop: 16,
         border: "1px solid #c7d2fe"
     },
-    stopRow: {
-        display: "flex", gap: 8, alignItems: "center", marginBottom: 8
-    },
+    stopRow: { display: "flex", gap: 8, alignItems: "center", marginBottom: 8 },
     driverCard: {
         background: "var(--surface)", borderRadius: 10, padding: "12px 16px",
         border: "1px solid var(--border)", marginBottom: 8,
         display: "flex", justifyContent: "space-between", alignItems: "center"
-    }
+    },
+    savedAddr: (sel) => ({
+        padding: "8px 14px", borderRadius: 10, cursor: "pointer",
+        border: `1.5px solid ${sel ? "var(--primary)" : "var(--border)"}`,
+        background: sel ? "rgba(79,70,229,0.06)" : "var(--surface)",
+        fontSize: 13, fontWeight: sel ? 700 : 400,
+        color: sel ? "var(--primary)" : "var(--text-muted)"
+    })
 };
 
 const RIDE_TYPES = [
@@ -50,7 +55,7 @@ const VEHICLE_TYPES = [
 ];
 
 export default function BookRidePage() {
-    const { user }     = useAuth();
+    const { user, updateUser } = useAuth();
     const { t }        = useLang();
     const navigate     = useNavigate();
     const [params]     = useSearchParams();
@@ -70,6 +75,16 @@ export default function BookRidePage() {
     const [userLoc,       setUserLoc]     = useState(null);
     const [bestTime,      setBestTime]    = useState(null);
     const [splitPayment,  setSplitPayment] = useState(false);
+    const [pricePrediction, setPricePrediction] = useState(null);
+
+    // Points redemption
+    const [userPoints,    setUserPoints]    = useState(user?.loyaltyPoints || 0);
+    const [redeemPoints,  setRedeemPoints]  = useState(false);
+    const [pointsToUse,   setPointsToUse]   = useState(0);
+    const pointsValue = pointsToUse * 0.1;
+
+    // Saved addresses
+    const [savedAddresses, setSavedAddresses] = useState([]);
 
     // Get user location
     useEffect(() => {
@@ -81,33 +96,36 @@ export default function BookRidePage() {
         }
     }, []);
 
-    // Fetch nearby drivers when user location available
+    // Fetch nearby drivers, saved addresses, points
     useEffect(() => {
-        if (!userLoc) return;
-        api.get("/maps/nearby-drivers", { params: { lat: userLoc.lat, lng: userLoc.lng, radius: 15 } })
-            .then(r => setNearbyDrivers(r.data || []))
-            .catch(() => {});
-        api.get("/maps/best-departure")
-            .then(r => setBestTime(r.data))
-            .catch(() => {});
+        if (userLoc) {
+            api.get("/maps/nearby-drivers", { params: { lat: userLoc.lat, lng: userLoc.lng, radius: 15 } })
+                .then(r => setNearbyDrivers(r.data || []))
+                .catch(() => {});
+            api.get("/maps/best-departure").then(r => setBestTime(r.data)).catch(() => {});
+        }
+        // Fetch saved addresses
+        api.get("/passengers").then(r => {
+            const p = r.data.find(p => p.userId === user?.userId || p.userId?._id === user?.userId);
+            if (p?.savedLocations) setSavedAddresses(p.savedLocations);
+        }).catch(() => {});
+        // Fetch current points
+        api.get(`/users/${user?.userId}`).then(r => setUserPoints(r.data.loyaltyPoints || 0)).catch(() => {});
+        // Price prediction
+        api.get("/maps/price-prediction").then(r => setPricePrediction(r.data)).catch(() => {});
     }, [userLoc]);
 
-    // Calculate price when locations change
+    // Calculate price
     const calcPrice = useCallback(async () => {
         if (!pickup.lat || !dest.lat) return;
         setPriceLoading(true);
         try {
-            const origins      = `${pickup.lat},${pickup.lng}`;
-            const destinations = `${dest.lat},${dest.lng}`;
             const { data } = await api.get("/maps/distance-price", {
-                params: { origins, destinations, vehicleType, rideType, passengerCount }
+                params: { origins: `${pickup.lat},${pickup.lng}`, destinations: `${dest.lat},${dest.lng}`, vehicleType, rideType, passengerCount }
             });
             setPriceData(data);
-        } catch {
-            setPriceData(null);
-        } finally {
-            setPriceLoading(false);
-        }
+        } catch { setPriceData(null); }
+        finally { setPriceLoading(false); }
     }, [pickup, dest, vehicleType, rideType, passengerCount]);
 
     useEffect(() => {
@@ -119,6 +137,12 @@ export default function BookRidePage() {
     const removeStop = (i) => setStops(s => s.filter((_, idx) => idx !== i));
     const updateStop = (i, val) => setStops(s => s.map((st, idx) => idx === i ? { ...st, ...val } : st));
 
+    const useSavedAddr = (addr, target) => {
+        const loc = { address: addr.address || addr.name, lat: addr.lat, lng: addr.lng };
+        if (target === "pickup") setPickup(loc);
+        else setDest(loc);
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
@@ -127,6 +151,20 @@ export default function BookRidePage() {
 
         setLoading(true);
         try {
+            let discount = 0;
+            // Redeem points
+            if (redeemPoints && pointsToUse > 0) {
+                const { data: ptData } = await api.post("/points/redeem", {
+                    userId: user?.userId,
+                    pointsToRedeem: pointsToUse
+                });
+                discount = ptData.discount;
+                setUserPoints(ptData.remainingPoints);
+                updateUser({ loyaltyPoints: ptData.remainingPoints });
+            }
+
+            const finalPrice = Math.max(0, (priceData?.price || 0) - discount);
+
             const { data } = await api.post("/rides", {
                 passengerId: user.userId,
                 rideType,
@@ -136,7 +174,7 @@ export default function BookRidePage() {
                 passengerCount,
                 scheduledTime: scheduledTime || null,
                 basePrice:  priceData?.price || 0,
-                finalPrice: priceData?.price || 0,
+                finalPrice: finalPrice,
                 distanceKm: priceData?.distanceKm || 0,
                 estimatedDurationMinutes: priceData?.durationMinutes || 0,
                 surgeMultiplier: priceData?.surgeMultiplier || 1
@@ -144,184 +182,201 @@ export default function BookRidePage() {
             navigate(`/ride/${data.ride._id}`);
         } catch (err) {
             setError(err.response?.data?.error || "שגיאה ביצירת הנסיעה");
-        } finally {
-            setLoading(false);
-        }
+        } finally { setLoading(false); }
     };
 
     const mapMarkers = nearbyDrivers.map(d => ({
-        lat: d.currentLocation.lat,
-        lng: d.currentLocation.lng,
-        label: d.userId?.fullName || "נהג",
-        rating: d.ratingAverage,
-        distanceKm: d.distanceKm
+        lat: d.currentLocation.lat, lng: d.currentLocation.lng,
+        label: d.userId?.fullName || "נהג", rating: d.ratingAverage, distanceKm: d.distanceKm
     }));
 
     return (
         <div style={s.page}>
-            <h1 style={s.title}>{t("bookRide")}</h1>
+            <h1 style={s.title}>{"הזמן נסיעה"}</h1>
 
-            {/* Best departure time */}
+            {/* Best departure + price prediction */}
             {bestTime && bestTime.currentDemand === "high" && (
-                <div style={{ background: "#fef3c7", borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "#92400e" }}>
-                    ⏰ {t("bestTime")}: {bestTime.suggestions?.[0]?.time} — {bestTime.suggestions?.[0]?.reason}
+                <div style={{ background: "#fef3c7", borderRadius: 10, padding: "10px 16px", marginBottom: 10, fontSize: 13, color: "#92400e" }}>
+                    ⏰ {"הזמן הטוב ביותר לנסיעה"}: {bestTime.suggestions?.[0]?.time} — {bestTime.suggestions?.[0]?.reason}
+                </div>
+            )}
+            {pricePrediction?.cheaperSoon && (
+                <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "#065f46", border: "1px solid #86efac" }}>
+                    💡 {pricePrediction.cheaperMessage}
                 </div>
             )}
 
             {/* Ride type tabs */}
             <div style={s.tabs} role="tablist">
                 {RIDE_TYPES.map(rt => (
-                    <button key={rt.value} style={s.tab(rideType === rt.value)}
-                        type="button" onClick={() => setRideType(rt.value)}
-                        role="tab" aria-selected={rideType === rt.value}>
-                        {rt.label}
-                    </button>
+                    <button key={rt.value} style={s.tab(rideType === rt.value)} type="button" onClick={() => setRideType(rt.value)} role="tab" aria-selected={rideType === rt.value}>{rt.label}</button>
                 ))}
             </div>
 
             <form onSubmit={handleSubmit}>
                 <div style={s.card}>
+                    {/* Saved addresses */}
+                    {savedAddresses.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={{ ...s.label, fontSize: 13 }}>{"📌 " + "כתובות שמורות"}</label>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {savedAddresses.map((addr, i) => (
+                                    <div key={i} style={{ display: "flex", gap: 4 }}>
+                                        <span style={s.savedAddr(pickup.address === addr.address)}
+                                            onClick={() => useSavedAddr(addr, "pickup")}>
+                                            📍 {addr.name || addr.address}
+                                        </span>
+                                        <span style={s.savedAddr(dest.address === addr.address)}
+                                            onClick={() => useSavedAddr(addr, "dest")}>
+                                            🏁
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Pickup */}
                     <div style={s.group}>
-                        <label style={s.label}>📍 {t("pickup")}</label>
-                        <AddressInput
-                            placeholder="הכנס כתובת איסוף"
-                            value={pickup.address}
+                        <label style={s.label}>📍 {"נקודת איסוף"}</label>
+                        <AddressInput placeholder={"הכנס כתובת איסוף"} value={pickup.address}
                             onChange={v => setPickup(p => ({ ...p, address: v }))}
-                            onPlaceSelected={loc => setPickup(loc)}
-                        />
+                            onPlaceSelected={loc => setPickup(loc)} />
                     </div>
 
                     {/* Stops */}
                     {stops.map((stop, i) => (
                         <div key={i} style={s.stopRow}>
                             <div style={{ flex: 1 }}>
-                                <AddressInput
-                                    placeholder={`עצירה ${i + 1}`}
-                                    value={stop.address}
+                                <AddressInput placeholder={`עצירה ${i + 1}`} value={stop.address}
                                     onChange={v => updateStop(i, { address: v })}
-                                    onPlaceSelected={loc => updateStop(i, loc)}
-                                />
+                                    onPlaceSelected={loc => updateStop(i, loc)} />
                             </div>
                             <button type="button" onClick={() => removeStop(i)}
-                                style={{ background: "#fee2e2", color: "var(--danger)", padding: "8px 12px", borderRadius: 8, flexShrink: 0 }}>
-                                ✕
-                            </button>
+                                style={{ background: "#fee2e2", color: "var(--danger)", padding: "8px 12px", borderRadius: 8, flexShrink: 0 }}>✕</button>
                         </div>
                     ))}
-
                     <button type="button" onClick={addStop}
-                        style={{ background: "var(--border)", color: "var(--text-muted)", padding: "7px 14px", fontSize: 13, marginBottom: 12 }}>
-                        + {t("addStop")}
-                    </button>
+                        style={{ background: "var(--border)", color: "var(--text-muted)", padding: "7px 14px", fontSize: 13, marginBottom: 12 }}>+ {"הוסף עצירה"}</button>
 
                     {/* Destination */}
                     <div style={s.group}>
-                        <label style={s.label}>🏁 {t("destination")}</label>
-                        <AddressInput
-                            placeholder="הכנס כתובת יעד"
-                            value={dest.address}
+                        <label style={s.label}>🏁 {"יעד"}</label>
+                        <AddressInput placeholder={"הכנס כתובת יעד"} value={dest.address}
                             onChange={v => setDest(p => ({ ...p, address: v }))}
-                            onPlaceSelected={loc => setDest(loc)}
-                        />
+                            onPlaceSelected={loc => setDest(loc)} />
                     </div>
 
                     {/* Vehicle type */}
                     <div style={s.group}>
-                        <label style={s.label}>{t("vehicleType")}</label>
+                        <label style={s.label}>{"סוג רכב"}</label>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             {VEHICLE_TYPES.map(vt => (
-                                <button key={vt.value} type="button"
-                                    style={s.tab(vehicleType === vt.value)}
-                                    onClick={() => setVehicleType(vt.value)}>
-                                    {vt.label}
-                                </button>
+                                <button key={vt.value} type="button" style={s.tab(vehicleType === vt.value)} onClick={() => setVehicleType(vt.value)}>{vt.label}</button>
                             ))}
                         </div>
                     </div>
 
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{t("passengers")}</label>
+                            <label style={s.label}>{"נוסעים"}</label>
                             <select value={passengerCount} onChange={e => setPassCount(Number(e.target.value))}>
-                                {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
+                                {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
                             </select>
                         </div>
                         <div style={s.group}>
-                            <label style={s.label}>{t("scheduledTime")} ({t("optional")})</label>
+                            <label style={s.label}>{"זמן מתוכנן"} ({"אופציונלי"})</label>
                             <input type="datetime-local" value={scheduledTime}
-                                onChange={e => setSched(e.target.value)}
-                                min={new Date().toISOString().slice(0, 16)}
-                            />
+                                onChange={e => setSched(e.target.value)} min={new Date().toISOString().slice(0, 16)} />
                         </div>
                     </div>
 
-                    {/* Split payment toggle */}
+                    {/* Split payment */}
                     {rideType === "carpool" && passengerCount > 1 && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 14 }}>
-                                <input type="checkbox" checked={splitPayment}
-                                    onChange={e => setSplitPayment(e.target.checked)} />
-                                {t("splitPayment")} ({passengerCount} נוסעים)
-                            </label>
-                        </div>
+                        <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, cursor: "pointer", fontSize: 14 }}>
+                            <input type="checkbox" checked={splitPayment} onChange={e => setSplitPayment(e.target.checked)} />
+                            {"פיצול תשלום"} ({passengerCount} נוסעים)
+                        </label>
                     )}
 
                     {/* Price display */}
                     <div style={s.priceBox}>
                         {priceLoading ? (
-                            <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>מחשב מחיר...</div>
+                            <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>{"מחשב מחיר..."}</div>
                         ) : priceData ? (
                             <div>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                                    <span style={{ color: "var(--text-muted)", fontSize: 14 }}>{t("estimatedPrice")}</span>
-                                    <span style={{ fontWeight: 800, fontSize: 24, color: "var(--primary)" }}>₪{priceData.price}</span>
+                                    <span style={{ color: "var(--text-muted)", fontSize: 14 }}>{"מחיר משוער"}</span>
+                                    <div style={{ textAlign: "left" }}>
+                                        {redeemPoints && pointsToUse > 0 && (
+                                            <span style={{ fontSize: 14, color: "var(--text-muted)", textDecoration: "line-through", marginLeft: 8 }}>₪{priceData.price}</span>
+                                        )}
+                                        <span style={{ fontWeight: 800, fontSize: 24, color: "var(--primary)" }}>
+                                            ₪{Math.max(0, priceData.price - pointsValue).toFixed(0)}
+                                        </span>
+                                    </div>
                                 </div>
                                 {splitPayment && passengerCount > 1 && (
                                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--success)" }}>
-                                        <span>{t("perPerson")}</span>
-                                        <span style={{ fontWeight: 700 }}>₪{priceData.pricePerPerson}</span>
+                                        <span>{"לנוסע"}</span>
+                                        <span style={{ fontWeight: 700 }}>₪{Math.ceil(Math.max(0, priceData.price - pointsValue) / passengerCount)}</span>
                                     </div>
                                 )}
                                 <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
-                                    <span>📏 {priceData.distanceText}</span>
-                                    <span>⏱️ {priceData.durationText}</span>
-                                    {priceData.surgeMultiplier > 1 && (
-                                        <span style={{ color: "var(--warning)" }}>🔥 ×{priceData.surgeMultiplier}</span>
-                                    )}
+                                    <span>📏 {priceData.distanceText || `${priceData.distanceKm} ק"מ`}</span>
+                                    <span>⏱️ {priceData.durationText || `${priceData.durationMinutes} דקות`}</span>
+                                    {priceData.surgeMultiplier > 1 && <span style={{ color: "var(--warning)" }}>🔥 ×{priceData.surgeMultiplier}</span>}
                                 </div>
+
+                                {/* Points redemption */}
+                                {userPoints > 0 && (
+                                    <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                                        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14, marginBottom: 8 }}>
+                                            <input type="checkbox" checked={redeemPoints} onChange={e => {
+                                                setRedeemPoints(e.target.checked);
+                                                if (!e.target.checked) setPointsToUse(0);
+                                                else setPointsToUse(Math.min(userPoints, priceData.price * 10));
+                                            }} />
+                                            ✨ פדה נקודות נאמנות ({userPoints} נקודות = ₪{(userPoints * 0.1).toFixed(1)})
+                                        </label>
+                                        {redeemPoints && (
+                                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                                <input type="range" min={0} max={Math.min(userPoints, Math.ceil(priceData.price * 10))}
+                                                    value={pointsToUse}
+                                                    onChange={e => setPointsToUse(Number(e.target.value))}
+                                                    style={{ flex: 1 }} />
+                                                <span style={{ fontSize: 14, fontWeight: 700, color: "var(--success)", minWidth: 60, textAlign: "left" }}>
+                                                    -₪{(pointsToUse * 0.1).toFixed(1)}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ) : (
-                            <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
-                                הזן כתובות לחישוב המחיר
-                            </div>
+                            <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>{"הזן כתובות לחישוב המחיר"}</div>
                         )}
                     </div>
                 </div>
 
                 {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
-
                 <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: 8 }}>
-                    {loading ? "מחפש נהג..." : `${t("bookNow")} 🚕`}
+                    {loading ? "מחפש נהג..." : `${"הזמן עכשיו"} 🚕`}
                 </button>
             </form>
 
             {/* Nearby drivers map */}
             <div style={{ ...s.card, marginTop: 24 }}>
                 <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 16 }}>
-                    🗺️ {t("nearbyDrivers")} ({nearbyDrivers.length})
+                    🗺️ {"נהגים בסביבה"} ({nearbyDrivers.length})
                 </div>
                 <MapComponent
                     center={userLoc || { lat: 31.7683, lng: 35.2137 }}
-                    zoom={13}
-                    height={280}
+                    zoom={13} height={280}
                     markers={mapMarkers}
-                    passengerMarker={userLoc}
-                />
+                    passengerMarker={userLoc} />
                 {nearbyDrivers.length === 0 && (
-                    <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "12px 0", fontSize: 14 }}>
-                        {t("noDrivers")}
-                    </div>
+                    <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "12px 0", fontSize: 14 }}>{"אין נהגים זמינים כרגע"}</div>
                 )}
                 {nearbyDrivers.length > 0 && (
                     <div style={{ marginTop: 12 }}>
@@ -333,7 +388,7 @@ export default function BookRidePage() {
                                 </div>
                                 <div style={{ textAlign: "left" }}>
                                     <div style={{ fontSize: 14, fontWeight: 700 }}>⭐ {d.ratingAverage}</div>
-                                    <div style={{ fontSize: 11, color: "var(--success)" }}>● זמין</div>
+                                    <div style={{ fontSize: 11, color: "var(--success)" }}>{"● " + "זמין"}</div>
                                 </div>
                             </div>
                         ))}

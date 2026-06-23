@@ -149,12 +149,40 @@ async function getDemandInfo(req, res) {
             message = "ביקוש נמוך כרגע";
         }
 
+        // Group requests by area for demand heatmap
+        const demandAreas = {};
+        for (const r of recentRides) {
+            if (!r.pickupLocation?.lat) continue;
+            const areaKey = `${(r.pickupLocation.lat).toFixed(2)},${(r.pickupLocation.lng).toFixed(2)}`;
+            if (!demandAreas[areaKey]) demandAreas[areaKey] = { lat: r.pickupLocation.lat, lng: r.pickupLocation.lng, count: 0 };
+            demandAreas[areaKey].count++;
+        }
+
+        const hotspots = Object.values(demandAreas).sort((a, b) => b.count - a.count);
+
+        // Individual request locations for map markers
+        const requestLocations = recentRides
+            .filter(r => r.pickupLocation?.lat)
+            .map(r => ({
+                rideId: r._id,
+                lat: r.pickupLocation.lat,
+                lng: r.pickupLocation.lng,
+                address: r.pickupLocation.address,
+                destAddress: r.destinationLocation?.address,
+                rideType: r.rideType,
+                passengerCount: r.passengerCount,
+                finalPrice: r.finalPrice,
+                createdAt: r.createdAt
+            }));
+
         res.json({
             demand,
             message,
             openRequests: recentRides.length,
             surgeMultiplier: calcSurge(),
-            isRushHour: (h >= 7 && h <= 9) || (h >= 16 && h <= 19)
+            isRushHour: (h >= 7 && h <= 9) || (h >= 16 && h <= 19),
+            hotspots,
+            requestLocations
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -178,4 +206,57 @@ async function getBestDeparture(req, res) {
     res.json({ suggestions, currentDemand: calcSurge() > 1.2 ? "high" : "normal" });
 }
 
-module.exports = { getDistanceAndPrice, getNearbyDrivers, getDemandInfo, getBestDeparture };
+// GET /api/maps/price-prediction
+async function getPricePrediction(req, res) {
+    const surge = calcSurge();
+    const h = new Date().getHours();
+    let cheaperSoon = false;
+    let cheaperMessage = "";
+    let minutesUntilCheaper = 0;
+
+    if (surge > 1.0) {
+        if (h === 9) { cheaperSoon = true; cheaperMessage = "עוד כ-10 דקות שעת הפקק תסתיים והמחיר ירד"; minutesUntilCheaper = 10; }
+        if (h === 19) { cheaperSoon = true; cheaperMessage = "עוד כ-30 דקות המחיר צפוי לרדת"; minutesUntilCheaper = 30; }
+        if (h === 8) { cheaperSoon = true; cheaperMessage = "עוד כ-60 דקות שעת הפקק תסתיים"; minutesUntilCheaper = 60; }
+        if (h === 17) { cheaperSoon = true; cheaperMessage = "עוד כ-120 דקות המחיר צפוי לרדת"; minutesUntilCheaper = 120; }
+    }
+
+    res.json({ cheaperSoon, cheaperMessage, minutesUntilCheaper, currentSurge: surge });
+}
+
+// GET /api/maps/driver-eta
+async function getDriverETA(req, res) {
+    try {
+        const { driverLat, driverLng, passengerLat, passengerLng } = req.query;
+        const key = process.env.GOOGLE_MAPS_API_KEY;
+
+        if (!key || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
+            const dlat = Number(driverLat) - Number(passengerLat);
+            const dlng = Number(driverLng) - Number(passengerLng);
+            const distKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
+            const etaMin = Math.max(1, Math.round(distKm * 3));
+            return res.json({ etaMinutes: etaMin, etaText: `כ-${etaMin} דקות`, distanceKm: Math.round(distKm * 10) / 10 });
+        }
+
+        const origins = `${driverLat},${driverLng}`;
+        const destinations = `${passengerLat},${passengerLng}`;
+        const { data } = await axios.get("https://maps.googleapis.com/maps/api/distancematrix/json", {
+            params: { origins, destinations, key, language: "he", mode: "driving" }
+        });
+
+        const el = data.rows?.[0]?.elements?.[0];
+        if (el?.status === "OK") {
+            return res.json({
+                etaMinutes: Math.ceil(el.duration.value / 60),
+                etaText: el.duration.text,
+                distanceKm: Math.round(el.distance.value / 100) / 10
+            });
+        }
+
+        res.json({ etaMinutes: 10, etaText: "כ-10 דקות" });
+    } catch (error) {
+        res.json({ etaMinutes: 10, etaText: "כ-10 דקות" });
+    }
+}
+
+module.exports = { getDistanceAndPrice, getNearbyDrivers, getDemandInfo, getBestDeparture, getPricePrediction, getDriverETA };
