@@ -163,6 +163,7 @@ input::placeholder { color: var(--text-muted); }
 /* Status colors */
 .status-searching    { background: #fef3c7; color: #92400e; }
 .status-accepted     { background: #d1fae5; color: #065f46; }
+.status-driver-arriving { background: #dbeafe; color: #1e40af; }
 .status-in-progress  { background: #ede9fe; color: #4c1d95; }
 .status-completed    { background: #d1fae5; color: #065f46; }
 .status-cancelled    { background: #fee2e2; color: #991b1b; }

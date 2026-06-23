@@ -30,6 +30,15 @@ const s = {
     })
 };
 
+const STATUS_LABELS = {
+    searching:       { label: "מחפש נהג",  icon: "🔍", cls: "status-searching" },
+    accepted:        { label: "אושרה",     icon: "✅", cls: "status-accepted" },
+    driver_arriving: { label: "נהג בדרך",  icon: "🚗", cls: "status-driver-arriving" },
+    in_progress:     { label: "בנסיעה",    icon: "🛣️", cls: "status-in-progress" },
+    completed:       { label: "הושלמה",    icon: "✅", cls: "status-completed" },
+    cancelled:       { label: "בוטלה",     icon: "❌", cls: "status-cancelled" }
+};
+
 export default function RideStatusPage() {
     const { id }       = useParams();
     const navigate     = useNavigate();
