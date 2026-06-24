@@ -166,7 +166,7 @@ export default function BookRidePage() {
             const finalPrice = Math.max(0, (priceData?.price || 0) - discount);
 
             const { data } = await api.post("/rides", {
-                passengerId: user.userId,
+                passengerId: user.passengerId || user.userId,
                 rideType,
                 vehicleType,
                 pickupLocation:      { address: pickup.address, lat: pickup.lat || 31.7683, lng: pickup.lng || 35.2137 },

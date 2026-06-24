@@ -257,23 +257,37 @@ export default function DriverSetupPage() {
                     <div style={s.group}>
                         <label style={s.label}>תנאי נסיעה</label>
                         {[
-                            { key: "noSmoking", label: "🚭 ללא עישון" },
-                            { key: "noPets",    label: "🐾 ללא חיות מחמד" },
-                            { key: "noFood",    label: "🍔 ללא אוכל" }
+                            { key: "noSmoking", icon: "🚭", label: "ללא עישון" },
+                            { key: "noPets",    icon: "🐾", label: "ללא חיות מחמד" },
+                            { key: "noFood",    icon: "🍔", label: "ללא אוכל" }
                         ].map(c => (
-                            <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
-                                <input type="checkbox"
-                                    checked={driverForm.vehicleConditions[c.key]}
-                                    onChange={e => setD("vehicleConditions", { ...driverForm.vehicleConditions, [c.key]: e.target.checked })} />
-                                {c.label}
-                            </label>
+                            <div key={c.key}
+                                className={`toggle-row${driverForm.vehicleConditions[c.key] ? " active" : ""}`}
+                                onClick={() => setD("vehicleConditions", { ...driverForm.vehicleConditions, [c.key]: !driverForm.vehicleConditions[c.key] })}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    <span style={{ fontSize: 20 }}>{c.icon}</span>
+                                    <span style={{ fontWeight: 500, fontSize: 14 }}>{c.label}</span>
+                                </div>
+                                <div className="toggle-switch">
+                                    <input type="checkbox" checked={driverForm.vehicleConditions[c.key]} readOnly />
+                                    <span className="toggle-track" />
+                                    <span className="toggle-knob" />
+                                </div>
+                            </div>
                         ))}
                     </div>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 14 }}>
-                        <input type="checkbox" checked={driverForm.acceptsCarpoolRides}
-                            onChange={e => setD("acceptsCarpoolRides", e.target.checked)} />
-                        קבל נסיעות קרפול (שיתוף עם נוסעים נוספים)
-                    </label>
+                    <div className={`toggle-row${driverForm.acceptsCarpoolRides ? " active" : ""}`}
+                        onClick={() => setD("acceptsCarpoolRides", !driverForm.acceptsCarpoolRides)}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontSize: 20 }}>🤝</span>
+                            <span style={{ fontWeight: 500, fontSize: 14 }}>קבל נסיעות קרפול (שיתוף עם נוסעים נוספים)</span>
+                        </div>
+                        <div className="toggle-switch">
+                            <input type="checkbox" checked={driverForm.acceptsCarpoolRides} readOnly />
+                            <span className="toggle-track" />
+                            <span className="toggle-knob" />
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -332,16 +346,25 @@ export default function DriverSetupPage() {
                             ))}
                         </div>
                     </div>
-                    <div>
+                    <div style={s.group}>
+                        <label style={s.label}>אישורים</label>
                         {[
-                            { key: "testApproval",      label: "✅ אישור טסט תקף" },
-                            { key: "insuranceApproval", label: "✅ ביטוח תקף" }
+                            { key: "testApproval",      icon: "🔧", label: "אישור טסט תקף" },
+                            { key: "insuranceApproval", icon: "🛡️", label: "ביטוח תקף" }
                         ].map(c => (
-                            <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
-                                <input type="checkbox" checked={vehicleForm[c.key]}
-                                    onChange={e => setV(c.key, e.target.checked)} />
-                                {c.label}
-                            </label>
+                            <div key={c.key}
+                                className={`toggle-row${vehicleForm[c.key] ? " active" : ""}`}
+                                onClick={() => setV(c.key, !vehicleForm[c.key])}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    <span style={{ fontSize: 20 }}>{c.icon}</span>
+                                    <span style={{ fontWeight: 500, fontSize: 14 }}>{c.label}</span>
+                                </div>
+                                <div className="toggle-switch">
+                                    <input type="checkbox" checked={vehicleForm[c.key]} readOnly />
+                                    <span className="toggle-track" />
+                                    <span className="toggle-knob" />
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>
