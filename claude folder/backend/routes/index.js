@@ -26,6 +26,15 @@ router.post("/users/login",           userController.login);
 router.post("/users/forgot-password", userController.forgotPassword);
 router.post("/users/reset-password",  userController.resetPassword);
 
+// ── Public: check if email exists (for registration) ─────────────────────────
+router.post("/users/check-email", async (req, res) => {
+    try {
+        const User = require("../db/models/User");
+        const exists = await User.findOne({ email: req.body.email?.toLowerCase() });
+        res.json({ exists: !!exists });
+    } catch { res.json({ exists: false }); }
+});
+
 // ── All routes below require auth ────────────────────────────────────────────
 router.use(auth);
 

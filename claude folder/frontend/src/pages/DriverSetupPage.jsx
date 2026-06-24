@@ -10,6 +10,28 @@ const STEPS = ["פרטי נהג", "רכב", "מסמכים"];
 const VEHICLE_TYPES = ["regular", "comfort", "luxury", "van"];
 const LANGS = ["עברית", "אנגלית", "ערבית", "רוסית", "אמהרית", "צרפתית"];
 
+const CAR_BRANDS = {
+    "טויוטה":   ["קורולה", "יאריס", "קאמרי", "RAV4", "לנד קרוזר", "היילקס", "C-HR", "אחר"],
+    "יונדאי":   ["i10", "i20", "i30", "i35", "טוסון", "קונה", "אלנטרה", "סונטה", "אחר"],
+    "קיה":      ["פיקנטו", "ריו", "ספורטאז'", "סיד", "ניירו", "סורנטו", "אחר"],
+    "מאזדה":    ["2", "3", "6", "CX-3", "CX-5", "CX-30", "MX-5", "אחר"],
+    "סקודה":    ["פאביה", "אוקטביה", "סופרב", "קארוק", "קודיאק", "אחר"],
+    "פולקסווגן": ["פולו", "גולף", "טיגואן", "T-Cross", "ID.3", "פאסאט", "אחר"],
+    "סוזוקי":   ["סוויפט", "באלנו", "ויטארה", "ג'ימני", "S-Cross", "אחר"],
+    "ניסאן":    ["מיקרה", "ג'וק", "קשקאי", "X-Trail", "ליף", "אחר"],
+    "שברולט":   ["ספארק", "אוניקס", "טראקס", "אקווינוקס", "אחר"],
+    "סיטרואן":  ["C3", "C4", "C5 Aircross", "ברלינגו", "אחר"],
+    "פיג'ו":    ["208", "308", "2008", "3008", "5008", "אחר"],
+    "רנו":      ["קליאו", "מגאן", "קפצ'ור", "קאדז'אר", "אחר"],
+    "BMW":      ["סדרה 1", "סדרה 2", "סדרה 3", "X1", "X3", "X5", "אחר"],
+    "מרצדס":    ["A-Class", "C-Class", "E-Class", "GLA", "GLC", "אחר"],
+    "אאודי":    ["A3", "A4", "Q3", "Q5", "e-tron", "אחר"],
+    "טסלה":     ["Model 3", "Model Y", "Model S", "Model X", "אחר"],
+    "אחר":      ["אחר"]
+};
+
+const COLORS = ["לבן", "שחור", "אפור", "כסוף", "כחול", "אדום", "ירוק", "חום", "בז'", "זהב", "כתום", "צהוב", "אחר"];
+
 const s = {
     page: { padding: "28px 20px", maxWidth: 560, margin: "0 auto" },
     title: { fontSize: 22, fontWeight: 800, marginBottom: 6 },
@@ -30,6 +52,11 @@ const s = {
         fontWeight: sel ? 700 : 400
     })
 };
+
+function FieldErr({ msg }) {
+    if (!msg) return null;
+    return <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {msg}</p>;
+}
 
 function FileUpload({ label, preview, onChange, fieldName }) {
     return (
@@ -64,14 +91,19 @@ export default function DriverSetupPage() {
         vehicleConditions: { noPets: false, noSmoking: true, noFood: false }
     });
     const [vehicleForm, setVF] = useState({
-        company: "", model: "", year: "", color: "", licensePlate: "",
+        company: "", companyOther: "", model: "", modelOther: "", year: "", color: "", colorOther: "", licensePlate: "",
         vehicleType: "regular", seats: 4,
         testApproval: false, insuranceApproval: false
     });
     const [licenseFile, setLicenseFile] = useState(null);
     const [licensePreview, setLicensePreview] = useState("");
+    const [testFile, setTestFile] = useState(null);
+    const [testPreview, setTestPreview] = useState("");
+    const [insuranceFile, setInsuranceFile] = useState(null);
+    const [insurancePreview, setInsurancePreview] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [fieldErrors, setFieldErrors] = useState({});
 
     useEffect(() => {
         api.get("/drivers").then(r => {
@@ -101,18 +133,54 @@ export default function DriverSetupPage() {
             : [...f.spokenLanguages, lang]
     }));
 
+    const HE_OR_EN = /^[֐-׿a-zA-Z\s\-'.]+$/;
+    const HE_EN_NUMS = /^[֐-׿a-zA-Z0-9\s\-'.,]+$/;
+    const PLATE_IL = /^\d{2,3}-?\d{2,3}-?\d{2,3}$/;
+
     const validateStep = () => {
+        const errs = {};
         if (step === 0) {
-            if (!driverForm.licenseNumber.trim()) return "נא להזין מספר רישיון נהיגה";
+            const lic = driverForm.licenseNumber.trim();
+            if (!lic) errs.licenseNumber = "שדה חובה";
+            else if (!/^\d{5,9}$/.test(lic)) errs.licenseNumber = "מספר רישיון חייב להכיל 5-9 ספרות בלבד";
+
+            if (driverForm.licenseExpiry) {
+                if (new Date(driverForm.licenseExpiry) < new Date()) errs.licenseExpiry = "תאריך תפוגה עבר";
+            }
+
+            const music = driverForm.preferredMusic.trim();
+            if (music && !HE_EN_NUMS.test(music)) errs.preferredMusic = "אותיות, מספרים ופסיקים בלבד";
+            if (music && music.length > 50) errs.preferredMusic = "עד 50 תווים";
+
+            const hobbies = driverForm.hobbies.trim();
+            if (hobbies && !HE_EN_NUMS.test(hobbies)) errs.hobbies = "אותיות, מספרים ופסיקים בלבד";
+            if (hobbies && hobbies.length > 100) errs.hobbies = "עד 100 תווים";
+
+            if (driverForm.spokenLanguages.length === 0) errs.spokenLanguages = "יש לבחור לפחות שפה אחת";
         }
         if (step === 1) {
-            if (!vehicleForm.company || !vehicleForm.model || !vehicleForm.year || !vehicleForm.licensePlate)
-                return "נא למלא את כל פרטי הרכב";
+            if (!vehicleForm.company) errs.company = "יש לבחור חברה";
+            else if (vehicleForm.company === "אחר" && !(vehicleForm.companyOther || "").trim()) errs.company = "יש להזין שם חברה";
+
+            if (!vehicleForm.model) errs.model = "יש לבחור דגם";
+            else if (vehicleForm.model === "אחר" && !(vehicleForm.modelOther || "").trim()) errs.model = "יש להזין שם דגם";
+
+            if (!vehicleForm.year) errs.year = "יש לבחור שנה";
+
+            if (!vehicleForm.color) errs.color = "יש לבחור צבע";
+            else if (vehicleForm.color === "אחר" && !(vehicleForm.colorOther || "").trim()) errs.color = "יש להזין צבע";
+
+            const plate = vehicleForm.licensePlate.trim();
+            if (!plate) errs.licensePlate = "שדה חובה";
+            else if (!/^\d{7,8}$/.test(plate)) errs.licensePlate = "לוחית רישוי חייבת להכיל 7-8 ספרות";
         }
         if (step === 2) {
-            if (!licensePreview) return "יש להעלות צילום רישיון נהיגה";
+            if (!licensePreview) errs.licensePhoto = "יש להעלות צילום רישיון נהיגה";
+            if (!testPreview) errs.testPhoto = "יש להעלות צילום אישור טסט";
+            if (!insurancePreview) errs.insurancePhoto = "יש להעלות צילום אישור ביטוח";
         }
-        return null;
+        setFieldErrors(errs);
+        return Object.keys(errs).length > 0 ? "יש לתקן את השדות המסומנים" : null;
     };
 
     const handleLicenseFile = (file) => {
@@ -158,13 +226,17 @@ export default function DriverSetupPage() {
                 driverId = data.driver?._id;
             }
 
-            // Vehicle
+            // Vehicle — resolve "אחר" to the custom text
+            const finalCompany = vehicleForm.company === "אחר" ? (vehicleForm.companyOther || "אחר") : vehicleForm.company;
+            const finalModel   = vehicleForm.model   === "אחר" ? (vehicleForm.modelOther   || "אחר") : vehicleForm.model;
+            const finalColor   = vehicleForm.color   === "אחר" ? (vehicleForm.colorOther   || "אחר") : vehicleForm.color;
+
             await api.post("/vehicles", {
                 driverId,
-                company: vehicleForm.company,
-                model:   vehicleForm.model,
+                company: finalCompany,
+                model:   finalModel,
                 year:    Number(vehicleForm.year),
-                color:   vehicleForm.color,
+                color:   finalColor,
                 licensePlate: vehicleForm.licensePlate,
                 vehicleType:  vehicleForm.vehicleType,
                 seats:   Number(vehicleForm.seats),
@@ -214,14 +286,20 @@ export default function DriverSetupPage() {
             {step === 0 && (
                 <div style={s.card}>
                     <div style={s.group}>
-                        <label style={s.label}>{"מספר רישיון נהיגה"} * <span style={{ color: "var(--danger)" }}>חובה</span></label>
+                        <label style={s.label}>מספר רישיון נהיגה * <span style={{ color: "var(--danger)" }}>חובה</span></label>
                         <input placeholder="12345678" value={driverForm.licenseNumber}
-                            onChange={e => setD("licenseNumber", e.target.value)} />
+                            onChange={e => { setD("licenseNumber", e.target.value.replace(/[^\d]/g, "")); setFieldErrors(f => ({ ...f, licenseNumber: undefined })); }}
+                            maxLength={9}
+                            style={{ borderColor: fieldErrors.licenseNumber ? "var(--danger)" : undefined }} />
+                        <FieldErr msg={fieldErrors.licenseNumber} />
                     </div>
                     <div style={s.group}>
                         <label style={s.label}>תפוגת רישיון</label>
                         <input type="date" value={driverForm.licenseExpiry}
-                            onChange={e => setD("licenseExpiry", e.target.value)} />
+                            onChange={e => { setD("licenseExpiry", e.target.value); setFieldErrors(f => ({ ...f, licenseExpiry: undefined })); }}
+                            min={new Date().toISOString().slice(0, 10)}
+                            style={{ borderColor: fieldErrors.licenseExpiry ? "var(--danger)" : undefined }} />
+                        <FieldErr msg={fieldErrors.licenseExpiry} />
                     </div>
                     <div style={s.row}>
                         <div style={s.group}>
@@ -235,24 +313,31 @@ export default function DriverSetupPage() {
                         <div style={s.group}>
                             <label style={s.label}>מוזיקה אהובה</label>
                             <input placeholder="פופ, רוק, מזרחי..." value={driverForm.preferredMusic}
-                                onChange={e => setD("preferredMusic", e.target.value)} />
+                                onChange={e => { setD("preferredMusic", e.target.value); setFieldErrors(f => ({ ...f, preferredMusic: undefined })); }}
+                                maxLength={50}
+                                style={{ borderColor: fieldErrors.preferredMusic ? "var(--danger)" : undefined }} />
+                            <FieldErr msg={fieldErrors.preferredMusic} />
                         </div>
                     </div>
                     <div style={s.group}>
                         <label style={s.label}>תחביבים (יוצג לנוסעים)</label>
                         <input placeholder="ספורט, בישול, טיולים..." value={driverForm.hobbies}
-                            onChange={e => setD("hobbies", e.target.value)} />
+                            onChange={e => { setD("hobbies", e.target.value); setFieldErrors(f => ({ ...f, hobbies: undefined })); }}
+                            maxLength={100}
+                            style={{ borderColor: fieldErrors.hobbies ? "var(--danger)" : undefined }} />
+                        <FieldErr msg={fieldErrors.hobbies} />
                     </div>
                     <div style={s.group}>
-                        <label style={s.label}>שפות מדוברות</label>
+                        <label style={s.label}>שפות מדוברות * <span style={{ color: "var(--danger)" }}>חובה</span></label>
                         <div style={s.tagList}>
                             {LANGS.map(lang => (
                                 <span key={lang} style={s.tag(driverForm.spokenLanguages.includes(lang))}
-                                    onClick={() => toggleLang(lang)}>
+                                    onClick={() => { toggleLang(lang); setFieldErrors(f => ({ ...f, spokenLanguages: undefined })); }}>
                                     {lang}
                                 </span>
                             ))}
                         </div>
+                        <FieldErr msg={fieldErrors.spokenLanguages} />
                     </div>
                     <div style={s.group}>
                         <label style={s.label}>תנאי נסיעה</label>
@@ -296,33 +381,79 @@ export default function DriverSetupPage() {
                 <div style={s.card}>
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{"חברה"} *</label>
-                            <input placeholder="טויוטה, יונדאי..." value={vehicleForm.company}
-                                onChange={e => setV("company", e.target.value)} />
+                            <label style={s.label}>חברה *</label>
+                            <select value={vehicleForm.company}
+                                onChange={e => { setV("company", e.target.value); setV("model", ""); setFieldErrors(f => ({ ...f, company: undefined })); }}
+                                style={{ borderColor: fieldErrors.company ? "var(--danger)" : undefined }}>
+                                <option value="">— בחר חברה —</option>
+                                {Object.keys(CAR_BRANDS).map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                            {vehicleForm.company === "אחר" && (
+                                <input placeholder="הזן שם חברה" value={vehicleForm.companyOther || ""}
+                                    onChange={e => setV("companyOther", e.target.value)}
+                                    style={{ marginTop: 8 }} />
+                            )}
+                            <FieldErr msg={fieldErrors.company} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label}>{"דגם"} *</label>
-                            <input placeholder="קורולה, i35..." value={vehicleForm.model}
-                                onChange={e => setV("model", e.target.value)} />
+                            <label style={s.label}>דגם *</label>
+                            <select value={vehicleForm.model}
+                                onChange={e => { setV("model", e.target.value); setFieldErrors(f => ({ ...f, model: undefined })); }}
+                                style={{ borderColor: fieldErrors.model ? "var(--danger)" : undefined }}
+                                disabled={!vehicleForm.company}>
+                                <option value="">— בחר דגם —</option>
+                                {(CAR_BRANDS[vehicleForm.company] || []).map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                            {vehicleForm.model === "אחר" && (
+                                <input placeholder="הזן שם דגם" value={vehicleForm.modelOther || ""}
+                                    onChange={e => setV("modelOther", e.target.value)}
+                                    style={{ marginTop: 8 }} />
+                            )}
+                            <FieldErr msg={fieldErrors.model} />
                         </div>
                     </div>
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{"שנה"} *</label>
-                            <input type="number" placeholder="2020" min="1990" max={new Date().getFullYear()}
-                                value={vehicleForm.year} onChange={e => setV("year", e.target.value)} />
+                            <label style={s.label}>שנה *</label>
+                            <select value={vehicleForm.year}
+                                onChange={e => { setV("year", e.target.value); setFieldErrors(f => ({ ...f, year: undefined })); }}
+                                style={{ borderColor: fieldErrors.year ? "var(--danger)" : undefined }}>
+                                <option value="">— בחר שנה —</option>
+                                {Array.from({ length: new Date().getFullYear() - 1989 }, (_, i) => new Date().getFullYear() - i).map(y =>
+                                    <option key={y} value={y}>{y}</option>
+                                )}
+                            </select>
+                            <FieldErr msg={fieldErrors.year} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label}>{"צבע"} *</label>
-                            <input placeholder="לבן, שחור..." value={vehicleForm.color}
-                                onChange={e => setV("color", e.target.value)} />
+                            <label style={s.label}>צבע *</label>
+                            <select value={vehicleForm.color}
+                                onChange={e => { setV("color", e.target.value); setFieldErrors(f => ({ ...f, color: undefined })); }}
+                                style={{ borderColor: fieldErrors.color ? "var(--danger)" : undefined }}>
+                                <option value="">— בחר צבע —</option>
+                                {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            {vehicleForm.color === "אחר" && (
+                                <input placeholder="הזן צבע" value={vehicleForm.colorOther || ""}
+                                    onChange={e => setV("colorOther", e.target.value)}
+                                    style={{ marginTop: 8 }} />
+                            )}
+                            <FieldErr msg={fieldErrors.color} />
                         </div>
                     </div>
                     <div style={s.row}>
                         <div style={s.group}>
-                            <label style={s.label}>{"לוחית רישוי"} *</label>
-                            <input placeholder="12-345-67" value={vehicleForm.licensePlate}
-                                onChange={e => setV("licensePlate", e.target.value)} />
+                            <label style={s.label}>לוחית רישוי *</label>
+                            <input placeholder="1234567" value={vehicleForm.licensePlate}
+                                onChange={e => {
+                                    const digits = e.target.value.replace(/[^\d]/g, "").slice(0, 8);
+                                    setV("licensePlate", digits);
+                                    setFieldErrors(f => ({ ...f, licensePlate: undefined }));
+                                }}
+                                inputMode="numeric"
+                                maxLength={8}
+                                style={{ borderColor: fieldErrors.licensePlate ? "var(--danger)" : undefined, letterSpacing: 2, fontWeight: 600 }} />
+                            <FieldErr msg={fieldErrors.licensePlate} />
                         </div>
                         <div style={s.group}>
                             <label style={s.label}>מושבים</label>
@@ -382,6 +513,23 @@ export default function DriverSetupPage() {
                         onChange={handleLicenseFile}
                         fieldName="licensePhoto"
                     />
+                    <FieldErr msg={fieldErrors.licensePhoto} />
+
+                    <FileUpload
+                        label="🔧 צילום אישור טסט בתוקף * (חובה)"
+                        preview={testPreview}
+                        onChange={(file) => { setTestFile(file); const r = new FileReader(); r.onload = ev => setTestPreview(ev.target.result); r.readAsDataURL(file); setFieldErrors(f => ({ ...f, testPhoto: undefined })); }}
+                        fieldName="testPhoto"
+                    />
+                    <FieldErr msg={fieldErrors.testPhoto} />
+
+                    <FileUpload
+                        label="🛡️ צילום אישור ביטוח בתוקף * (חובה)"
+                        preview={insurancePreview}
+                        onChange={(file) => { setInsuranceFile(file); const r = new FileReader(); r.onload = ev => setInsurancePreview(ev.target.result); r.readAsDataURL(file); setFieldErrors(f => ({ ...f, insurancePhoto: undefined })); }}
+                        fieldName="insurancePhoto"
+                    />
+                    <FieldErr msg={fieldErrors.insurancePhoto} />
                 </div>
             )}
 
