@@ -24,6 +24,17 @@ async function getAllRides(req, res) {
         if (driverId)    filter.driverId = driverId;
         if (passengerId) filter.passengerId = passengerId;
 
+        // Non-admin users see only their own rides (unless querying open rides for drivers)
+        if (req.user?.role !== "admin" && !driverId && !passengerId && status !== "searching") {
+            const pProfile = await PassengerProfile.findOne({ userId: req.user.userId });
+            const dProfile = await DriverProfile.findOne({ userId: req.user.userId });
+            const ids = [];
+            if (pProfile) ids.push({ passengerId: pProfile._id });
+            if (dProfile) ids.push({ driverId: dProfile._id });
+            if (ids.length > 0) filter.$or = ids;
+            else filter.passengerId = "000000000000000000000000";
+        }
+
         const rides = await Ride.find(filter)
             .populate("passengerId")
             .populate("driverId")

@@ -75,15 +75,15 @@ function AccessibilityMenu({ t }) {
                 ♿
             </button>
             {open && (
-                <div style={C.dropdown}>
-                    <div style={{ padding: "8px 14px 6px", fontSize: 13, color: "var(--text-muted)", fontWeight: 700 }}>
-                        {"נגישות"}
+                <div style={{ ...C.dropdown, background: "#fff", color: "#1e293b" }}>
+                    <div style={{ padding: "8px 14px 6px", fontSize: 13, color: "#64748b", fontWeight: 700 }}>
+                        נגישות
                     </div>
-                    <div style={C.dropItem} onClick={toggleContrast}>🌓 {"ניגודיות גבוהה"}</div>
-                    <div style={{ padding: "6px 14px", fontSize: 13, color: "var(--text-muted)" }}>{"גודל גופן"}</div>
-                    <div style={C.dropItem} onClick={() => setFontSize("")}>A {"רגיל"}</div>
-                    <div style={C.dropItem} onClick={() => setFontSize("font-large")}>A+ {"גדול"}</div>
-                    <div style={C.dropItem} onClick={() => setFontSize("font-xlarge")}>A++ {"גדול מאוד"}</div>
+                    <div style={{ ...C.dropItem, color: "#1e293b" }} onClick={toggleContrast}>🌓 ניגודיות גבוהה</div>
+                    <div style={{ padding: "6px 14px", fontSize: 13, color: "#64748b" }}>גודל גופן</div>
+                    <div style={{ ...C.dropItem, color: "#1e293b" }} onClick={() => setFontSize("")}>A רגיל</div>
+                    <div style={{ ...C.dropItem, color: "#1e293b" }} onClick={() => setFontSize("font-large")}>A+ גדול</div>
+                    <div style={{ ...C.dropItem, color: "#1e293b" }} onClick={() => setFontSize("font-xlarge")}>A++ גדול מאוד</div>
                 </div>
             )}
         </div>

@@ -183,10 +183,17 @@ export default function RegisterPage() {
                             <FieldErr msg={errors.phone} />
                         </div>
                         <div style={s.group}>
-                            <label style={s.label} htmlFor="reg-email">{"אימייל"} *</label>
+                            <label style={s.label} htmlFor="reg-email">אימייל *</label>
                             <input id="reg-email" type="email" placeholder="you@example.com"
                                 value={form.email}
-                                onChange={e => set("email", e.target.value)}
+                                onChange={e => { set("email", e.target.value); setErrors(er => ({ ...er, email: undefined })); }}
+                                onBlur={async () => {
+                                    if (!form.email.match(/^\S+@\S+\.\S+$/)) return;
+                                    try {
+                                        const { data } = await api.post("/users/check-email", { email: form.email });
+                                        if (data.exists) setErrors(er => ({ ...er, email: "כתובת אימייל זו כבר רשומה במערכת" }));
+                                    } catch {}
+                                }}
                                 autoComplete="email"
                                 style={{ borderColor: errors.email ? "var(--danger)" : undefined }}
                             />

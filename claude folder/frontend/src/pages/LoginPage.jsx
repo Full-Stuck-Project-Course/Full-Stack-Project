@@ -38,7 +38,7 @@ export default function LoginPage() {
         try {
             const { data } = await api.post("/users/login", form);
             login(
-                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints },
+                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints, passengerId: data.passengerId, driverId: data.driverId },
                 data.token
             );
             navigate("/");

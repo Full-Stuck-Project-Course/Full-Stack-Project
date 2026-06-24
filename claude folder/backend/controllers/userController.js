@@ -1,9 +1,10 @@
 // controllers/userController.js
 
-const User    = require("../db/models/User");
-const bcrypt  = require("bcryptjs");
-const jwt     = require("jsonwebtoken");
-const crypto  = require("crypto");
+const User             = require("../db/models/User");
+const PassengerProfile = require("../db/models/PassengerProfile");
+const bcrypt           = require("bcryptjs");
+const jwt              = require("jsonwebtoken");
+const crypto           = require("crypto");
 
 // POST /users/register
 async function register(req, res) {
@@ -34,6 +35,11 @@ async function register(req, res) {
             await User.findByIdAndUpdate(referredBy, { $inc: { loyaltyPoints: 100 } });
         }
 
+        // Auto-create PassengerProfile for every new user
+        if (role !== "admin") {
+            await PassengerProfile.create({ userId: user._id });
+        }
+
         res.status(201).json({ message: "User registered successfully", userId: user._id, referralCode: user.referralCode });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -60,6 +66,11 @@ async function login(req, res) {
         user.lastLoginAt = new Date();
         await user.save();
 
+        // Fetch profile IDs so frontend sends correct references
+        const passengerProfile = await PassengerProfile.findOne({ userId: user._id });
+        const DriverProfile = require("../db/models/DriverProfile");
+        const driverProfile = await DriverProfile.findOne({ userId: user._id });
+
         res.status(200).json({
             message: "Login successful",
             token,
@@ -68,7 +79,9 @@ async function login(req, res) {
             fullName: user.fullName,
             preferredLanguage: user.preferredLanguage,
             referralCode: user.referralCode,
-            loyaltyPoints: user.loyaltyPoints || 0
+            loyaltyPoints: user.loyaltyPoints || 0,
+            passengerId: passengerProfile?._id || null,
+            driverId: driverProfile?._id || null
         });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -150,11 +163,18 @@ async function getUserById(req, res) {
 // PUT /users/:id
 async function updateUser(req, res) {
     try {
-        delete req.body.passwordHash;
-        delete req.body.resetPasswordToken;
-        delete req.body.resetPasswordExpires;
+        if (req.user.userId !== req.params.id && req.user.role !== "admin") {
+            return res.status(403).json({ error: "Cannot update another user" });
+        }
 
-        const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+        const ALLOWED_FIELDS = ["fullName", "phone", "preferredLanguage", "profileImage"];
+        const update = {};
+        for (const key of ALLOWED_FIELDS) {
+            if (req.body[key] !== undefined) update[key] = req.body[key];
+        }
+        if (req.user.role === "admin" && req.body.role) update.role = req.body.role;
+
+        const user = await User.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true
         }).select("-passwordHash -resetPasswordToken");
 
