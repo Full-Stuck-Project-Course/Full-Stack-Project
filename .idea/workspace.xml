@@ -5,9 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e52d2a56-f49c-4631-81a3-34d8b4c6bdb4" name="Changes" comment="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/build/asset-manifest.json" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/build/asset-manifest.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/build/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/build/index.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/index.css" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/index.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder.zip" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -162,7 +161,7 @@
       <workItem from="1782130012297" duration="90000" />
       <workItem from="1782130235926" duration="84000" />
       <workItem from="1782130347191" duration="7000" />
-      <workItem from="1782221763521" duration="5476000" />
+      <workItem from="1782221763521" duration="7020000" />
     </task>
     <task id="LOCAL‎-00001" summary="remove syllabus file">
       <option name="closed" value="true" />
@@ -340,7 +339,15 @@
       <option name="project" value="LOCAL‎" />
       <updated>1782227163316</updated>
     </task>
-    <option name="localTasksCounter" value="23" />
+    <task id="LOCAL‎-00023" summary="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
+      <option name="closed" value="true" />
+      <created>1782227557468</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL‎-00023" />
+      <option name="project" value="LOCAL‎" />
+      <updated>1782227557468</updated>
+    </task>
+    <option name="localTasksCounter" value="24" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
