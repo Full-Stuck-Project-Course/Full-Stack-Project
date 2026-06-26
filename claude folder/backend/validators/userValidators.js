@@ -1,0 +1,63 @@
+const Joi = require("joi");
+
+const passwordSchema = Joi.string()
+    .min(8)
+    .max(128)
+    .pattern(/[A-Z]/, "uppercase letter")
+    .pattern(/[a-z]/, "lowercase letter")
+    .pattern(/[0-9]/, "digit")
+    .messages({
+        "string.min":            "סיסמה חייבת להכיל לפחות 8 תווים",
+        "string.max":            "סיסמה יכולה להכיל עד 128 תווים",
+        "string.pattern.name":   "סיסמה חייבת להכיל לפחות אות גדולה, אות קטנה ומספר",
+    });
+
+const registerSchema = Joi.object({
+    fullName:          Joi.string().min(2).required(),
+    email:             Joi.string().email().required(),
+    password:          passwordSchema.required(),
+    phone:             Joi.string().pattern(/^05\d{8}$/).required(),
+    role:              Joi.string().valid("passenger", "driver", "admin").optional(),
+    preferredLanguage: Joi.string().valid("he", "en").optional(),
+    referralCode:      Joi.string().optional(),
+});
+
+const loginSchema = Joi.object({
+    email:    Joi.string().email().required(),
+    password: Joi.string().required(),
+});
+
+const googleLoginSchema = Joi.object({
+    credential: Joi.string().required(),
+});
+
+const forgotPasswordSchema = Joi.object({
+    email: Joi.string().email().required(),
+});
+
+const resetPasswordSchema = Joi.object({
+    token:       Joi.string().required(),
+    newPassword: passwordSchema.required(),
+});
+
+const updateUserSchema = Joi.object({
+    fullName:          Joi.string().min(2).optional(),
+    phone:             Joi.string().optional(),
+    preferredLanguage: Joi.string().valid("he", "en").optional(),
+    profileImage:      Joi.string().optional(),
+});
+
+const changePasswordSchema = Joi.object({
+    currentPassword: Joi.string().required(),
+    newPassword:     passwordSchema.required(),
+});
+
+module.exports = {
+    registerSchema,
+    loginSchema,
+    googleLoginSchema,
+    forgotPasswordSchema,
+    resetPasswordSchema,
+    updateUserSchema,
+    changePasswordSchema,
+};

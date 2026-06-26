@@ -129,7 +129,7 @@ async function completeRide(req, res) {
 
         // Update passenger stats
         await PassengerProfile.findByIdAndUpdate(ride.passengerId, {
-            $inc: { totalRides: 1 }
+            $inc: { totalRides: 1, totalSpent: ride.finalPrice || 0 }
         });
 
         res.status(200).json({ message: "Ride completed", ride });

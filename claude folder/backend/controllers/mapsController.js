@@ -26,7 +26,7 @@ async function getDistanceAndPrice(req, res) {
         }
 
         const key = process.env.GOOGLE_MAPS_API_KEY;
-        if (!key) {
+        if (!key || key === "place_holder" || key.startsWith("your_")) {
             // Fallback: estimate based on straight-line distance if no key configured
             return res.status(200).json({
                 distanceKm: 10,
@@ -106,7 +106,7 @@ async function getNearbyDrivers(req, res) {
 
         const { lat, lng, radius = 10 } = req.query;
 
-        const drivers = await DriverProfile.find({ status: "available" })
+        const drivers = await DriverProfile.find({ status: "available", isVerified: true })
             .populate("userId", "fullName profileImage preferredLanguage");
 
         const nearby = drivers
@@ -230,7 +230,7 @@ async function getDriverETA(req, res) {
         const { driverLat, driverLng, passengerLat, passengerLng } = req.query;
         const key = process.env.GOOGLE_MAPS_API_KEY;
 
-        if (!key || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
+        if (!key || key === "place_holder" || key.startsWith("your_") || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
             const dlat = Number(driverLat) - Number(passengerLat);
             const dlng = Number(driverLng) - Number(passengerLng);
             const distKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;

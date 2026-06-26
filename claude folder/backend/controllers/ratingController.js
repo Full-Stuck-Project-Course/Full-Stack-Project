@@ -22,6 +22,14 @@ async function createRating(req, res) {
         const avg = allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length;
         await DriverProfile.findByIdAndUpdate(driverId, { ratingAverage: Math.round(avg * 10) / 10 });
 
+        // Award loyalty points to passenger
+        const User = require("../db/models/User");
+        const passengerProfile = await PassengerProfile.findById(passengerId);
+        if (passengerProfile) {
+            await PassengerProfile.findByIdAndUpdate(passengerId, { $inc: { loyaltyPoints: 10 } });
+            await User.findByIdAndUpdate(passengerProfile.userId, { $inc: { loyaltyPoints: 10 } });
+        }
+
         res.status(201).json({ message: "Rating submitted", rating: newRating });
     } catch (error) {
         res.status(400).json({ error: error.message });

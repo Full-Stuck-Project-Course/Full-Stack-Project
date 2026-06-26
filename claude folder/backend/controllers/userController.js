@@ -5,6 +5,9 @@ const PassengerProfile = require("../db/models/PassengerProfile");
 const bcrypt           = require("bcryptjs");
 const jwt              = require("jsonwebtoken");
 const crypto           = require("crypto");
+const { OAuth2Client } = require("google-auth-library");
+
+const googleClient = new OAuth2Client();
 
 // POST /users/register
 async function register(req, res) {
@@ -218,4 +221,68 @@ async function deleteUser(req, res) {
     }
 }
 
-module.exports = { register, login, forgotPassword, resetPassword, getAllUsers, getUserById, updateUser, changePassword, deleteUser };
+// POST /users/google-login
+async function googleLogin(req, res) {
+    try {
+        const { credential } = req.body;
+        if (!credential) return res.status(400).json({ error: "Missing Google credential" });
+
+        const ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const email = payload.email;
+
+        if (!email) return res.status(400).json({ error: "Google account has no email" });
+
+        let user = await User.findOne({ email });
+
+        if (!user) {
+            const randomPassword = crypto.randomBytes(20).toString("hex");
+            const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+            user = await User.create({
+                fullName: payload.name || email.split("@")[0],
+                email,
+                passwordHash,
+                phone: "google-" + Date.now(),
+                profileImage: payload.picture || null,
+                isEmailVerified: payload.email_verified || false,
+                role: "passenger"
+            });
+
+            await PassengerProfile.create({ userId: user._id });
+        }
+
+        const token = jwt.sign(
+            { userId: user._id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: "7d" }
+        );
+
+        user.lastLoginAt = new Date();
+        await user.save();
+
+        const passengerProfile = await PassengerProfile.findOne({ userId: user._id });
+        const DriverProfile = require("../db/models/DriverProfile");
+        const driverProfile = await DriverProfile.findOne({ userId: user._id });
+
+        res.status(200).json({
+            message: "Google login successful",
+            token,
+            userId: user._id,
+            role: user.role,
+            fullName: user.fullName,
+            preferredLanguage: user.preferredLanguage,
+            referralCode: user.referralCode,
+            loyaltyPoints: user.loyaltyPoints || 0,
+            passengerId: passengerProfile?._id || null,
+            driverId: driverProfile?._id || null
+        });
+    } catch (error) {
+        res.status(400).json({ error: "Google authentication failed: " + error.message });
+    }
+}
+
+module.exports = { register, login, googleLogin, forgotPassword, resetPassword, getAllUsers, getUserById, updateUser, changePassword, deleteUser };

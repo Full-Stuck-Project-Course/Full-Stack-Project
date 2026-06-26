@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { GoogleLogin } from "@react-oauth/google";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
@@ -27,6 +28,29 @@ export default function LoginPage() {
     const [error, setE] = useState("");
     const [loading, setL] = useState(false);
     const [showPw, setShow] = useState(false);
+
+    const handleGoogleSuccess = async (credentialResponse) => {
+        setE("");
+        setL(true);
+        try {
+            const { data } = await api.post("/users/google-login", {
+                credential: credentialResponse.credential
+            });
+            login(
+                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints, passengerId: data.passengerId, driverId: data.driverId },
+                data.token
+            );
+            navigate("/");
+        } catch (err) {
+            setE(err.response?.data?.error || "שגיאה בהתחברות עם Google");
+        } finally {
+            setL(false);
+        }
+    };
+
+    const handleGoogleError = () => {
+        setE("שגיאה בהתחברות עם Google");
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -83,13 +107,16 @@ export default function LoginPage() {
                             />
                             <button type="button"
                                 onClick={() => setShow(s => !s)}
+                                aria-label={showPw ? "הסתר סיסמה" : "הצג סיסמה"}
                                 style={{
-                                    position: "absolute", left: 12, top: "50%",
-                                    transform: "translateY(-50%)", background: "none",
-                                    padding: 0, fontSize: 16, color: "var(--text-muted)"
+                                    position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                                    background: "none", border: "none", padding: "4px 6px", cursor: "pointer",
+                                    borderRadius: 6, color: "var(--text-muted)", fontSize: 13, fontWeight: 600,
+                                    transition: "background 0.2s, color 0.2s"
                                 }}
-                                aria-label={showPw ? "הסתר סיסמה" : "הצג סיסמה"}>
-                                {showPw ? "🙈" : "👁️"}
+                                onMouseEnter={e => { e.currentTarget.style.background = "var(--border)"; e.currentTarget.style.color = "var(--text)"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}>
+                                {showPw ? "הסתר" : "הצג"}
                             </button>
                         </div>
                         <div style={s.forgot}>
@@ -103,6 +130,26 @@ export default function LoginPage() {
                         {loading ? "טוען..." : "התחבר"}
                     </button>
                 </form>
+
+                {process.env.REACT_APP_GOOGLE_CLIENT_ID && !process.env.REACT_APP_GOOGLE_CLIENT_ID.startsWith("your_") && (
+                    <>
+                        <div style={{ display: "flex", alignItems: "center", margin: "20px 0" }}>
+                            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+                            <span style={{ padding: "0 14px", color: "var(--text-muted)", fontSize: 13 }}>או</span>
+                            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+                        </div>
+
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                            <GoogleLogin
+                                onSuccess={handleGoogleSuccess}
+                                onError={handleGoogleError}
+                                shape="rectangular"
+                                size="large"
+                                width="100%"
+                            />
+                        </div>
+                    </>
+                )}
 
                 <p style={s.footer}>
                     {"אין לך חשבון?"}{" "}

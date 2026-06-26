@@ -231,7 +231,7 @@ export default function DriverSetupPage() {
             const finalModel   = vehicleForm.model   === "אחר" ? (vehicleForm.modelOther   || "אחר") : vehicleForm.model;
             const finalColor   = vehicleForm.color   === "אחר" ? (vehicleForm.colorOther   || "אחר") : vehicleForm.color;
 
-            await api.post("/vehicles", {
+            const vehicleData = {
                 driverId,
                 company: finalCompany,
                 model:   finalModel,
@@ -242,7 +242,14 @@ export default function DriverSetupPage() {
                 seats:   Number(vehicleForm.seats),
                 testApproval:      vehicleForm.testApproval,
                 insuranceApproval: vehicleForm.insuranceApproval
-            });
+            };
+
+            const existingVehicles = await api.get(`/vehicles/driver/${driverId}`).catch(() => ({ data: [] }));
+            if (existingVehicles.data?.length > 0) {
+                await api.put(`/vehicles/${existingVehicles.data[0]._id}`, vehicleData);
+            } else {
+                await api.post("/vehicles", vehicleData);
+            }
 
             // License photo
             if (licenseFile && driverId) {

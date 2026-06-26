@@ -80,6 +80,7 @@ async function verifyDriverLicense(req, res) {
         const { status } = req.body;
         const update = { verificationStatus: status };
         if (status === "approved") update.isVerified = true;
+        if (status === "rejected") { update.isVerified = false; update.status = "offline"; }
         await DriverProfile.findByIdAndUpdate(req.params.driverProfileId, update);
         res.json({ message: "Driver verification updated" });
     } catch (e) {

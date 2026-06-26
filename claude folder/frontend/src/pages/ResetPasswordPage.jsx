@@ -50,8 +50,10 @@ export default function ResetPasswordPage() {
         setE("");
         if (!token) return setE("קישור לא תקין. בקש קישור חדש.");
         if (form.newPassword.length < 8) return setE("סיסמה חייבת להכיל לפחות 8 תווים");
+        if (!/[A-Z]/.test(form.newPassword)) return setE("סיסמה חייבת להכיל לפחות אות גדולה אחת");
+        if (!/[a-z]/.test(form.newPassword)) return setE("סיסמה חייבת להכיל לפחות אות קטנה אחת");
+        if (!/[0-9]/.test(form.newPassword)) return setE("סיסמה חייבת להכיל לפחות מספר אחד");
         if (form.newPassword !== form.confirm) return setE("הסיסמאות אינן תואמות");
-        if (strength < 2) return setE("הסיסמה חלשה מדי — הוסף אותיות גדולות, מספרים או תווים מיוחדים");
 
         setL(true);
         try {
@@ -106,8 +108,16 @@ export default function ResetPasswordPage() {
                             />
                             <button type="button"
                                 onClick={() => setShow(s => !s)}
-                                style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", background: "none", padding: 0, fontSize: 16, color: "var(--text-muted)" }}>
-                                {showPw ? "🙈" : "👁️"}
+                                aria-label={showPw ? "הסתר סיסמה" : "הצג סיסמה"}
+                                style={{
+                                    position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                                    background: "none", border: "none", padding: "4px 6px", cursor: "pointer",
+                                    borderRadius: 6, color: "var(--text-muted)", fontSize: 13, fontWeight: 600,
+                                    transition: "background 0.2s, color 0.2s"
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "var(--border)"; e.currentTarget.style.color = "var(--text)"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}>
+                                {showPw ? "הסתר" : "הצג"}
                             </button>
                         </div>
                         {form.newPassword && (

@@ -1,10 +1,12 @@
 // src/components/MapComponent.jsx
 // Requires REACT_APP_GOOGLE_MAPS_KEY in frontend/.env
 
-import { useCallback, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { GoogleMap, useLoadScript, Marker, InfoWindow, Autocomplete } from "@react-google-maps/api";
 
 const LIBRARIES = ["places"];
+const _rawKey = process.env.REACT_APP_GOOGLE_MAPS_KEY || "";
+const MAPS_KEY = _rawKey.startsWith("your_") ? "" : _rawKey;
 
 const MAP_OPTIONS = {
     disableDefaultUI: false,
@@ -21,7 +23,7 @@ const ISRAEL_CENTER = { lat: 31.7683, lng: 35.2137 };
 
 export function AddressInput({ placeholder, onPlaceSelected, value, onChange }) {
     const { isLoaded } = useLoadScript({
-        googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_KEY || "",
+        googleMapsApiKey: MAPS_KEY,
         libraries: LIBRARIES
     });
 
@@ -43,7 +45,7 @@ export function AddressInput({ placeholder, onPlaceSelected, value, onChange }) 
         }
     };
 
-    if (!process.env.REACT_APP_GOOGLE_MAPS_KEY) {
+    if (!MAPS_KEY) {
         return (
             <input
                 placeholder={placeholder}
@@ -67,7 +69,7 @@ export function AddressInput({ placeholder, onPlaceSelected, value, onChange }) 
     );
 }
 
-export default function MapComponent({
+function MapComponent({
     center = ISRAEL_CENTER,
     zoom = 13,
     height = 320,
@@ -78,13 +80,13 @@ export default function MapComponent({
     style = {}
 }) {
     const { isLoaded, loadError } = useLoadScript({
-        googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_KEY || "",
+        googleMapsApiKey: MAPS_KEY,
         libraries: LIBRARIES
     });
 
     const [selected, setSelected] = useState(null);
 
-    if (!process.env.REACT_APP_GOOGLE_MAPS_KEY) {
+    if (!MAPS_KEY) {
         return (
             <div style={{
                 height, background: "#e8f4f8", borderRadius: 12,
@@ -158,3 +160,5 @@ export default function MapComponent({
         </div>
     );
 }
+
+export default React.memo(MapComponent);
