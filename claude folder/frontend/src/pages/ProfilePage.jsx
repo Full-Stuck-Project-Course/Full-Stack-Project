@@ -46,7 +46,7 @@ export default function ProfilePage() {
     const [pwForm,   setPwForm]   = useState({ currentPassword: "", newPassword: "", confirm: "" });
     const [pwSaved,  setPwSaved]  = useState(false);
     const [pwError,  setPwError]  = useState("");
-    const [showPw,   setShowPw]   = useState(false);
+    const [showPw,   setShowPw]   = useState({ currentPassword: false, newPassword: false, confirm: false });
 
     useEffect(() => {
         (async () => {
@@ -62,10 +62,29 @@ export default function ProfilePage() {
         })();
     }, []);
 
-    const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+    const [formErrors, setFormErrors] = useState({});
+
+    const set = (k, v) => {
+        setForm(f => ({ ...f, [k]: v }));
+        setFormErrors(er => ({ ...er, [k]: undefined }));
+        if (k === "fullName" && v.trim().length > 0 && v.trim().length < 2)
+            setFormErrors(er => ({ ...er, fullName: "שם מלא חייב להכיל לפחות 2 תווים" }));
+        if (k === "phone") {
+            const digits = v.replace(/\D/g, "");
+            if (digits.length > 0 && !digits.match(/^05\d{0,8}$/))
+                setFormErrors(er => ({ ...er, phone: "מספר טלפון חייב להתחיל ב-05" }));
+            else if (digits.length > 0 && digits.length < 10)
+                setFormErrors(er => ({ ...er, phone: `חסרות ${10 - digits.length} ספרות` }));
+        }
+    };
 
     const handleSave = async (e) => {
         e.preventDefault();
+        const errs = {};
+        if (!form.fullName || form.fullName.trim().length < 2) errs.fullName = "שם מלא חייב להכיל לפחות 2 תווים";
+        if (form.phone && !form.phone.match(/^05\d{8}$/)) errs.phone = "מספר טלפון לא תקין";
+        if (Object.keys(errs).length > 0) { setFormErrors(errs); return; }
+
         setSaving(true); setError("");
         try {
             await api.put(`/users/${user.userId}`, form);
@@ -81,6 +100,9 @@ export default function ProfilePage() {
         e.preventDefault();
         setPwError("");
         if (pwForm.newPassword.length < 8) return setPwError("סיסמה חייבת להכיל לפחות 8 תווים");
+        if (!/[A-Z]/.test(pwForm.newPassword)) return setPwError("סיסמה חייבת להכיל לפחות אות גדולה אחת");
+        if (!/[a-z]/.test(pwForm.newPassword)) return setPwError("סיסמה חייבת להכיל לפחות אות קטנה אחת");
+        if (!/[0-9]/.test(pwForm.newPassword)) return setPwError("סיסמה חייבת להכיל לפחות מספר אחד");
         if (pwForm.newPassword !== pwForm.confirm) return setPwError("הסיסמאות אינן תואמות");
         try {
             await api.put(`/users/${user.userId}/password`, {
@@ -180,13 +202,18 @@ export default function ProfilePage() {
                     <div style={s.group}>
                         <label style={s.label}>{"שם מלא"}</label>
                         <input value={form.fullName || ""}
-                            onChange={e => set("fullName", e.target.value)} />
+                            onChange={e => set("fullName", e.target.value)}
+                            style={{ borderColor: formErrors.fullName ? "var(--danger)" : undefined }} />
+                        {formErrors.fullName && <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {formErrors.fullName}</p>}
                     </div>
                     <div style={s.row}>
                         <div style={s.group}>
                             <label style={s.label}>{"טלפון"}</label>
                             <input value={form.phone || ""}
-                                onChange={e => set("phone", e.target.value)} />
+                                onChange={e => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))}
+                                inputMode="numeric" maxLength={10}
+                                style={{ borderColor: formErrors.phone ? "var(--danger)" : undefined }} />
+                            {formErrors.phone && <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {formErrors.phone}</p>}
                         </div>
                         <div style={s.group}>
                             <label style={s.label}>{"שפה"}</label>
@@ -233,18 +260,30 @@ export default function ProfilePage() {
                             <label style={s.label}>
                                 {i === 0 ? "סיסמה נוכחית" : i === 1 ? "סיסמה חדשה" : "אימות סיסמה חדשה"}
                             </label>
-                            <input
-                                type={showPw ? "text" : "password"}
-                                value={pwForm[field]}
-                                onChange={e => setPwForm(f => ({ ...f, [field]: e.target.value }))}
-                                autoComplete={i === 0 ? "current-password" : "new-password"}
-                            />
+                            <div style={{ position: "relative" }}>
+                                <input
+                                    type={showPw[field] ? "text" : "password"}
+                                    value={pwForm[field]}
+                                    onChange={e => setPwForm(f => ({ ...f, [field]: e.target.value }))}
+                                    autoComplete={i === 0 ? "current-password" : "new-password"}
+                                    style={{ paddingLeft: 44 }}
+                                />
+                                <button type="button"
+                                    onClick={() => setShowPw(p => ({ ...p, [field]: !p[field] }))}
+                                    aria-label={showPw[field] ? "הסתר סיסמה" : "הצג סיסמה"}
+                                    style={{
+                                        position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                                        background: "none", border: "none", padding: "4px 6px", cursor: "pointer",
+                                        borderRadius: 6, color: "var(--text-muted)", fontSize: 13, fontWeight: 600,
+                                        transition: "background 0.2s, color 0.2s"
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "var(--border)"; e.currentTarget.style.color = "var(--text)"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}>
+                                    {showPw[field] ? "הסתר" : "הצג"}
+                                </button>
+                            </div>
                         </div>
                     ))}
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, fontSize: 13, cursor: "pointer" }}>
-                        <input type="checkbox" checked={showPw} onChange={e => setShowPw(e.target.checked)} />
-                        הצג סיסמאות
-                    </label>
                     {pwError && <p className="error-msg">⚠️ {pwError}</p>}
                     {pwSaved && <p className="success-msg">✅ הסיסמה שונתה בהצלחה!</p>}
                     <button type="submit" style={{ background: "var(--primary)", color: "#fff", padding: "10px 20px" }}>

@@ -1,6 +1,6 @@
 // src/pages/RegisterPage.jsx — Multi-step registration with validation
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
@@ -57,6 +57,12 @@ export default function RegisterPage() {
                 errors.email = "כתובת אימייל לא תקינה";
             if (formData.password.length < 8)
                 errors.password = "סיסמה חייבת להכיל לפחות 8 תווים";
+            else if (!/[A-Z]/.test(formData.password))
+                errors.password = "סיסמה חייבת להכיל לפחות אות גדולה אחת";
+            else if (!/[a-z]/.test(formData.password))
+                errors.password = "סיסמה חייבת להכיל לפחות אות קטנה אחת";
+            else if (!/[0-9]/.test(formData.password))
+                errors.password = "סיסמה חייבת להכיל לפחות מספר אחד";
             if (formData.password !== formData.confirmPassword)
                 errors.confirmPassword = "הסיסמאות אינן תואמות";
         }
@@ -80,7 +86,57 @@ export default function RegisterPage() {
     const [loading, setLoading] = useState(false);
     const [showPw, setShowPw]   = useState(false);
 
-    const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+    const emailTimer = useRef(null);
+    const [emailChecking, setEmailChecking] = useState(false);
+
+    const set = (k, v) => {
+        setForm(f => ({ ...f, [k]: v }));
+        setErrors(er => ({ ...er, [k]: undefined }));
+
+        if (k === "fullName") {
+            if (v.trim().length > 0 && v.trim().length < 2)
+                setErrors(er => ({ ...er, fullName: "שם מלא חייב להכיל לפחות 2 תווים" }));
+        }
+        if (k === "phone") {
+            const digits = v.replace(/\D/g, "");
+            if (digits.length > 0 && !digits.match(/^05\d{0,8}$/))
+                setErrors(er => ({ ...er, phone: "מספר טלפון חייב להתחיל ב-05" }));
+            else if (digits.length > 0 && digits.length < 10)
+                setErrors(er => ({ ...er, phone: `חסרות ${10 - digits.length} ספרות` }));
+        }
+        if (k === "password") {
+            if (v.length > 0 && v.length < 8)
+                setErrors(er => ({ ...er, password: "סיסמה חייבת להכיל לפחות 8 תווים" }));
+            else if (v.length >= 8 && !/[A-Z]/.test(v))
+                setErrors(er => ({ ...er, password: "חסרה אות גדולה (A-Z)" }));
+            else if (v.length >= 8 && !/[a-z]/.test(v))
+                setErrors(er => ({ ...er, password: "חסרה אות קטנה (a-z)" }));
+            else if (v.length >= 8 && !/[0-9]/.test(v))
+                setErrors(er => ({ ...er, password: "חסר מספר (0-9)" }));
+        }
+        if (k === "confirmPassword" || (k === "password" && form.confirmPassword)) {
+            const pw = k === "password" ? v : form.password;
+            const cpw = k === "confirmPassword" ? v : form.confirmPassword;
+            if (cpw && pw !== cpw)
+                setErrors(er => ({ ...er, confirmPassword: "הסיסמאות אינן תואמות" }));
+        }
+        if (k === "email") {
+            clearTimeout(emailTimer.current);
+            if (v.match(/^\S+@\S+\.\S+$/)) {
+                setEmailChecking(true);
+                emailTimer.current = setTimeout(async () => {
+                    try {
+                        const { data } = await api.post("/users/check-email", { email: v });
+                        if (data.exists) setErrors(er => ({ ...er, email: "כתובת אימייל זו כבר רשומה במערכת" }));
+                    } catch {} finally { setEmailChecking(false); }
+                }, 500);
+            } else if (v.length > 0) {
+                setErrors(er => ({ ...er, email: "כתובת אימייל לא תקינה" }));
+            }
+        }
+    };
+
+    useEffect(() => { return () => clearTimeout(emailTimer.current); }, []);
 
     const goNext = () => {
         const errs = validate(step, form);
@@ -176,7 +232,9 @@ export default function RegisterPage() {
                             <label style={s.label} htmlFor="phone">{"טלפון"} *</label>
                             <input id="phone" type="tel" placeholder="0501234567"
                                 value={form.phone}
-                                onChange={e => set("phone", e.target.value)}
+                                onChange={e => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))}
+                                inputMode="numeric"
+                                maxLength={10}
                                 aria-required="true"
                                 style={{ borderColor: errors.phone ? "var(--danger)" : undefined }}
                             />
@@ -184,19 +242,17 @@ export default function RegisterPage() {
                         </div>
                         <div style={s.group}>
                             <label style={s.label} htmlFor="reg-email">אימייל *</label>
-                            <input id="reg-email" type="email" placeholder="you@example.com"
-                                value={form.email}
-                                onChange={e => { set("email", e.target.value); setErrors(er => ({ ...er, email: undefined })); }}
-                                onBlur={async () => {
-                                    if (!form.email.match(/^\S+@\S+\.\S+$/)) return;
-                                    try {
-                                        const { data } = await api.post("/users/check-email", { email: form.email });
-                                        if (data.exists) setErrors(er => ({ ...er, email: "כתובת אימייל זו כבר רשומה במערכת" }));
-                                    } catch {}
-                                }}
-                                autoComplete="email"
-                                style={{ borderColor: errors.email ? "var(--danger)" : undefined }}
-                            />
+                            <div style={{ position: "relative" }}>
+                                <input id="reg-email" type="email" placeholder="you@example.com"
+                                    value={form.email}
+                                    onChange={e => set("email", e.target.value)}
+                                    autoComplete="email"
+                                    style={{ borderColor: errors.email ? "var(--danger)" : undefined, paddingLeft: 36 }}
+                                />
+                                <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14 }}>
+                                    {emailChecking ? "⏳" : errors.email ? "❌" : form.email.match(/^\S+@\S+\.\S+$/) ? "✅" : ""}
+                                </span>
+                            </div>
                             <FieldErr msg={errors.email} />
                         </div>
                         <div style={s.group}>
@@ -211,8 +267,16 @@ export default function RegisterPage() {
                                     autoComplete="new-password"
                                 />
                                 <button type="button" onClick={() => setShowPw(p => !p)}
-                                    style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", background: "none", padding: 0, fontSize: 16 }}>
-                                    {showPw ? "🙈" : "👁️"}
+                                    aria-label={showPw ? "הסתר סיסמה" : "הצג סיסמה"}
+                                    style={{
+                                        position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                                        background: "none", border: "none", padding: "4px 6px", cursor: "pointer",
+                                        borderRadius: 6, color: "var(--text-muted)", fontSize: 13, fontWeight: 600,
+                                        transition: "background 0.2s, color 0.2s"
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "var(--border)"; e.currentTarget.style.color = "var(--text)"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}>
+                                    {showPw ? "הסתר" : "הצג"}
                                 </button>
                             </div>
                             <FieldErr msg={errors.password} />

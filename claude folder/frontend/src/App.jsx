@@ -1,24 +1,28 @@
 // src/App.jsx
 
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Provider } from "react-redux";
+import store from "./store";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LanguageProvider }      from "./context/LanguageContext";
 
-import LoginPage          from "./pages/LoginPage";
-import RegisterPage       from "./pages/RegisterPage";
-import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import ResetPasswordPage  from "./pages/ResetPasswordPage";
-import HomePage           from "./pages/HomePage";
-import BookRidePage       from "./pages/BookRidePage";
-import RideStatusPage     from "./pages/RideStatusPage";
-import RideHistoryPage    from "./pages/RideHistoryPage";
-import DriverDashboard    from "./pages/DriverDashboard";
-import PassengerDashboard from "./pages/PassengerDashboard";
-import DriverSetupPage    from "./pages/DriverSetupPage";
-import ProfilePage        from "./pages/ProfilePage";
-import RatingPage         from "./pages/RatingPage";
-import AdminPanel         from "./pages/AdminPanel";
-import Navbar             from "./components/Navbar";
+import LoginPage    from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import Navbar       from "./components/Navbar";
+
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
+const ResetPasswordPage  = lazy(() => import("./pages/ResetPasswordPage"));
+const HomePage           = lazy(() => import("./pages/HomePage"));
+const BookRidePage       = lazy(() => import("./pages/BookRidePage"));
+const RideStatusPage     = lazy(() => import("./pages/RideStatusPage"));
+const RideHistoryPage    = lazy(() => import("./pages/RideHistoryPage"));
+const DriverDashboard    = lazy(() => import("./pages/DriverDashboard"));
+const PassengerDashboard = lazy(() => import("./pages/PassengerDashboard"));
+const DriverSetupPage    = lazy(() => import("./pages/DriverSetupPage"));
+const ProfilePage        = lazy(() => import("./pages/ProfilePage"));
+const RatingPage         = lazy(() => import("./pages/RatingPage"));
+const AdminPanel         = lazy(() => import("./pages/AdminPanel"));
 
 function PrivateRoute({ children }) {
     const { user, loading } = useAuth();
@@ -40,6 +44,7 @@ function AppRoutes() {
             <a href="#main-content" className="skip-nav">דלג לתוכן הראשי</a>
             {user && <Navbar />}
             <main id="main-content">
+                <Suspense fallback={<div className="spinner" aria-label="טוען..." />}>
                 <Routes>
                     <Route path="/login"          element={<LoginPage />} />
                     <Route path="/register"        element={<RegisterPage />} />
@@ -59,6 +64,7 @@ function AppRoutes() {
 
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
+                </Suspense>
             </main>
         </>
     );
@@ -66,12 +72,14 @@ function AppRoutes() {
 
 export default function App() {
     return (
-        <LanguageProvider>
-            <AuthProvider>
-                <BrowserRouter>
-                    <AppRoutes />
-                </BrowserRouter>
-            </AuthProvider>
-        </LanguageProvider>
+        <Provider store={store}>
+            <LanguageProvider>
+                <AuthProvider>
+                    <BrowserRouter>
+                        <AppRoutes />
+                    </BrowserRouter>
+                </AuthProvider>
+            </LanguageProvider>
+        </Provider>
     );
 }

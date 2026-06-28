@@ -15,8 +15,9 @@ async function registerDriver(req, res) {
             userId, licenseNumber, spokenLanguages, hobbies, preferredMusic, gender
         });
 
-        // Update user role
-        await User.findByIdAndUpdate(userId, { role: "driver" });
+        const existingUser = await User.findById(userId);
+        const newRole = (existingUser?.role === "passenger" || existingUser?.role === "both") ? "both" : "driver";
+        await User.findByIdAndUpdate(userId, { role: newRole });
 
         res.status(201).json({ message: "Driver registered successfully", driver });
     } catch (error) {
@@ -78,6 +79,12 @@ async function updateDriver(req, res) {
 async function updateDriverStatus(req, res) {
     try {
         const { status } = req.body;
+        if (status === "available") {
+            const driverCheck = await DriverProfile.findById(req.params.id);
+            if (driverCheck && !driverCheck.isVerified) {
+                return res.status(403).json({ error: "Driver must be verified before becoming available" });
+            }
+        }
         const driver = await DriverProfile.findByIdAndUpdate(
             req.params.id, { status }, { new: true, runValidators: true }
         );

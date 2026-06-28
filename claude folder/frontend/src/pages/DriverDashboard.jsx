@@ -51,6 +51,7 @@ export default function DriverDashboard() {
     const [loading,     setLoading]     = useState(true);
     const [driverLoc,   setDriverLoc]   = useState(null);
     const [popup,       setPopup]       = useState(null);
+    const [vehicle,     setVehicle]     = useState(null);
     const socketRef = useRef(null);
 
     const fetchAll = async () => {
@@ -64,6 +65,9 @@ export default function DriverDashboard() {
             setOpenRides(ridesRes.data || []);
 
             if (found) {
+                api.get(`/vehicles/driver/${found._id}`).then(r => {
+                    if (r.data?.length > 0) setVehicle(r.data[0]);
+                }).catch(() => {});
                 const [alertRes, ratingRes] = await Promise.all([
                     api.get(`/driver-alerts/driver/${found._id}`).catch(() => ({ data: [] })),
                     api.get(`/ratings/driver/${found._id}`).catch(() => ({ data: [] }))
@@ -120,7 +124,7 @@ export default function DriverDashboard() {
     const acceptRide = async (rideId) => {
         if (!driver) return;
         try {
-            await api.put(`/rides/${rideId}/accept`, { driverId: driver._id });
+            await api.put(`/rides/${rideId}/accept`, { driverId: driver._id, vehicleId: vehicle?._id || null });
             setPopup(null);
             navigate(`/ride/${rideId}`);
         } catch (err) {

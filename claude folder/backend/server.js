@@ -50,7 +50,11 @@ async function autoCancelStaleRides() {
 
         const staleRides = await Ride.find({
             status: "searching",
-            createdAt: { $lt: cutoff }
+            createdAt: { $lt: cutoff },
+            $or: [
+                { scheduledTime: null },
+                { scheduledTime: { $lt: new Date() } }
+            ]
         });
 
         for (const ride of staleRides) {
@@ -90,7 +94,11 @@ async function notifyNearbyDrivers() {
 
         const recentRides = await Ride.find({
             status: "searching",
-            createdAt: { $gte: new Date(Date.now() - 20 * 1000) }
+            createdAt: { $gte: new Date(Date.now() - 20 * 1000) },
+            $or: [
+                { scheduledTime: null },
+                { scheduledTime: { $lte: new Date(Date.now() + 15 * 60 * 1000) } }
+            ]
         });
 
         if (recentRides.length === 0) return;

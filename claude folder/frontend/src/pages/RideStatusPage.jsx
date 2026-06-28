@@ -76,7 +76,7 @@ export default function RideStatusPage() {
             // Status-change notifications
             if (prevStatus.current && prevStatus.current !== data.status) {
                 if (data.status === "driver_arriving") {
-                    if (Notification.permission === "granted") {
+                    if ("Notification" in window && Notification.permission === "granted") {
                         new Notification("HailNow 🚕", { body: "הנהג בדרך אליך!" });
                     }
                 }
@@ -114,8 +114,7 @@ export default function RideStatusPage() {
         fetchRide();
         const poll = setInterval(fetchRide, 6000);
 
-        // Request notification permission
-        if (Notification.permission === "default") Notification.requestPermission();
+        if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
 
         const socket = io("http://localhost:5000");
         socketRef.current = socket;
@@ -169,7 +168,7 @@ export default function RideStatusPage() {
         const reason = window.prompt("תאר את הבעיה:");
         if (!reason) return;
         await api.post("/notifications", {
-            userId: "admin", type: "system",
+            userId: user?.userId, type: "system",
             title: "תלונה על נסיעה", body: `נסיעה ${id}: ${reason}`, rideId: id
         }).catch(() => {});
         alert("תלונתך נקלטה. צוות שלנו יבדוק בהקדם.");

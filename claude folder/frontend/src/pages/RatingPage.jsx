@@ -37,7 +37,7 @@ export default function RatingPage() {
         try {
             await api.post("/ratings", {
                 rideId:      id,
-                passengerId: user?.userId,
+                passengerId: user?.passengerId || user?.userId,
                 driverId:    ride?.driverId?._id || ride?.driverId,
                 rating:      stars,
                 comment,

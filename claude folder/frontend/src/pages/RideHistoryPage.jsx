@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSelector, useDispatch } from "react-redux";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
-import api from "../api/axios";
+import { fetchRides, cancelRide as cancelRideThunk } from "../store/ridesSlice";
 
 export default function RideHistoryPage() {
     const { user }     = useAuth();
@@ -25,21 +26,16 @@ export default function RideHistoryPage() {
         { key: "cancelled", label: "❌ " + "בוטלו" },
         { key: "scheduled", label: "📅 " + "מתוכננות" }
     ];
-    const navigate     = useNavigate();
-    const [rides,      setRides]  = useState([]);
-    const [filter,     setFilter] = useState("all");
-    const [loading,    setLoading] = useState(true);
-    const [totalSpent, setTotalSpent] = useState(0);
+    const navigate = useNavigate();
+    const dispatch = useDispatch();
+    const { items: rides, loading } = useSelector(state => state.rides);
+    const [filter, setFilter] = useState("all");
+
+    const totalSpent = rides.filter(r => r.status === "completed").reduce((sum, r) => sum + (r.finalPrice || 0), 0);
 
     useEffect(() => {
-        (async () => {
-            try {
-                const { data } = await api.get("/rides");
-                setRides(data || []);
-                setTotalSpent(data.filter(r => r.status === "completed").reduce((sum, r) => sum + (r.finalPrice || 0), 0));
-            } finally { setLoading(false); }
-        })();
-    }, []);
+        dispatch(fetchRides());
+    }, [dispatch]);
 
     const filtered = rides.filter(r => {
         if (filter === "all") return true;
@@ -50,8 +46,7 @@ export default function RideHistoryPage() {
     const cancelRide = async (rideId, e) => {
         e.stopPropagation();
         if (!window.confirm("לבטל את הנסיעה?")) return;
-        await api.put(`/rides/${rideId}/cancel`, { cancelledBy: "passenger" });
-        setRides(rs => rs.map(r => r._id === rideId ? { ...r, status: "cancelled" } : r));
+        dispatch(cancelRideThunk({ rideId, cancelledBy: "passenger" }));
     };
 
     if (loading) return <div className="spinner" />;

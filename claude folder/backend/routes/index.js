@@ -4,6 +4,10 @@ const express  = require("express");
 const router   = express.Router();
 const upload   = require("../middleware/upload");
 const { auth, adminOnly } = require("../middleware/auth");
+const validate = require("../middleware/validate");
+const { registerSchema, loginSchema, googleLoginSchema, forgotPasswordSchema, resetPasswordSchema, updateUserSchema, changePasswordSchema } = require("../validators/userValidators");
+const { createRideSchema, acceptRideSchema, cancelRideSchema } = require("../validators/rideValidators");
+const { createRatingSchema } = require("../validators/ratingValidators");
 
 const userController         = require("../controllers/userController");
 const rideController         = require("../controllers/rideController");
@@ -21,10 +25,11 @@ const uploadController       = require("../controllers/uploadController");
 const translateController    = require("../controllers/translateController");
 
 // ── Public Auth Routes (no auth needed) ──────────────────────────────────────
-router.post("/users/register",        userController.register);
-router.post("/users/login",           userController.login);
-router.post("/users/forgot-password", userController.forgotPassword);
-router.post("/users/reset-password",  userController.resetPassword);
+router.post("/users/register",        validate(registerSchema),       userController.register);
+router.post("/users/login",           validate(loginSchema),           userController.login);
+router.post("/users/google-login",    validate(googleLoginSchema),     userController.googleLogin);
+router.post("/users/forgot-password", validate(forgotPasswordSchema),  userController.forgotPassword);
+router.post("/users/reset-password",  validate(resetPasswordSchema),   userController.resetPassword);
 
 // ── Public: check if email exists (for registration) ─────────────────────────
 router.post("/users/check-email", async (req, res) => {
@@ -41,8 +46,8 @@ router.use(auth);
 // ── Users (authenticated) ────────────────────────────────────────────────────
 router.get   ("/users",                    auth, adminOnly, userController.getAllUsers);
 router.get   ("/users/:id",               userController.getUserById);
-router.put   ("/users/:id",               userController.updateUser);
-router.put   ("/users/:id/password",       userController.changePassword);
+router.put   ("/users/:id",               validate(updateUserSchema),       userController.updateUser);
+router.put   ("/users/:id/password",       validate(changePasswordSchema),   userController.changePassword);
 router.delete("/users/:id",               auth, adminOnly, userController.deleteUser);
 
 // ── Google Maps / Pricing ────────────────────────────────────────────────────
@@ -95,14 +100,14 @@ router.post("/points/redeem", async (req, res) => {
 });
 
 // ── Rides ────────────────────────────────────────────────────────────────────
-router.post  ("/rides",                     rideController.createRide);
+router.post  ("/rides",                     validate(createRideSchema),  rideController.createRide);
 router.get   ("/rides",                     rideController.getAllRides);
 router.get   ("/rides/:id",                 rideController.getRideById);
-router.put   ("/rides/:id/accept",          rideController.acceptRide);
+router.put   ("/rides/:id/accept",          validate(acceptRideSchema),  rideController.acceptRide);
 router.put   ("/rides/:id/driver-arriving", rideController.driverArriving);
 router.put   ("/rides/:id/start",           rideController.startRide);
 router.put   ("/rides/:id/complete",        rideController.completeRide);
-router.put   ("/rides/:id/cancel",          rideController.cancelRide);
+router.put   ("/rides/:id/cancel",          validate(cancelRideSchema),  rideController.cancelRide);
 
 // ── Drivers ──────────────────────────────────────────────────────────────────
 router.post  ("/drivers",                   driverController.registerDriver);
@@ -139,7 +144,7 @@ router.put   ("/payments/:id/status",       paymentController.updatePaymentStatu
 router.put   ("/payments/:id/refund",       paymentController.refundPayment);
 
 // ── Ratings ──────────────────────────────────────────────────────────────────
-router.post  ("/ratings",                          ratingController.createRating);
+router.post  ("/ratings",                          validate(createRatingSchema),  ratingController.createRating);
 router.get   ("/ratings",                          ratingController.getAllRatings);
 router.get   ("/ratings/driver/:driverId",         ratingController.getRatingsByDriver);
 router.get   ("/ratings/passenger/:passengerId",   ratingController.getRatingsByPassenger);

@@ -1,6 +1,6 @@
 // src/components/Navbar.jsx
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
@@ -151,7 +151,7 @@ function NotificationsBtn({ userId, t }) {
     );
 }
 
-export default function Navbar() {
+function Navbar() {
     const { user, logout } = useAuth();
     const { t } = useLang();
     const navigate = useNavigate();
@@ -192,3 +192,5 @@ export default function Navbar() {
         </nav>
     );
 }
+
+export default React.memo(Navbar);
