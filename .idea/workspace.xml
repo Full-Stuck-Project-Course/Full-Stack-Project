@@ -6,11 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="e52d2a56-f49c-4631-81a3-34d8b4c6bdb4" name="Changes" comment="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/build/asset-manifest.json" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/build/asset-manifest.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/build/static/css/main.c9279b57.css" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/build/static/css/main.c9279b57.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/build/static/js/main.1399aa7c.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/build/static/js/main.1399aa7c.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/build/static/js/main.1399aa7c.js.LICENSE.txt" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/build/static/js/main.1399aa7c.js.LICENSE.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/build/static/js/main.1399aa7c.js.map" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/build/static/js/main.1399aa7c.js.map" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -168,6 +163,8 @@
       <workItem from="1782221763521" duration="7020000" />
       <workItem from="1782311512297" duration="656000" />
       <workItem from="1782327954942" duration="1268000" />
+      <workItem from="1782671792863" duration="764000" />
+      <workItem from="1782675269977" duration="230000" />
     </task>
     <task id="LOCAL‎-00001" summary="remove syllabus file">
       <option name="closed" value="true" />
@@ -369,7 +366,15 @@
       <option name="project" value="LOCAL‎" />
       <updated>1782311559289</updated>
     </task>
-    <option name="localTasksCounter" value="26" />
+    <task id="LOCAL‎-00026" summary="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
+      <option name="closed" value="true" />
+      <created>1782671829786</created>
+      <option name="number" value="00026" />
+      <option name="presentableId" value="LOCAL‎-00026" />
+      <option name="project" value="LOCAL‎" />
+      <updated>1782671829786</updated>
+    </task>
+    <option name="localTasksCounter" value="27" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
