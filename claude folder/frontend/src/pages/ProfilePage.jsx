@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
+import { assetUrl } from "../api/assets";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 640, margin: "0 auto" },
@@ -152,7 +153,7 @@ export default function ProfilePage() {
                 <div style={{ display: "flex", gap: 20, alignItems: "center", marginBottom: 16 }}>
                     <label style={s.avatar} title="לחץ לשינוי תמונה">
                         {profile?.profileImage
-                            ? <img src={`http://localhost:5000${profile.profileImage}`} alt="תמונת פרופיל" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            ? <img src={assetUrl(profile.profileImage)} alt="תמונת פרופיל" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                             : <span>{profile?.fullName?.[0] || "?"}</span>
                         }
                         <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleProfilePhoto} />
@@ -236,7 +237,7 @@ export default function ProfilePage() {
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>🪪 {"העלה תעודת זהות"}</div>
                 {profile?.idPhotoPath ? (
                     <div>
-                        <img src={`http://localhost:5000${profile.idPhotoPath}`} alt="תעודת זהות"
+                        <img src={assetUrl(profile.idPhotoPath)} alt="תעודת זהות"
                             style={{ maxHeight: 140, borderRadius: 8, objectFit: "cover", marginBottom: 10 }} />
                         <div style={s.verifyBadge(verifyStatus)}>
                             {VERIFY_ICONS[verifyStatus]} {VERIFY_LABELS[verifyStatus]}

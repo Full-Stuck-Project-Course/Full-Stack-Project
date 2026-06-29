@@ -45,6 +45,7 @@ const updateUserSchema = Joi.object({
     phone:             Joi.string().optional(),
     preferredLanguage: Joi.string().valid("he", "en").optional(),
     profileImage:      Joi.string().optional(),
+    role:              Joi.string().valid("passenger", "driver", "both", "admin").optional(),
 });
 
 const changePasswordSchema = Joi.object({

@@ -193,7 +193,7 @@ export default function PassengerDashboard() {
                                 const address = document.getElementById("addr-address").value;
                                 if (!address) return;
                                 try {
-                                    await api.post(`/passengers/${passenger._id}/saved-locations`, { name, address, lat: 0, lng: 0 });
+                                    await api.post(`/passengers/${passenger._id}/saved-locations`, { name, address, lat: null, lng: null });
                                     const { data: pData } = await api.get(`/passengers/${passenger._id}`);
                                     setPassenger(pData);
                                     document.getElementById("addr-address").value = "";

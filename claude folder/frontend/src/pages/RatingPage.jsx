@@ -2,14 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
 export default function RatingPage() {
     const { id }       = useParams();
     const navigate     = useNavigate();
-    const { user }     = useAuth();
     const { t }        = useLang();
     const TAGS = ["נסיעה נעימה", "נהיגה בטוחה", "ניקיון", "שיחה נעימה", "זמן הגעה", "מוזיקה טובה"];
     const [ride,       setRide]     = useState(null);
@@ -37,8 +35,6 @@ export default function RatingPage() {
         try {
             await api.post("/ratings", {
                 rideId:      id,
-                passengerId: user?.passengerId || user?.userId,
-                driverId:    ride?.driverId?._id || ride?.driverId,
                 rating:      stars,
                 comment,
                 tags,

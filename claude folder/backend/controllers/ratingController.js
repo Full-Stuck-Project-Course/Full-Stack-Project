@@ -3,11 +3,39 @@
 const Rating = require("../db/models/rating");
 const DriverProfile = require("../db/models/DriverProfile");
 const PassengerProfile = require("../db/models/PassengerProfile");
+const Ride = require("../db/models/Ride");
+const User = require("../db/models/User");
+const {
+    sameId,
+    isAdmin,
+    getPassengerProfileForUser,
+    getDriverProfileForUser,
+    canAccessPassenger,
+    canAccessDriver,
+    forbidden
+} = require("../utils/authz");
 
 // POST /ratings
 async function createRating(req, res) {
     try {
-        const { rideId, passengerId, driverId, rating, comment, complaint, tags, wouldRideAgain } = req.body;
+        const { rideId, rating, comment, complaint, tags, wouldRideAgain } = req.body;
+
+        const ride = await Ride.findById(rideId);
+        if (!ride) return res.status(404).json({ error: "Ride not found" });
+        if (ride.status !== "completed") {
+            return res.status(400).json({ error: "Only completed rides can be rated" });
+        }
+
+        if (!isAdmin(req)) {
+            const passenger = await getPassengerProfileForUser(req.user.userId);
+            if (!passenger || !sameId(passenger._id, ride.passengerId)) {
+                return forbidden(res, "Only the passenger of this ride can rate it");
+            }
+        }
+
+        const passengerId = ride.passengerId;
+        const driverId = ride.driverId;
+        if (!driverId) return res.status(400).json({ error: "Ride has no assigned driver" });
 
         // Prevent duplicate rating for same ride
         const existing = await Rating.findOne({ rideId });
@@ -23,11 +51,16 @@ async function createRating(req, res) {
         await DriverProfile.findByIdAndUpdate(driverId, { ratingAverage: Math.round(avg * 10) / 10 });
 
         // Award loyalty points to passenger
-        const User = require("../db/models/User");
         const passengerProfile = await PassengerProfile.findById(passengerId);
         if (passengerProfile) {
-            await PassengerProfile.findByIdAndUpdate(passengerId, { $inc: { loyaltyPoints: 10 } });
-            await User.findByIdAndUpdate(passengerProfile.userId, { $inc: { loyaltyPoints: 10 } });
+            const updatedUser = await User.findByIdAndUpdate(
+                passengerProfile.userId,
+                { $inc: { loyaltyPoints: 10 } },
+                { new: true }
+            );
+            await PassengerProfile.findByIdAndUpdate(passengerId, {
+                loyaltyPoints: updatedUser?.loyaltyPoints || passengerProfile.loyaltyPoints + 10
+            });
         }
 
         res.status(201).json({ message: "Rating submitted", rating: newRating });
@@ -39,6 +72,7 @@ async function createRating(req, res) {
 // GET /ratings
 async function getAllRatings(req, res) {
     try {
+        if (!isAdmin(req)) return forbidden(res, "Admin access required");
         const ratings = await Rating.find()
             .populate("rideId")
             .populate("passengerId")
@@ -52,6 +86,9 @@ async function getAllRatings(req, res) {
 // GET /ratings/driver/:driverId
 async function getRatingsByDriver(req, res) {
     try {
+        if (!isAdmin(req) && !await canAccessDriver(req, req.params.driverId)) {
+            return forbidden(res);
+        }
         const ratings = await Rating.find({ driverId: req.params.driverId })
             .populate("rideId")
             .populate("passengerId");
@@ -64,6 +101,9 @@ async function getRatingsByDriver(req, res) {
 // GET /ratings/passenger/:passengerId
 async function getRatingsByPassenger(req, res) {
     try {
+        if (!await canAccessPassenger(req, req.params.passengerId)) {
+            return forbidden(res);
+        }
         const ratings = await Rating.find({ passengerId: req.params.passengerId })
             .populate("rideId")
             .populate("driverId");
@@ -76,6 +116,17 @@ async function getRatingsByPassenger(req, res) {
 // GET /ratings/ride/:rideId
 async function getRatingByRide(req, res) {
     try {
+        const ride = await Ride.findById(req.params.rideId);
+        if (!ride) return res.status(404).json({ error: "Ride not found" });
+        if (!isAdmin(req)) {
+            const [passenger, driver] = await Promise.all([
+                getPassengerProfileForUser(req.user.userId),
+                getDriverProfileForUser(req.user.userId)
+            ]);
+            const allowed = (passenger && sameId(passenger._id, ride.passengerId)) ||
+                (driver && sameId(driver._id, ride.driverId));
+            if (!allowed) return forbidden(res);
+        }
         const rating = await Rating.findOne({ rideId: req.params.rideId })
             .populate("passengerId")
             .populate("driverId");

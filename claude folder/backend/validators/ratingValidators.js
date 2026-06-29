@@ -2,8 +2,8 @@ const Joi = require("joi");
 
 const createRatingSchema = Joi.object({
     rideId:        Joi.string().required(),
-    passengerId:   Joi.string().required(),
-    driverId:      Joi.string().required(),
+    passengerId:   Joi.string().optional(),
+    driverId:      Joi.string().optional(),
     rating:        Joi.number().min(1).max(5).required(),
     comment:       Joi.string().max(500).optional().allow(""),
     complaint:     Joi.string().max(1000).optional().allow(""),

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
+import { assetUrl } from "../api/assets";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 860, margin: "0 auto" },
@@ -77,7 +78,7 @@ export default function AdminPanel() {
                         <div key={user._id} style={s.itemRow}>
                             <div style={{ display: "flex", gap: 14, alignItems: "center", flex: 1 }}>
                                 {user.idPhotoPath && (
-                                    <img src={`http://localhost:5000${user.idPhotoPath}`} alt="ת.ז." style={s.img} />
+                                    <img src={assetUrl(user.idPhotoPath)} alt="ת.ז." style={s.img} />
                                 )}
                                 <div>
                                     <div style={{ fontWeight: 600 }}>{user.fullName}</div>
@@ -110,7 +111,7 @@ export default function AdminPanel() {
                         <div key={driver._id} style={s.itemRow}>
                             <div style={{ display: "flex", gap: 14, alignItems: "center", flex: 1 }}>
                                 {driver.licenseImagePath && (
-                                    <img src={`http://localhost:5000${driver.licenseImagePath}`} alt="רישיון" style={s.img} />
+                                    <img src={assetUrl(driver.licenseImagePath)} alt="רישיון" style={s.img} />
                                 )}
                                 <div>
                                     <div style={{ fontWeight: 600 }}>{driver.userId?.fullName || "נהג"}</div>

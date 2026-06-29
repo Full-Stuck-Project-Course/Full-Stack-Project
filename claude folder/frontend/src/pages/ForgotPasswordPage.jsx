@@ -26,6 +26,7 @@ export default function ForgotPasswordPage() {
     const [error,    setError]    = useState("");
     const [loading,  setLoading]  = useState(false);
     const [resetLink, setResetLink] = useState("");
+    const [submitted, setSubmitted] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -35,7 +36,8 @@ export default function ForgotPasswordPage() {
         setLoading(true);
         try {
             const { data } = await api.post("/users/forgot-password", { email });
-            setResetLink(data.resetLink);
+            setResetLink(data.resetLink || "");
+            setSubmitted(true);
         } catch (err) {
             setError(err.response?.data?.error || "שגיאה");
         } finally {
@@ -50,7 +52,7 @@ export default function ForgotPasswordPage() {
                 <h1 style={s.title}>{"שכחת סיסמה?"}</h1>
                 <p style={s.sub}>{"הזן את האימייל שלך ונשלח לך קישור לאיפוס הסיסמה."}</p>
 
-                {!resetLink ? (
+                {!submitted ? (
                     <form onSubmit={handleSubmit} noValidate>
                         <div style={s.group}>
                             <label style={s.label} htmlFor="forgot-email">{"אימייל"}</label>
@@ -74,14 +76,14 @@ export default function ForgotPasswordPage() {
                         <p style={{ fontSize: 13, color: "#166534", marginBottom: 14, lineHeight: 1.6 }}>
                             {"בסביבת פיתוח הקישור מוצג כאן. בפרודקשן היה נשלח לאימייל."}
                         </p>
-                        <Link to={resetLink.replace("http://localhost:3000", "")}
+                        {resetLink && <Link to={resetLink.replace("http://localhost:3000", "")}
                             style={{
                                 display: "block", background: "#166534", color: "#fff",
                                 padding: "10px 16px", borderRadius: 8, textAlign: "center",
                                 fontWeight: 700, fontSize: 14
                             }}>
                             {"לחץ כאן לאיפוס הסיסמה"} →
-                        </Link>
+                        </Link>}
                     </div>
                 )}
 

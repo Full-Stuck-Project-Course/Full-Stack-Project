@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 import MapComponent from "../components/MapComponent";
-import { io } from "socket.io-client";
+import { createSocket } from "../api/socket";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 620, margin: "0 auto" },
@@ -116,7 +116,7 @@ export default function RideStatusPage() {
 
         if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
 
-        const socket = io("http://localhost:5000");
+        const socket = createSocket();
         socketRef.current = socket;
         socket.emit("join-ride", id);
 
@@ -146,7 +146,7 @@ export default function RideStatusPage() {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(pos => {
                 socketRef.current?.emit("sos", {
-                    rideId: id, userId: user?.userId,
+                    rideId: id,
                     lat: pos.coords.latitude, lng: pos.coords.longitude
                 });
             });

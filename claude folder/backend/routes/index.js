@@ -4,6 +4,7 @@ const express  = require("express");
 const router   = express.Router();
 const upload   = require("../middleware/upload");
 const { auth, adminOnly } = require("../middleware/auth");
+const { sameId } = require("../utils/authz");
 const validate = require("../middleware/validate");
 const { registerSchema, loginSchema, googleLoginSchema, forgotPasswordSchema, resetPasswordSchema, updateUserSchema, changePasswordSchema } = require("../validators/userValidators");
 const { createRideSchema, acceptRideSchema, cancelRideSchema } = require("../validators/rideValidators");
@@ -62,7 +63,7 @@ router.get("/maps/driver-eta",       mapsController.getDriverETA);
 router.post("/file", upload.single("file"), (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
     const base = "http://" + (process.env.DOMAIN_BASE || "localhost") + ":" + (process.env.PORT || 5000) + "/";
-    res.status(200).json({ url: base + req.file.path.replace(/\\/g, "/") });
+    res.status(200).json({ url: base + "public/" + req.file.filename });
 });
 
 // ── Uploads ──────────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ router.post("/translate/batch", translateController.translateBatch);
 router.post("/points/redeem", async (req, res) => {
     try {
         const { userId, pointsToRedeem } = req.body;
-        if (req.user.userId !== userId) return res.status(403).json({ error: "Cannot redeem points for another user" });
+        if (!sameId(req.user.userId, userId)) return res.status(403).json({ error: "Cannot redeem points for another user" });
 
         const User = require("../db/models/User");
         const user = await User.findById(userId);
@@ -92,6 +93,11 @@ router.post("/points/redeem", async (req, res) => {
         const discount = pointsToRedeem * 0.1;
         user.loyaltyPoints -= pointsToRedeem;
         await user.save();
+        const PassengerProfile = require("../db/models/PassengerProfile");
+        await PassengerProfile.findOneAndUpdate(
+            { userId },
+            { loyaltyPoints: user.loyaltyPoints }
+        );
 
         res.json({ discount, remainingPoints: user.loyaltyPoints });
     } catch (error) {

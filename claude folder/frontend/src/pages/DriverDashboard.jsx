@@ -6,7 +6,7 @@ import { useLang } from "../context/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import MapComponent from "../components/MapComponent";
-import { io } from "socket.io-client";
+import { createSocket } from "../api/socket";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 860, margin: "0 auto" },
@@ -52,6 +52,8 @@ export default function DriverDashboard() {
     const [driverLoc,   setDriverLoc]   = useState(null);
     const [popup,       setPopup]       = useState(null);
     const [vehicle,     setVehicle]     = useState(null);
+    const [statusError, setStatusError] = useState("");
+    const [statusSaving, setStatusSaving] = useState(false);
     const socketRef = useRef(null);
 
     const fetchAll = async () => {
@@ -103,7 +105,7 @@ export default function DriverDashboard() {
 
     // Socket.io for real-time ride request popups
     useEffect(() => {
-        const socket = io("http://localhost:5000");
+        const socket = createSocket();
         socketRef.current = socket;
         if (driver) socket.emit("join-driver", driver._id);
 
@@ -117,14 +119,32 @@ export default function DriverDashboard() {
 
     const setStatus = async (status) => {
         if (!driver) return;
-        await api.put(`/drivers/${driver._id}/status`, { status });
-        setDriver(d => ({ ...d, status }));
+        if (status === "available" && !driver.isVerified) {
+            setStatusError("אי אפשר לעבור לזמין לפני שאדמין מאשר את פרופיל הנהג.");
+            return;
+        }
+
+        try {
+            setStatusError("");
+            setStatusSaving(true);
+            await api.put(`/drivers/${driver._id}/status`, { status });
+            setDriver(d => ({ ...d, status }));
+        } catch (err) {
+            const serverMessage = err.response?.data?.error;
+            setStatusError(
+                serverMessage === "Driver must be verified before becoming available"
+                    ? "אי אפשר לעבור לזמין לפני שאדמין מאשר את פרופיל הנהג."
+                    : serverMessage || "לא ניתן לעדכן סטטוס כרגע."
+            );
+        } finally {
+            setStatusSaving(false);
+        }
     };
 
     const acceptRide = async (rideId) => {
         if (!driver) return;
         try {
-            await api.put(`/rides/${rideId}/accept`, { driverId: driver._id, vehicleId: vehicle?._id || null });
+            await api.put(`/rides/${rideId}/accept`, { vehicleId: vehicle?._id || null });
             setPopup(null);
             navigate(`/ride/${rideId}`);
         } catch (err) {
@@ -220,14 +240,24 @@ export default function DriverDashboard() {
             {/* Status */}
             <div style={s.card}>
                 <div style={{ fontWeight: 700, marginBottom: 12 }}>{"סטטוס זמינות"}</div>
+                {!driver.isVerified && (
+                    <div className="error-msg" style={{ marginBottom: 10 }}>
+                        פרופיל הנהג עדיין לא מאושר. אפשר להיות עסוק או לא מחובר, אבל אי אפשר להיות זמין לקבלת נסיעות עד אישור אדמין.
+                    </div>
+                )}
+                {statusError && <div className="error-msg" style={{ marginBottom: 10 }}>{statusError}</div>}
                 <div style={{ display: "flex", gap: 8 }}>
-                    {STATUS_OPTS.map(opt => (
-                        <button key={opt.value}
-                            style={s.statusBtn(driver.status === opt.value, opt.color)}
-                            onClick={() => setStatus(opt.value)}>
-                            {opt.label}
-                        </button>
-                    ))}
+                    {STATUS_OPTS.map(opt => {
+                        const disabled = statusSaving || (opt.value === "available" && !driver.isVerified);
+                        return (
+                            <button key={opt.value}
+                                disabled={disabled}
+                                style={{ ...s.statusBtn(driver.status === opt.value, opt.color), opacity: disabled ? 0.55 : 1, cursor: disabled ? "not-allowed" : "pointer" }}
+                                onClick={() => setStatus(opt.value)}>
+                                {opt.label}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 

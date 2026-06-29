@@ -1,13 +1,18 @@
 const Joi = require("joi");
 
 const locationSchema = Joi.object({
-    address: Joi.string().required(),
-    lat:     Joi.number().required(),
-    lng:     Joi.number().required(),
+    address: Joi.string().trim().min(2).required(),
+    lat:     Joi.number().min(-90).max(90).required(),
+    lng:     Joi.number().min(-180).max(180).required(),
+}).custom((value, helpers) => {
+    if (Number(value.lat) === 0 && Number(value.lng) === 0) {
+        return helpers.error("any.invalid");
+    }
+    return value;
 });
 
 const createRideSchema = Joi.object({
-    passengerId:              Joi.string().required(),
+    passengerId:              Joi.string().optional(),
     rideType:                 Joi.string().valid("ride", "delivery", "carpool").optional(),
     pickupLocation:           locationSchema.required(),
     destinationLocation:      locationSchema.required(),
@@ -22,7 +27,7 @@ const createRideSchema = Joi.object({
 });
 
 const acceptRideSchema = Joi.object({
-    driverId:  Joi.string().required(),
+    driverId:  Joi.string().optional(),
     vehicleId: Joi.string().optional().allow(null, ""),
 });
 

@@ -3,8 +3,13 @@
 require("dotenv").config();
 const http   = require("http");
 const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
 const app    = require("./app");
 const connectMongo = require("./db/mongo");
+const Ride = require("./db/models/Ride");
+const PassengerProfile = require("./db/models/PassengerProfile");
+const DriverProfile = require("./db/models/DriverProfile");
+const { sameId } = require("./utils/authz");
 
 const PORT = process.env.PORT || 5000;
 
@@ -16,25 +21,80 @@ const io = new Server(server, {
 
 app.set("io", io);
 
+io.use((socket, next) => {
+    try {
+        const authHeader = socket.handshake.headers?.authorization || "";
+        const token = socket.handshake.auth?.token ||
+            (authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null);
+        if (!token) return next(new Error("Authentication required"));
+        socket.user = jwt.verify(token, process.env.JWT_SECRET);
+        next();
+    } catch {
+        next(new Error("Invalid or expired token"));
+    }
+});
+
+async function getSocketProfiles(socket) {
+    const [passenger, driver] = await Promise.all([
+        PassengerProfile.findOne({ userId: socket.user.userId }),
+        DriverProfile.findOne({ userId: socket.user.userId })
+    ]);
+    return { passenger, driver };
+}
+
+async function canAccessRide(socket, rideId) {
+    const ride = await Ride.findById(rideId);
+    if (!ride) return { allowed: false, ride: null };
+    if (socket.user.role === "admin") return { allowed: true, ride };
+
+    const { passenger, driver } = await getSocketProfiles(socket);
+    const allowed = (passenger && sameId(passenger._id, ride.passengerId)) ||
+        (driver && sameId(driver._id, ride.driverId));
+    return { allowed, ride, passenger, driver };
+}
+
+function socketError(socket, message) {
+    socket.emit("socket-error", { error: message });
+}
+
 io.on("connection", (socket) => {
-    socket.on("join-ride", (rideId) => {
+    socket.on("join-ride", async (rideId) => {
+        const { allowed } = await canAccessRide(socket, rideId);
+        if (!allowed) return socketError(socket, "Access denied");
         socket.join(`ride:${rideId}`);
     });
 
-    socket.on("driver-location", ({ rideId, lat, lng }) => {
+    socket.on("driver-location", async ({ rideId, lat, lng }) => {
+        const { allowed, ride, driver } = await canAccessRide(socket, rideId);
+        if (!allowed || (socket.user.role !== "admin" && (!driver || !sameId(driver._id, ride.driverId)))) {
+            return socketError(socket, "Access denied");
+        }
         io.to(`ride:${rideId}`).emit("location-update", { lat, lng, timestamp: new Date() });
     });
 
-    socket.on("chat-message", ({ rideId, message, sender, senderName }) => {
-        io.to(`ride:${rideId}`).emit("new-message", { message, sender, senderName, timestamp: new Date() });
+    socket.on("chat-message", async ({ rideId, message, senderName }) => {
+        const { allowed } = await canAccessRide(socket, rideId);
+        if (!allowed) return socketError(socket, "Access denied");
+        io.to(`ride:${rideId}`).emit("new-message", {
+            message,
+            sender: socket.user.userId,
+            senderName,
+            timestamp: new Date()
+        });
     });
 
-    socket.on("join-driver", (driverId) => {
+    socket.on("join-driver", async (driverId) => {
+        if (socket.user.role !== "admin") {
+            const driver = await DriverProfile.findOne({ userId: socket.user.userId });
+            if (!driver || !sameId(driver._id, driverId)) return socketError(socket, "Access denied");
+        }
         socket.join(`driver:${driverId}`);
     });
 
-    socket.on("sos", ({ rideId, lat, lng, userId }) => {
-        io.emit("sos-alert", { rideId, lat, lng, userId, timestamp: new Date() });
+    socket.on("sos", async ({ rideId, lat, lng }) => {
+        const { allowed } = await canAccessRide(socket, rideId);
+        if (!allowed) return socketError(socket, "Access denied");
+        io.emit("sos-alert", { rideId, lat, lng, userId: socket.user.userId, timestamp: new Date() });
         console.warn("🚨 SOS ALERT from ride:", rideId, "at", lat, lng);
     });
 
@@ -64,8 +124,11 @@ async function autoCancelStaleRides() {
             ride.cancelledAt = new Date();
             await ride.save();
 
+            const passenger = await PassengerProfile.findById(ride.passengerId);
+            if (!passenger) continue;
+
             await Notification.create({
-                userId: ride.passengerId,
+                userId: passenger.userId,
                 type: "ride_cancelled",
                 title: "הנסיעה בוטלה",
                 body: "הנסיעה בוטלה אוטומטית כי לא נמצא נהג תוך 30 דקות. אנא נסה שוב.",
@@ -103,7 +166,7 @@ async function notifyNearbyDrivers() {
 
         if (recentRides.length === 0) return;
 
-        const availableDrivers = await DriverProfile.find({ status: "available" });
+        const availableDrivers = await DriverProfile.find({ status: "available", isVerified: true });
 
         for (const ride of recentRides) {
             if (!ride.pickupLocation?.lat) continue;

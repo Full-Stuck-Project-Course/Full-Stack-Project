@@ -9,8 +9,17 @@ const VEHICLE_RATES = {
     van:      { perKm: 5.0, perMin: 0.9, minimum: 30, label: "מיניוואן" }
 };
 
+function getLocalHour(date = new Date()) {
+    const timeZone = process.env.APP_TIME_ZONE || "Asia/Jerusalem";
+    return Number(new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "2-digit",
+        hour12: false
+    }).format(date));
+}
+
 function calcSurge() {
-    const h = new Date().getHours();
+    const h = getLocalHour();
     if ((h >= 7 && h <= 9) || (h >= 16 && h <= 19)) return 1.5;
     if (h >= 23 || h <= 5) return 1.2;
     return 1.0;
@@ -134,10 +143,14 @@ async function getDemandInfo(req, res) {
 
         const recentRides = await Ride.find({
             status: "searching",
-            createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) }
+            createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) },
+            $or: [
+                { scheduledTime: null },
+                { scheduledTime: { $lte: new Date(Date.now() + 15 * 60 * 1000) } }
+            ]
         });
 
-        const h = new Date().getHours();
+        const h = getLocalHour();
         let demand = "medium";
         let message = "ביקוש בינוני באזורך";
 
@@ -191,7 +204,7 @@ async function getDemandInfo(req, res) {
 
 // GET /api/maps/best-departure
 async function getBestDeparture(req, res) {
-    const h = new Date().getHours();
+    const h = getLocalHour();
     const suggestions = [];
 
     if (h >= 6 && h < 7)  suggestions.push({ time: "06:30", reason: "לפני פקק הבוקר" });
@@ -209,7 +222,7 @@ async function getBestDeparture(req, res) {
 // GET /api/maps/price-prediction
 async function getPricePrediction(req, res) {
     const surge = calcSurge();
-    const h = new Date().getHours();
+    const h = getLocalHour();
     let cheaperSoon = false;
     let cheaperMessage = "";
     let minutesUntilCheaper = 0;

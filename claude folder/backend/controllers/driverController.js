@@ -2,17 +2,47 @@
 
 const DriverProfile = require("../db/models/DriverProfile");
 const User = require("../db/models/User");
+const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
+
+const DRIVER_UPDATE_FIELDS = [
+    "licenseNumber",
+    "spokenLanguages",
+    "hobbies",
+    "preferredMusic",
+    "gender",
+    "licenseExpiry",
+    "acceptsCarpoolRides",
+    "vehicleConditions"
+];
 
 // POST /drivers
 async function registerDriver(req, res) {
     try {
-        const { userId, licenseNumber, spokenLanguages, hobbies, preferredMusic, gender } = req.body;
+        const userId = isAdmin(req) && req.body.userId ? req.body.userId : req.user.userId;
+        const {
+            licenseNumber,
+            spokenLanguages,
+            hobbies,
+            preferredMusic,
+            gender,
+            licenseExpiry,
+            acceptsCarpoolRides,
+            vehicleConditions
+        } = req.body;
 
         const existing = await DriverProfile.findOne({ userId });
         if (existing) return res.status(409).json({ error: "Driver profile already exists for this user" });
 
         const driver = await DriverProfile.create({
-            userId, licenseNumber, spokenLanguages, hobbies, preferredMusic, gender
+            userId,
+            licenseNumber,
+            spokenLanguages,
+            hobbies,
+            preferredMusic,
+            gender,
+            licenseExpiry,
+            acceptsCarpoolRides,
+            vehicleConditions
         });
 
         const existingUser = await User.findById(userId);
@@ -32,6 +62,7 @@ async function getAllDrivers(req, res) {
         const filter = {};
         if (status)     filter.status = status;
         if (isVerified !== undefined) filter.isVerified = isVerified === "true";
+        if (!isAdmin(req)) filter.userId = req.user.userId;
 
         const drivers = await DriverProfile.find(filter).populate("userId", "-passwordHash");
         res.status(200).json(drivers);
@@ -44,7 +75,7 @@ async function getAllDrivers(req, res) {
 async function getAvailableDrivers(req, res) {
     try {
         const drivers = await DriverProfile.find({ status: "available", isVerified: true })
-            .populate("userId", "-passwordHash");
+            .populate("userId", "fullName profileImage preferredLanguage");
         res.status(200).json(drivers);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -54,6 +85,9 @@ async function getAvailableDrivers(req, res) {
 // GET /drivers/:id
 async function getDriverById(req, res) {
     try {
+        if (!await canAccessDriver(req, req.params.id)) {
+            return forbidden(res);
+        }
         const driver = await DriverProfile.findById(req.params.id).populate("userId", "-passwordHash");
         if (!driver) return res.status(404).json({ error: "Driver not found" });
         res.status(200).json(driver);
@@ -65,7 +99,14 @@ async function getDriverById(req, res) {
 // PUT /drivers/:id
 async function updateDriver(req, res) {
     try {
-        const driver = await DriverProfile.findByIdAndUpdate(req.params.id, req.body, {
+        if (!await canAccessDriver(req, req.params.id)) {
+            return forbidden(res);
+        }
+        const update = {};
+        for (const key of DRIVER_UPDATE_FIELDS) {
+            if (req.body[key] !== undefined) update[key] = req.body[key];
+        }
+        const driver = await DriverProfile.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true
         });
         if (!driver) return res.status(404).json({ error: "Driver not found" });
@@ -79,6 +120,9 @@ async function updateDriver(req, res) {
 async function updateDriverStatus(req, res) {
     try {
         const { status } = req.body;
+        if (!await canAccessDriver(req, req.params.id)) {
+            return forbidden(res);
+        }
         if (status === "available") {
             const driverCheck = await DriverProfile.findById(req.params.id);
             if (driverCheck && !driverCheck.isVerified) {
@@ -99,9 +143,15 @@ async function updateDriverStatus(req, res) {
 async function updateLocation(req, res) {
     try {
         const { lat, lng } = req.body;
+        if (!await canAccessDriver(req, req.params.id)) {
+            return forbidden(res);
+        }
+        if (lat == null || lng == null || Number(lat) === 0 && Number(lng) === 0) {
+            return res.status(400).json({ error: "Invalid driver location" });
+        }
         const driver = await DriverProfile.findByIdAndUpdate(
             req.params.id,
-            { currentLocation: { lat, lng } },
+            { currentLocation: { lat, lng, updatedAt: new Date() } },
             { new: true }
         );
         if (!driver) return res.status(404).json({ error: "Driver not found" });

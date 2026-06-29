@@ -54,6 +54,15 @@ const VEHICLE_TYPES = [
     { value: "van",     label: "🚐 מיניוואן" }
 ];
 
+function toLocalDateTimeInputValue(date = new Date()) {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+}
+
+function hasCoordinates(loc) {
+    return loc?.lat != null && loc?.lng != null && !(Number(loc.lat) === 0 && Number(loc.lng) === 0);
+}
+
 export default function BookRidePage() {
     const { user, updateUser } = useAuth();
     const { t }        = useLang();
@@ -149,6 +158,9 @@ export default function BookRidePage() {
         if (!pickup.address) return setError("נא להזין כתובת איסוף");
         if (!dest.address)   return setError("נא להזין כתובת יעד");
 
+        if (!hasCoordinates(pickup)) return setError("נא לבחור כתובת איסוף מהרשימה");
+        if (!hasCoordinates(dest)) return setError("נא לבחור כתובת יעד מהרשימה");
+
         setLoading(true);
         try {
             let discount = 0;
@@ -166,11 +178,10 @@ export default function BookRidePage() {
             const finalPrice = Math.max(0, (priceData?.price || 0) - discount);
 
             const { data } = await api.post("/rides", {
-                passengerId: user.passengerId || user.userId,
                 rideType,
                 vehicleType,
-                pickupLocation:      { address: pickup.address, lat: pickup.lat || 31.7683, lng: pickup.lng || 35.2137 },
-                destinationLocation: { address: dest.address,   lat: dest.lat   || 32.0853, lng: dest.lng   || 34.7818 },
+                pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
+                destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                 passengerCount,
                 scheduledTime: scheduledTime || null,
                 basePrice:  priceData?.price || 0,
@@ -287,7 +298,7 @@ export default function BookRidePage() {
                         <div style={s.group}>
                             <label style={s.label}>{"זמן מתוכנן"} ({"אופציונלי"})</label>
                             <input type="datetime-local" value={scheduledTime}
-                                onChange={e => setSched(e.target.value)} min={new Date().toISOString().slice(0, 16)} />
+                                onChange={e => setSched(e.target.value)} min={toLocalDateTimeInputValue()} />
                         </div>
                     </div>
 

@@ -80,7 +80,10 @@ const driverProfileSchema = new mongoose.Schema({
 
     hobbies: [{ type: String }],
 
-    spokenLanguages: [{ type: String, default: ["he"] }],
+    spokenLanguages: {
+        type: [String],
+        default: ["he"]
+    },
 
     gender: {
         type: String,

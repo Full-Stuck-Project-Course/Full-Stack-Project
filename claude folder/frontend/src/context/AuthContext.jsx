@@ -1,6 +1,7 @@
 // src/context/AuthContext.jsx
 
 import { createContext, useContext, useState, useEffect } from "react";
+import api from "../api/axios";
 
 const AuthContext = createContext(null);
 
@@ -12,7 +13,25 @@ export function AuthProvider({ children }) {
         const token  = localStorage.getItem("token");
         const stored = localStorage.getItem("user");
         if (token && stored) {
-            try { setUser(JSON.parse(stored)); } catch { /* invalid stored data */ }
+            try {
+                const parsed = JSON.parse(stored);
+                api.get(`/users/${parsed.userId}`)
+                    .then(({ data }) => {
+                        const refreshed = { ...parsed, ...data };
+                        localStorage.setItem("user", JSON.stringify(refreshed));
+                        setUser(refreshed);
+                    })
+                    .catch(() => {
+                        localStorage.removeItem("token");
+                        localStorage.removeItem("user");
+                        setUser(null);
+                    })
+                    .finally(() => setLoading(false));
+                return;
+            } catch {
+                localStorage.removeItem("token");
+                localStorage.removeItem("user");
+            }
         }
         setLoading(false);
     }, []);

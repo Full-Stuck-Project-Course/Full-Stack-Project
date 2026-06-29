@@ -6,8 +6,31 @@ const bcrypt           = require("bcryptjs");
 const jwt              = require("jsonwebtoken");
 const crypto           = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
+const DriverProfile    = require("../db/models/DriverProfile");
+const { sameId, isAdmin } = require("../utils/authz");
 
 const googleClient = new OAuth2Client();
+
+async function buildUserResponse(user) {
+    const passengerProfile = await PassengerProfile.findOne({ userId: user._id });
+    const driverProfile = await DriverProfile.findOne({ userId: user._id });
+
+    return {
+        userId: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
+        profileImage: user.profileImage,
+        referralCode: user.referralCode,
+        loyaltyPoints: user.loyaltyPoints || 0,
+        idPhotoPath: user.idPhotoPath,
+        idVerificationStatus: user.idVerificationStatus,
+        passengerId: passengerProfile?._id || null,
+        driverId: driverProfile?._id || null
+    };
+}
 
 // POST /users/register
 async function register(req, res) {
@@ -54,7 +77,7 @@ async function login(req, res) {
     try {
         const { email, password } = req.body;
 
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: email.toLowerCase() });
         if (!user) return res.status(404).json({ error: "User not found" });
 
         const valid = await bcrypt.compare(password, user.passwordHash);
@@ -69,22 +92,12 @@ async function login(req, res) {
         user.lastLoginAt = new Date();
         await user.save();
 
-        // Fetch profile IDs so frontend sends correct references
-        const passengerProfile = await PassengerProfile.findOne({ userId: user._id });
-        const DriverProfile = require("../db/models/DriverProfile");
-        const driverProfile = await DriverProfile.findOne({ userId: user._id });
+        const userData = await buildUserResponse(user);
 
         res.status(200).json({
             message: "Login successful",
             token,
-            userId: user._id,
-            role: user.role,
-            fullName: user.fullName,
-            preferredLanguage: user.preferredLanguage,
-            referralCode: user.referralCode,
-            loyaltyPoints: user.loyaltyPoints || 0,
-            passengerId: passengerProfile?._id || null,
-            driverId: driverProfile?._id || null
+            ...userData
         });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -98,20 +111,21 @@ async function forgotPassword(req, res) {
         if (!email) return res.status(400).json({ error: "Email is required" });
 
         const user = await User.findOne({ email: email.toLowerCase() });
-        if (!user) return res.status(404).json({ error: "User not found" });
+        const genericMessage = "If an account exists for this email, a reset link was generated";
+        if (!user) return res.status(200).json({ message: genericMessage });
 
         const token = crypto.randomBytes(32).toString("hex");
         user.resetPasswordToken   = token;
         user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
         await user.save();
 
-        // In production: send email. For localhost, return the token.
-        const resetLink = `http://localhost:3000/reset-password?token=${token}`;
-        res.status(200).json({
-            message: "Password reset link generated",
-            resetLink,
-            resetToken: token
-        });
+        const response = { message: genericMessage };
+        if (process.env.NODE_ENV !== "production" && process.env.RETURN_RESET_TOKEN === "true") {
+            const clientBase = process.env.CLIENT_BASE_URL || "http://localhost:3000";
+            response.resetLink = `${clientBase}/reset-password?token=${token}`;
+            response.resetToken = token;
+        }
+        res.status(200).json(response);
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -155,9 +169,12 @@ async function getAllUsers(req, res) {
 // GET /users/:id
 async function getUserById(req, res) {
     try {
+        if (!isAdmin(req) && !sameId(req.user.userId, req.params.id)) {
+            return res.status(403).json({ error: "Cannot view another user" });
+        }
         const user = await User.findById(req.params.id).select("-passwordHash -resetPasswordToken");
         if (!user) return res.status(404).json({ error: "User not found" });
-        res.status(200).json(user);
+        res.status(200).json(await buildUserResponse(user));
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -166,7 +183,7 @@ async function getUserById(req, res) {
 // PUT /users/:id
 async function updateUser(req, res) {
     try {
-        if (req.user.userId !== req.params.id && req.user.role !== "admin") {
+        if (!sameId(req.user.userId, req.params.id) && req.user.role !== "admin") {
             return res.status(403).json({ error: "Cannot update another user" });
         }
 
@@ -191,6 +208,9 @@ async function updateUser(req, res) {
 // PUT /users/:id/password
 async function changePassword(req, res) {
     try {
+        if (!sameId(req.user.userId, req.params.id)) {
+            return res.status(403).json({ error: "Cannot change another user's password" });
+        }
         const { currentPassword, newPassword } = req.body;
 
         const user = await User.findById(req.params.id);
@@ -264,21 +284,12 @@ async function googleLogin(req, res) {
         user.lastLoginAt = new Date();
         await user.save();
 
-        const passengerProfile = await PassengerProfile.findOne({ userId: user._id });
-        const DriverProfile = require("../db/models/DriverProfile");
-        const driverProfile = await DriverProfile.findOne({ userId: user._id });
+        const userData = await buildUserResponse(user);
 
         res.status(200).json({
             message: "Google login successful",
             token,
-            userId: user._id,
-            role: user.role,
-            fullName: user.fullName,
-            preferredLanguage: user.preferredLanguage,
-            referralCode: user.referralCode,
-            loyaltyPoints: user.loyaltyPoints || 0,
-            passengerId: passengerProfile?._id || null,
-            driverId: driverProfile?._id || null
+            ...userData
         });
     } catch (error) {
         res.status(400).json({ error: "Google authentication failed: " + error.message });
