@@ -32,12 +32,64 @@ const s = {
     fileBox: {
         border: "2px dashed var(--border)", borderRadius: 12, padding: 20,
         textAlign: "center", cursor: "pointer", transition: "border-color 0.2s"
-    }
+    },
+    passwordRules: {
+        marginTop: 8,
+        display: "grid",
+        gap: 6,
+        fontSize: 12
+    },
+    passwordRule: (ok) => ({
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        color: ok ? "var(--success)" : "var(--danger)",
+        fontWeight: 600
+    })
 };
 
 function FieldErr({ msg }) {
     if (!msg) return null;
     return <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {msg}</p>;
+}
+
+function PasswordGuidance({ password }) {
+    const rules = [
+        { label: "לפחות 8 תווים", ok: password.length >= 8 },
+        { label: "לפחות אות גדולה אחת באנגלית (A-Z)", ok: /[A-Z]/.test(password) },
+        { label: "לפחות אות קטנה אחת באנגלית (a-z)", ok: /[a-z]/.test(password) },
+        { label: "לפחות מספר אחד (0-9)", ok: /[0-9]/.test(password) }
+    ];
+
+    return (
+        <div id="password-guidance" style={s.passwordRules} aria-live="polite">
+            {rules.map(rule => (
+                <div key={rule.label} style={s.passwordRule(rule.ok)}>
+                    <span aria-hidden="true">{rule.ok ? "✓" : "✕"}</span>
+                    <span>{rule.label}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function ConfirmPasswordGuidance({ password, confirmPassword }) {
+    const hasConfirmPassword = confirmPassword.length > 0;
+    const matches = hasConfirmPassword && password === confirmPassword;
+    const label = !hasConfirmPassword
+        ? "יש להקליד את הסיסמה פעם נוספת"
+        : matches
+            ? "הסיסמאות תואמות"
+            : "הסיסמאות אינן תואמות";
+
+    return (
+        <div id="confirm-password-guidance" style={s.passwordRules} aria-live="polite">
+            <div style={s.passwordRule(matches)}>
+                <span aria-hidden="true">{matches ? "✓" : "✕"}</span>
+                <span>{label}</span>
+            </div>
+        </div>
+    );
 }
 
 export default function RegisterPage() {
@@ -298,6 +350,7 @@ export default function RegisterPage() {
                                     onChange={e => set("password", e.target.value)}
                                     style={{ paddingLeft: 44, borderColor: errors.password ? "var(--danger)" : undefined }}
                                     autoComplete="new-password"
+                                    aria-describedby="password-guidance"
                                 />
                                 <button type="button" onClick={() => setShowPw(p => !p)}
                                     aria-label={showPw ? "הסתר סיסמה" : "הצג סיסמה"}
@@ -312,7 +365,7 @@ export default function RegisterPage() {
                                     {showPw ? "הסתר" : "הצג"}
                                 </button>
                             </div>
-                            <FieldErr msg={errors.password} />
+                            <PasswordGuidance password={form.password} />
                         </div>
                         <div style={s.group}>
                             <label style={s.label} htmlFor="confirm-pw">אימות סיסמה *</label>
@@ -323,8 +376,9 @@ export default function RegisterPage() {
                                 onChange={e => set("confirmPassword", e.target.value)}
                                 style={{ borderColor: errors.confirmPassword ? "var(--danger)" : undefined }}
                                 autoComplete="new-password"
+                                aria-describedby="confirm-password-guidance"
                             />
-                            <FieldErr msg={errors.confirmPassword} />
+                            <ConfirmPasswordGuidance password={form.password} confirmPassword={form.confirmPassword} />
                         </div>
                         <div style={s.group}>
                             <label style={s.label} htmlFor="referral">קוד הפניה (אופציונלי)</label>
