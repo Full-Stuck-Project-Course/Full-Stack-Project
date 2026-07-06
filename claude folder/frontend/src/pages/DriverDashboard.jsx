@@ -1,8 +1,7 @@
 // src/pages/DriverDashboard.jsx
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import MapComponent from "../components/MapComponent";
@@ -35,12 +34,12 @@ const s = {
 
 export default function DriverDashboard() {
     const { user }      = useAuth();
-    const { t }         = useLang();
+    const userId        = user?.userId;
 
     const STATUS_OPTS = [
-        { value: "available", label: "🟢 " + "זמין",  color: "#10b981" },
-        { value: "busy",      label: "🟡 " + "עסוק",       color: "#f59e0b" },
-        { value: "offline",   label: "🔴 " + "לא מחובר",    color: "#6b7280" }
+        { value: "available", label: "🟢 זמין",     color: "#10b981" },
+        { value: "busy",      label: "🟡 עסוק",     color: "#f59e0b" },
+        { value: "offline",   label: "🔴 לא מחובר", color: "#6b7280" }
     ];
     const navigate      = useNavigate();
     const [driver,      setDriver]      = useState(null);
@@ -55,14 +54,15 @@ export default function DriverDashboard() {
     const [statusError, setStatusError] = useState("");
     const [statusSaving, setStatusSaving] = useState(false);
     const socketRef = useRef(null);
+    const driverId = driver?._id;
 
-    const fetchAll = async () => {
+    const fetchAll = useCallback(async () => {
         try {
             const [availRes, ridesRes] = await Promise.all([
                 api.get("/drivers"),
                 api.get("/rides", { params: { status: "searching" } })
             ]);
-            const found = availRes.data.find(d => d.userId?._id === user?.userId || d.userId === user?.userId);
+            const found = availRes.data.find(d => d.userId?._id === userId || d.userId === userId);
             setDriver(found || null);
             setOpenRides(ridesRes.data || []);
 
@@ -80,7 +80,7 @@ export default function DriverDashboard() {
 
             api.get("/maps/demand").then(r => setDemand(r.data)).catch(() => {});
         } finally { setLoading(false); }
-    };
+    }, [userId]);
 
     useEffect(() => {
         fetchAll();
@@ -94,20 +94,20 @@ export default function DriverDashboard() {
             return () => { clearInterval(poll); navigator.geolocation.clearWatch(watchId); };
         }
         return () => clearInterval(poll);
-    }, []);
+    }, [fetchAll]);
 
     // Update driver location on server
     useEffect(() => {
-        if (driver && driverLoc) {
-            api.put(`/drivers/${driver._id}/location`, { lat: driverLoc.lat, lng: driverLoc.lng }).catch(() => {});
+        if (driverId && driverLoc) {
+            api.put(`/drivers/${driverId}/location`, { lat: driverLoc.lat, lng: driverLoc.lng }).catch(() => {});
         }
-    }, [driverLoc, driver?._id]);
+    }, [driverLoc, driverId]);
 
     // Socket.io for real-time ride request popups
     useEffect(() => {
         const socket = createSocket();
         socketRef.current = socket;
-        if (driver) socket.emit("join-driver", driver._id);
+        if (driverId) socket.emit("join-driver", driverId);
 
         socket.on("nearby-ride-request", (data) => {
             setPopup(data);
@@ -115,7 +115,7 @@ export default function DriverDashboard() {
         });
 
         return () => socket.disconnect();
-    }, [driver?._id]);
+    }, [driverId]);
 
     const setStatus = async (status) => {
         if (!driver) return;

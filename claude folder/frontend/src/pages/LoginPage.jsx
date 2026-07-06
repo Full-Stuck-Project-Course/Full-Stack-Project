@@ -1,10 +1,9 @@
 // src/pages/LoginPage.jsx
 
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
 const s = {
@@ -22,8 +21,8 @@ const s = {
 
 export default function LoginPage() {
     const { login }    = useAuth();
-    const { t }        = useLang();
     const navigate     = useNavigate();
+    const location     = useLocation();
     const [form, setF] = useState({ email: "", password: "" });
     const [error, setE] = useState("");
     const [loading, setL] = useState(false);
@@ -40,7 +39,7 @@ export default function LoginPage() {
                 { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints, passengerId: data.passengerId, driverId: data.driverId },
                 data.token
             );
-            navigate("/");
+            navigate(location.state?.needsDriverSetup ? "/driver-setup" : "/");
         } catch (err) {
             setE(err.response?.data?.error || "שגיאה בהתחברות עם Google");
         } finally {
@@ -65,7 +64,7 @@ export default function LoginPage() {
                 { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints, passengerId: data.passengerId, driverId: data.driverId },
                 data.token
             );
-            navigate("/");
+            navigate(location.state?.needsDriverSetup ? "/driver-setup" : "/");
         } catch (err) {
             setE(err.response?.data?.error || "שגיאה בהתחברות");
         } finally {

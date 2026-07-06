@@ -3,6 +3,7 @@
 const DriverProfile = require("../db/models/DriverProfile");
 const User = require("../db/models/User");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
+const { hasValidCoordinates } = require("../utils/pricing");
 
 const DRIVER_UPDATE_FIELDS = [
     "licenseNumber",
@@ -75,8 +76,23 @@ async function getAllDrivers(req, res) {
 async function getAvailableDrivers(req, res) {
     try {
         const drivers = await DriverProfile.find({ status: "available", isVerified: true })
-            .populate("userId", "fullName profileImage preferredLanguage");
-        res.status(200).json(drivers);
+            .select("userId ratingAverage totalRides currentLocation status")
+            .populate("userId", "fullName");
+        const sanitized = drivers.map(driver => ({
+            _id: driver._id,
+            userId: driver.userId,
+            ratingAverage: driver.ratingAverage,
+            totalRides: driver.totalRides,
+            status: driver.status,
+            currentLocation: hasValidCoordinates(driver.currentLocation?.lat, driver.currentLocation?.lng)
+                ? {
+                    lat: Math.round(Number(driver.currentLocation.lat) * 1000) / 1000,
+                    lng: Math.round(Number(driver.currentLocation.lng) * 1000) / 1000,
+                    updatedAt: driver.currentLocation.updatedAt
+                }
+                : null
+        }));
+        res.status(200).json(sanitized);
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -105,6 +121,11 @@ async function updateDriver(req, res) {
         const update = {};
         for (const key of DRIVER_UPDATE_FIELDS) {
             if (req.body[key] !== undefined) update[key] = req.body[key];
+        }
+        if (req.body.licenseNumber !== undefined) {
+            update.isVerified = false;
+            update.verificationStatus = "pending";
+            update.status = "offline";
         }
         const driver = await DriverProfile.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true
@@ -146,12 +167,12 @@ async function updateLocation(req, res) {
         if (!await canAccessDriver(req, req.params.id)) {
             return forbidden(res);
         }
-        if (lat == null || lng == null || Number(lat) === 0 && Number(lng) === 0) {
+        if (!hasValidCoordinates(lat, lng)) {
             return res.status(400).json({ error: "Invalid driver location" });
         }
         const driver = await DriverProfile.findByIdAndUpdate(
             req.params.id,
-            { currentLocation: { lat, lng, updatedAt: new Date() } },
+            { currentLocation: { lat: Number(lat), lng: Number(lng), updatedAt: new Date() } },
             { new: true }
         );
         if (!driver) return res.status(404).json({ error: "Driver not found" });
@@ -165,7 +186,7 @@ async function updateLocation(req, res) {
 async function verifyDriver(req, res) {
     try {
         const driver = await DriverProfile.findByIdAndUpdate(
-            req.params.id, { isVerified: true }, { new: true }
+            req.params.id, { isVerified: true, verificationStatus: "approved" }, { new: true }
         );
         if (!driver) return res.status(404).json({ error: "Driver not found" });
         res.status(200).json({ message: "Driver verified", driver });

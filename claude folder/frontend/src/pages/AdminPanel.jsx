@@ -1,9 +1,8 @@
 // src/pages/AdminPanel.jsx
 
 import { useState, useEffect } from "react";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
-import { assetUrl } from "../api/assets";
+import { secureUploadPath } from "../api/assets";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 860, margin: "0 auto" },
@@ -16,10 +15,35 @@ const s = {
     btnGroup: { display: "flex", gap: 6 }
 };
 
+function SecureImage({ path, alt, style }) {
+    const [src, setSrc] = useState("");
+
+    useEffect(() => {
+        if (!path) return;
+        let active = true;
+        let objectUrl = "";
+        const apiPath = secureUploadPath(path);
+        if (!apiPath) return;
+        api.get(apiPath, { responseType: "blob" })
+            .then(({ data }) => {
+                if (!active) return;
+                objectUrl = URL.createObjectURL(data);
+                setSrc(objectUrl);
+            })
+            .catch(() => {});
+        return () => {
+            active = false;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [path]);
+
+    if (!src) return null;
+    return <img src={src} alt={alt} style={style} />;
+}
+
 export default function AdminPanel() {
-    const { t }    = useLang();
     const [tab,    setTab]    = useState("ids");
-    const [data,   setData]   = useState({ pendingIds: [], pendingLicenses: [] });
+    const [data,   setData]   = useState({ pendingIds: [], pendingLicenses: [], pendingVehicles: [] });
     const [loading, setLoading] = useState(true);
     const [msg,    setMsg]    = useState("");
 
@@ -47,6 +71,13 @@ export default function AdminPanel() {
         setTimeout(() => setMsg(""), 3000);
     };
 
+    const verifyVehicle = async (vehicleId, status) => {
+        await api.put(`/uploads/verify-vehicle/${vehicleId}`, { status });
+        setMsg(`מסמכי הרכב ${status === "approved" ? "אושרו" : "נדחו"}`);
+        load();
+        setTimeout(() => setMsg(""), 3000);
+    };
+
     if (loading) return <div className="spinner" />;
 
     return (
@@ -66,6 +97,9 @@ export default function AdminPanel() {
                 <button style={s.tab(tab === "licenses")} onClick={() => setTab("licenses")}>
                     🚗 רישיונות נהיגה ({data.pendingLicenses.length})
                 </button>
+                <button style={s.tab(tab === "vehicles")} onClick={() => setTab("vehicles")}>
+                    🧾 מסמכי רכב ({data.pendingVehicles?.length || 0})
+                </button>
             </div>
 
             {/* Pending IDs */}
@@ -78,7 +112,7 @@ export default function AdminPanel() {
                         <div key={user._id} style={s.itemRow}>
                             <div style={{ display: "flex", gap: 14, alignItems: "center", flex: 1 }}>
                                 {user.idPhotoPath && (
-                                    <img src={assetUrl(user.idPhotoPath)} alt="ת.ז." style={s.img} />
+                                    <SecureImage path={user.idPhotoPath} alt="ת.ז." style={s.img} />
                                 )}
                                 <div>
                                     <div style={{ fontWeight: 600 }}>{user.fullName}</div>
@@ -111,7 +145,7 @@ export default function AdminPanel() {
                         <div key={driver._id} style={s.itemRow}>
                             <div style={{ display: "flex", gap: 14, alignItems: "center", flex: 1 }}>
                                 {driver.licenseImagePath && (
-                                    <img src={assetUrl(driver.licenseImagePath)} alt="רישיון" style={s.img} />
+                                    <SecureImage path={driver.licenseImagePath} alt="רישיון" style={s.img} />
                                 )}
                                 <div>
                                     <div style={{ fontWeight: 600 }}>{driver.userId?.fullName || "נהג"}</div>
@@ -125,6 +159,39 @@ export default function AdminPanel() {
                                     ✅ אשר
                                 </button>
                                 <button onClick={() => verifyDriver(driver._id, "rejected")}
+                                    style={{ background: "#fee2e2", color: "var(--danger)", padding: "8px 14px", borderRadius: 8, fontSize: 13 }}>
+                                    ❌ דחה
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {tab === "vehicles" && (
+                <div style={s.card}>
+                    <div style={{ fontWeight: 700, marginBottom: 14 }}>ממתינים לאישור מסמכי רכב</div>
+                    {(data.pendingVehicles || []).length === 0 ? (
+                        <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 20 }}>אין ממתינים</div>
+                    ) : data.pendingVehicles.map(vehicle => (
+                        <div key={vehicle._id} style={s.itemRow}>
+                            <div style={{ display: "flex", gap: 14, alignItems: "center", flex: 1 }}>
+                                {vehicle.testImagePath && <SecureImage path={vehicle.testImagePath} alt="אישור טסט" style={s.img} />}
+                                {vehicle.insuranceImagePath && <SecureImage path={vehicle.insuranceImagePath} alt="אישור ביטוח" style={s.img} />}
+                                <div>
+                                    <div style={{ fontWeight: 600 }}>{vehicle.driverId?.userId?.fullName || "נהג"}</div>
+                                    <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{vehicle.driverId?.userId?.email}</div>
+                                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                                        {vehicle.company} {vehicle.model} · {vehicle.licensePlate}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={s.btnGroup}>
+                                <button onClick={() => verifyVehicle(vehicle._id, "approved")}
+                                    style={{ background: "var(--success)", color: "#fff", padding: "8px 16px", borderRadius: 8, fontSize: 13 }}>
+                                    ✅ אשר
+                                </button>
+                                <button onClick={() => verifyVehicle(vehicle._id, "rejected")}
                                     style={{ background: "#fee2e2", color: "var(--danger)", padding: "8px 14px", borderRadius: 8, fontSize: 13 }}>
                                     ❌ דחה
                                 </button>

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
 const s = {
@@ -30,7 +29,6 @@ function passwordStrength(pw) {
 }
 
 export default function ResetPasswordPage() {
-    const { t }         = useLang();
     const navigate      = useNavigate();
     const [params]      = useSearchParams();
     const token         = params.get("token") || "";

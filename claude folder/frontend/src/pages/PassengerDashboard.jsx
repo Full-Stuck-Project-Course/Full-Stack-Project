@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
+import { AddressInput } from "../components/MapComponent";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 760, margin: "0 auto" },
@@ -20,12 +20,14 @@ const s = {
 
 export default function PassengerDashboard() {
     const { user }       = useAuth();
-    const { t }          = useLang();
+    const userId         = user?.userId;
     const navigate       = useNavigate();
     const [passenger,    setPassenger]    = useState(null);
     const [upcoming,     setUpcoming]     = useState([]);
     const [pastRides,    setPastRides]    = useState([]);
     const [loading,      setLoading]      = useState(true);
+    const [savedName,    setSavedName]    = useState("home");
+    const [savedLocation, setSavedLocation] = useState({ address: "", lat: null, lng: null });
 
     useEffect(() => {
         (async () => {
@@ -34,7 +36,7 @@ export default function PassengerDashboard() {
                     api.get("/passengers"),
                     api.get("/rides")
                 ]);
-                const p = passRes.data.find(p => p.userId === user?.userId || p.userId?._id === user?.userId);
+                const p = passRes.data.find(p => p.userId === userId || p.userId?._id === userId);
                 setPassenger(p);
 
                 const allRides = ridesRes.data || [];
@@ -46,7 +48,7 @@ export default function PassengerDashboard() {
                 setPastRides(allRides.filter(r => r.status === "completed").slice(0, 8));
             } finally { setLoading(false); }
         })();
-    }, []);
+    }, [userId]);
 
     const cancelRide = async (rideId) => {
         if (!window.confirm("לבטל את הנסיעה?")) return;
@@ -74,8 +76,8 @@ export default function PassengerDashboard() {
                     <div style={s.statLbl}>{"נסיעות"}</div>
                 </div>
                 <div style={s.stat}>
-                    <div style={{ ...s.statVal, color: "#f59e0b" }}>⭐ {passenger?.ratingAverage || "—"}</div>
-                    <div style={s.statLbl}>{"דירוג ממוצע"}</div>
+                    <div style={{ ...s.statVal, color: "#f59e0b" }}>{passenger?.savedLocations?.length || 0}</div>
+                    <div style={s.statLbl}>{"כתובות שמורות"}</div>
                 </div>
                 <div style={s.stat}>
                     <div style={{ ...s.statVal, color: "#10b981" }}>₪{passenger?.totalSpent?.toFixed(0) || 0}</div>
@@ -182,21 +184,31 @@ export default function PassengerDashboard() {
                     <div style={{ marginTop: 10 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>הוסף כתובת:</div>
                         <div style={{ display: "flex", gap: 8 }}>
-                            <select id="addr-name" style={{ width: 100 }} defaultValue="home">
+                            <select style={{ width: 100 }} value={savedName} onChange={e => setSavedName(e.target.value)}>
                                 <option value="home">🏠 בית</option>
                                 <option value="work">💼 עבודה</option>
                                 <option value="other">📍 אחר</option>
                             </select>
-                            <input id="addr-address" placeholder="כתובת מלאה" style={{ flex: 1 }} />
+                            <div style={{ flex: 1 }}>
+                                <AddressInput
+                                    placeholder="כתובת מלאה"
+                                    value={savedLocation.address}
+                                    onChange={address => setSavedLocation(loc => ({ ...loc, address }))}
+                                    onPlaceSelected={setSavedLocation}
+                                />
+                            </div>
                             <button onClick={async () => {
-                                const name = document.getElementById("addr-name").value;
-                                const address = document.getElementById("addr-address").value;
-                                if (!address) return;
+                                if (!savedLocation.address || savedLocation.lat == null || savedLocation.lng == null) return;
                                 try {
-                                    await api.post(`/passengers/${passenger._id}/saved-locations`, { name, address, lat: null, lng: null });
+                                    await api.post(`/passengers/${passenger._id}/saved-locations`, {
+                                        name: savedName,
+                                        address: savedLocation.address,
+                                        lat: savedLocation.lat,
+                                        lng: savedLocation.lng
+                                    });
                                     const { data: pData } = await api.get(`/passengers/${passenger._id}`);
                                     setPassenger(pData);
-                                    document.getElementById("addr-address").value = "";
+                                    setSavedLocation({ address: "", lat: null, lng: null });
                                 } catch {}
                             }} style={{ background: "var(--primary)", color: "#fff", padding: "8px 14px", whiteSpace: "nowrap" }}>
                                 + הוסף

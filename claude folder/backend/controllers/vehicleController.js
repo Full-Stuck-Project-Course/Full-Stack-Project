@@ -2,7 +2,22 @@
 
 const Vehicle = require("../db/models/Vehicle");
 const DriverProfile = require("../db/models/DriverProfile");
+const Ride = require("../db/models/Ride");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
+
+const VEHICLE_WRITE_FIELDS = [
+    "driverId",
+    "company",
+    "model",
+    "year",
+    "color",
+    "licensePlate",
+    "vehicleType",
+    "seats",
+    "allowPets"
+];
+
+const VEHICLE_VERIFICATION_FIELDS = ["company", "model", "year", "licensePlate", "vehicleType", "seats"];
 
 async function canAccessVehicle(req, vehicle) {
     if (!vehicle) return false;
@@ -15,7 +30,14 @@ async function createVehicle(req, res) {
         if (!await canAccessDriver(req, req.body.driverId)) {
             return forbidden(res);
         }
-        const vehicle = await Vehicle.create(req.body);
+        const payload = {};
+        for (const key of VEHICLE_WRITE_FIELDS) {
+            if (req.body[key] !== undefined) payload[key] = req.body[key];
+        }
+        payload.testApproval = false;
+        payload.insuranceApproval = false;
+        payload.documentsVerificationStatus = "not_submitted";
+        const vehicle = await Vehicle.create(payload);
         res.status(201).json({ message: "Vehicle created successfully", vehicle });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -81,8 +103,20 @@ async function updateVehicle(req, res) {
             return forbidden(res);
         }
 
-        const update = { ...req.body };
-        delete update.driverId;
+        const update = {};
+        for (const key of VEHICLE_WRITE_FIELDS) {
+            if (key !== "driverId" && req.body[key] !== undefined) update[key] = req.body[key];
+        }
+        const verificationChanged = VEHICLE_VERIFICATION_FIELDS.some(key =>
+            update[key] !== undefined && String(update[key]) !== String(existing[key])
+        );
+        if (verificationChanged) {
+            update.testApproval = false;
+            update.insuranceApproval = false;
+            update.documentsVerificationStatus = "not_submitted";
+            update.testImagePath = null;
+            update.insuranceImagePath = null;
+        }
         const vehicle = await Vehicle.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true
         });
@@ -100,6 +134,13 @@ async function deleteVehicle(req, res) {
         if (!existing) return res.status(404).json({ error: "Vehicle not found" });
         if (!await canAccessVehicle(req, existing)) {
             return forbidden(res);
+        }
+        const activeRide = await Ride.findOne({
+            vehicleId: existing._id,
+            status: { $in: ["accepted", "driver_arriving", "in_progress"] }
+        });
+        if (activeRide) {
+            return res.status(409).json({ error: "Cannot delete a vehicle assigned to an active ride" });
         }
         const vehicle = await Vehicle.findByIdAndDelete(req.params.id);
         if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });

@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
 const s = {
@@ -47,7 +46,7 @@ function hover(el, enter) {
 
 export default function HomePage() {
     const { user }   = useAuth();
-    const { t }      = useLang();
+    const userId     = user?.userId;
     const navigate   = useNavigate();
     const [demand, setDemand] = useState(null);
     const [passenger, setPassenger] = useState(null);
@@ -60,16 +59,16 @@ export default function HomePage() {
     useEffect(() => {
         api.get("/maps/demand").then(r => setDemand(r.data)).catch(() => {});
         // Fetch user profile for referral code
-        api.get(`/users/${user?.userId}`).then(r => {
+        if (userId) api.get(`/users/${userId}`).then(r => {
             if (r.data.referralCode) setReferralCode(r.data.referralCode);
         }).catch(() => {});
         if (isPassenger) {
             api.get("/passengers").then(r => {
-                const p = r.data.find(p => p.userId === user?.userId || p.userId?._id === user?.userId);
+                const p = r.data.find(p => p.userId === userId || p.userId?._id === userId);
                 setPassenger(p);
             }).catch(() => {});
         }
-    }, []);
+    }, [isPassenger, userId]);
 
     const actions = [
         { icon: "🚕", title: "הזמן נסיעה",     desc: "הזמן נסיעה מהירה לכל יעד",          path: "/book",          color: "var(--primary)" },
@@ -116,8 +115,8 @@ export default function HomePage() {
                         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{"נסיעות"}</div>
                     </div>
                     <div style={s.stat}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--warning)" }}>⭐ {passenger.ratingAverage || "—"}</div>
-                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{"דירוג ממוצע"}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--warning)" }}>{passenger.savedLocations?.length || 0}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{"כתובות שמורות"}</div>
                     </div>
                     <div style={s.stat}>
                         <div style={{ fontSize: 22, fontWeight: 800, color: "var(--success)" }}>{passenger.loyaltyPoints || 0}</div>

@@ -1,7 +1,7 @@
 // src/components/MapComponent.jsx
 // Requires REACT_APP_GOOGLE_MAPS_KEY in frontend/.env
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { GoogleMap, useLoadScript, Marker, InfoWindow, Autocomplete } from "@react-google-maps/api";
 
 const LIBRARIES = ["places"];

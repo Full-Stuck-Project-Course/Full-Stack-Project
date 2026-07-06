@@ -1,9 +1,8 @@
 // src/pages/RideStatusPage.jsx
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 import MapComponent from "../components/MapComponent";
 import { createSocket } from "../api/socket";
@@ -43,7 +42,6 @@ export default function RideStatusPage() {
     const { id }       = useParams();
     const navigate     = useNavigate();
     const { user }     = useAuth();
-    const { t }        = useLang();
     const [ride,       setRide]       = useState(null);
     const [loading,    setLoading]    = useState(true);
     const [driverLoc,  setDriverLoc]  = useState(null);
@@ -68,7 +66,7 @@ export default function RideStatusPage() {
         }
     }, []);
 
-    const fetchRide = async () => {
+    const fetchRide = useCallback(async () => {
         try {
             const { data } = await api.get(`/rides/${id}`);
             setRide(data);
@@ -87,7 +85,7 @@ export default function RideStatusPage() {
             prevStatus.current = data.status;
         } catch { navigate("/"); }
         finally { setLoading(false); }
-    };
+    }, [id, navigate]);
 
     // Fetch nearby drivers for passenger map
     useEffect(() => {
@@ -108,7 +106,7 @@ export default function RideStatusPage() {
                 passengerLat: ride.pickupLocation.lat, passengerLng: ride.pickupLocation.lng
             }
         }).then(r => setEta(r.data)).catch(() => {});
-    }, [driverLoc, ride?.pickupLocation?.lat, ride?.status]);
+    }, [driverLoc, ride?.pickupLocation?.lat, ride?.pickupLocation?.lng, ride?.status]);
 
     useEffect(() => {
         fetchRide();
@@ -133,7 +131,7 @@ export default function RideStatusPage() {
         });
 
         return () => { clearInterval(poll); socket.disconnect(); };
-    }, [id]);
+    }, [id, fetchRide]);
 
     const cancelRide = async () => {
         if (!window.confirm("האם לבטל את הנסיעה?")) return;
@@ -160,18 +158,22 @@ export default function RideStatusPage() {
             rideId: id, message: chatText,
             sender: user?.userId, senderName: user?.fullName || "נוסע"
         });
-        setMessages(m => [...m, { message: chatText, sender: user?.userId, senderName: "אני", timestamp: new Date() }]);
         setChatText("");
     };
 
     const reportComplaint = async () => {
         const reason = window.prompt("תאר את הבעיה:");
         if (!reason) return;
-        await api.post("/notifications", {
-            userId: user?.userId, type: "system",
-            title: "תלונה על נסיעה", body: `נסיעה ${id}: ${reason}`, rideId: id
+        await api.post("/notifications/complaint", {
+            rideId: id,
+            body: reason
         }).catch(() => {});
         alert("תלונתך נקלטה. צוות שלנו יבדוק בהקדם.");
+    };
+
+    const updateRideStep = async (step) => {
+        await api.put(`/rides/${id}/${step}`);
+        fetchRide();
     };
 
     if (loading) return <div className="spinner" aria-label={"טוען..."} />;
@@ -180,6 +182,11 @@ export default function RideStatusPage() {
     const st = STATUS_LABELS[ride.status] || STATUS_LABELS.searching;
     const inRide = ["accepted", "driver_arriving", "in_progress"].includes(ride.status);
     const pickupLoc = ride.pickupLocation?.lat ? { lat: ride.pickupLocation.lat, lng: ride.pickupLocation.lng } : null;
+    const isAssignedDriver = ride.driverId && (
+        ride.driverId?._id === user?.driverId ||
+        ride.driverId?.userId?._id === user?.userId ||
+        user?.role === "admin"
+    );
 
     // Map markers: nearby drivers for passenger
     const driverMarkers = ride.status === "searching"
@@ -216,8 +223,8 @@ export default function RideStatusPage() {
                 </div>
 
                 {[
-                    ["📍 " + "נקודת איסוף",      ride.pickupLocation?.address],
-                    ["🏁 " + "יעד", ride.destinationLocation?.address],
+                    ["📍 נקודת איסוף", ride.pickupLocation?.address],
+                    ["🏁 יעד", ride.destinationLocation?.address],
                     ["סוג נסיעה",            ride.rideType === "carpool" ? "🤝 קרפול" : "🚕 נסיעה"],
                     ["מחיר כולל",          ride.finalPrice ? `₪${ride.finalPrice}` : "טרם נקבע"],
                     ["נוסעים",          ride.passengerCount],
@@ -304,6 +311,21 @@ export default function RideStatusPage() {
             )}
 
             {/* Actions */}
+            {isAssignedDriver && ride.status === "accepted" && (
+                <button className="btn-primary" onClick={() => updateRideStep("driver-arriving")} style={{ marginBottom: 10 }}>
+                    הנהג בדרך
+                </button>
+            )}
+            {isAssignedDriver && ["accepted", "driver_arriving"].includes(ride.status) && (
+                <button className="btn-primary" onClick={() => updateRideStep("start")} style={{ marginBottom: 10 }}>
+                    התחל נסיעה
+                </button>
+            )}
+            {isAssignedDriver && ride.status === "in_progress" && (
+                <button className="btn-primary" onClick={() => updateRideStep("complete")} style={{ marginBottom: 10 }}>
+                    השלם נסיעה
+                </button>
+            )}
             {["searching", "accepted", "driver_arriving"].includes(ride.status) && (
                 <button onClick={cancelRide}
                     style={{ width: "100%", background: "#fee2e2", color: "var(--danger)", padding: 12, borderRadius: 10, fontSize: 15, marginBottom: 10 }}>

@@ -2,6 +2,7 @@
 
 const PassengerProfile = require("../db/models/PassengerProfile");
 const { isAdmin, canAccessPassenger, forbidden } = require("../utils/authz");
+const { hasValidCoordinates } = require("../utils/pricing");
 
 const PASSENGER_UPDATE_FIELDS = ["preferredDriverGender", "preferredMatching"];
 
@@ -81,12 +82,12 @@ async function addSavedLocation(req, res) {
         if (!address || address.trim().length < 2) {
             return res.status(400).json({ error: "Address is required" });
         }
-        if ((lat === 0 || lat === "0") && (lng === 0 || lng === "0")) {
+        if (!hasValidCoordinates(lat, lng)) {
             return res.status(400).json({ error: "Saved location coordinates are invalid" });
         }
         const passenger = await PassengerProfile.findByIdAndUpdate(
             req.params.id,
-            { $push: { savedLocations: { name, address, lat: lat ?? null, lng: lng ?? null } } },
+            { $push: { savedLocations: { name, address, lat: Number(lat), lng: Number(lng) } } },
             { new: true }
         );
         if (!passenger) return res.status(404).json({ error: "Passenger not found" });

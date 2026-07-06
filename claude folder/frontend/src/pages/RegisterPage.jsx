@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useLang } from "../context/LanguageContext";
+import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 
 const s = {
@@ -41,7 +41,7 @@ function FieldErr({ msg }) {
 }
 
 export default function RegisterPage() {
-    const { t }     = useLang();
+    const { login } = useAuth();
     const navigate  = useNavigate();
 
     const STEPS = ["פרטים אישיים", "תפקיד והעדפות", "מסמכים"];
@@ -173,25 +173,37 @@ export default function RegisterPage() {
                 referralCode: form.referralCode || undefined
             });
 
+            login(
+                {
+                    userId: data.userId,
+                    role: data.role,
+                    fullName: data.fullName,
+                    preferredLanguage: data.preferredLanguage,
+                    referralCode: data.referralCode,
+                    loyaltyPoints: data.loyaltyPoints,
+                    passengerId: data.passengerId,
+                    driverId: data.driverId
+                },
+                data.token
+            );
+
             // Upload ID photo
             if (form.idPhotoFile && data.userId) {
                 const fd = new FormData();
                 fd.append("idPhoto", form.idPhotoFile);
-                fd.append("userId", data.userId);
                 await api.post("/uploads/id-photo", fd, { headers: { "Content-Type": "multipart/form-data" } });
             }
             // Upload profile photo
             if (form.profilePhotoFile && data.userId) {
                 const fd = new FormData();
                 fd.append("profileImage", form.profilePhotoFile);
-                fd.append("userId", data.userId);
                 await api.post("/uploads/profile", fd, { headers: { "Content-Type": "multipart/form-data" } });
             }
 
-            // If driver/both → go to driver setup after login
-            navigate("/login", { state: { needsDriverSetup: form.role === "driver" || form.role === "both" } });
+            navigate(form.role === "driver" || form.role === "both" ? "/driver-setup" : "/");
         } catch (err) {
             setError(err.response?.data?.error || "שגיאה בהרשמה");
+            setError(err.response?.data?.error || "Registration failed");
         } finally {
             setLoading(false);
         }
@@ -201,6 +213,27 @@ export default function RegisterPage() {
         { value: "passenger", icon: "🧍", label: "נוסע",    desc: "אני מחפש נסיעות" },
         { value: "driver",    icon: "🚗", label: "נהג",     desc: "אני מציע נסיעות" },
         { value: "both",      icon: "🔄", label: "נהג ונוסע", desc: "שניהם" }
+    ];
+
+    const DISPLAY_ROLES = [
+        {
+            value: "passenger",
+            icon: "\uD83E\uDDCD",
+            label: "\u05E0\u05D5\u05E1\u05E2",
+            desc: "\u05D0\u05E0\u05D9 \u05DE\u05D7\u05E4\u05E9 \u05E0\u05E1\u05D9\u05E2\u05D5\u05EA"
+        },
+        {
+            value: "driver",
+            icon: "\uD83D\uDE97",
+            label: "\u05E0\u05D4\u05D2",
+            desc: "\u05D0\u05E0\u05D9 \u05DE\u05E6\u05D9\u05E2 \u05E0\u05E1\u05D9\u05E2\u05D5\u05EA"
+        },
+        {
+            value: "both",
+            icon: "\uD83D\uDD04",
+            label: "\u05E0\u05D4\u05D2 \u05D5\u05E0\u05D5\u05E1\u05E2",
+            desc: "\u05E9\u05E0\u05D9\u05D4\u05DD"
+        }
     ];
 
     return (
@@ -309,7 +342,7 @@ export default function RegisterPage() {
                         <div style={s.group}>
                             <label style={s.label}>{"תפקיד"} *</label>
                             <div style={{ display: "flex", gap: 10 }}>
-                                {ROLES.map(r => (
+                                {(DISPLAY_ROLES || ROLES).map(r => (
                                     <div key={r.value} style={s.roleCard(form.role === r.value)}
                                         onClick={() => set("role", r.value)}
                                         role="radio" aria-checked={form.role === r.value}

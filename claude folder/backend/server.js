@@ -4,22 +4,35 @@ require("dotenv").config();
 const http   = require("http");
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 const app    = require("./app");
 const connectMongo = require("./db/mongo");
 const Ride = require("./db/models/Ride");
 const PassengerProfile = require("./db/models/PassengerProfile");
 const DriverProfile = require("./db/models/DriverProfile");
 const { sameId } = require("./utils/authz");
+const { hasValidCoordinates, haversineKm } = require("./utils/pricing");
+const { configuredOrigins, isAllowedOrigin } = require("./utils/corsOrigins");
 
 const PORT = process.env.PORT || 5000;
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
-    cors: { origin: "http://localhost:3000", methods: ["GET", "POST"] }
+    cors: {
+        origin(origin, callback) {
+            return callback(null, isAllowedOrigin(origin));
+        },
+        methods: ["GET", "POST"]
+    }
 });
 
 app.set("io", io);
+
+const SOCKET_RATE_LIMIT = {
+    windowMs: Number(process.env.SOCKET_RATE_WINDOW_MS || 10_000),
+    max: Number(process.env.SOCKET_RATE_MAX_EVENTS || 80)
+};
 
 io.use((socket, next) => {
     try {
@@ -57,46 +70,80 @@ function socketError(socket, message) {
     socket.emit("socket-error", { error: message });
 }
 
+function isValidObjectId(id) {
+    return mongoose.Types.ObjectId.isValid(id);
+}
+
+function safeSocketHandler(socket, handler) {
+    return async (...args) => {
+        try {
+            const now = Date.now();
+            const rate = socket.data.rateLimit || { startedAt: now, count: 0 };
+            if (now - rate.startedAt > SOCKET_RATE_LIMIT.windowMs) {
+                rate.startedAt = now;
+                rate.count = 0;
+            }
+            rate.count += 1;
+            socket.data.rateLimit = rate;
+            if (rate.count > SOCKET_RATE_LIMIT.max) {
+                return socketError(socket, "Too many socket events");
+            }
+            await handler(...args);
+        } catch (error) {
+            socketError(socket, error.message || "Socket request failed");
+        }
+    };
+}
+
 io.on("connection", (socket) => {
-    socket.on("join-ride", async (rideId) => {
+    socket.on("join-ride", safeSocketHandler(socket, async (rideId) => {
+        if (!isValidObjectId(rideId)) return socketError(socket, "Invalid ride ID");
         const { allowed } = await canAccessRide(socket, rideId);
         if (!allowed) return socketError(socket, "Access denied");
         socket.join(`ride:${rideId}`);
-    });
+    }));
 
-    socket.on("driver-location", async ({ rideId, lat, lng }) => {
+    socket.on("driver-location", safeSocketHandler(socket, async ({ rideId, lat, lng }) => {
+        if (!isValidObjectId(rideId)) return socketError(socket, "Invalid ride ID");
+        if (!hasValidCoordinates(lat, lng)) return socketError(socket, "Invalid driver location");
         const { allowed, ride, driver } = await canAccessRide(socket, rideId);
         if (!allowed || (socket.user.role !== "admin" && (!driver || !sameId(driver._id, ride.driverId)))) {
             return socketError(socket, "Access denied");
         }
-        io.to(`ride:${rideId}`).emit("location-update", { lat, lng, timestamp: new Date() });
-    });
+        io.to(`ride:${rideId}`).emit("location-update", { lat: Number(lat), lng: Number(lng), timestamp: new Date() });
+    }));
 
-    socket.on("chat-message", async ({ rideId, message, senderName }) => {
+    socket.on("chat-message", safeSocketHandler(socket, async ({ rideId, message, senderName }) => {
+        if (!isValidObjectId(rideId)) return socketError(socket, "Invalid ride ID");
+        const cleanMessage = String(message || "").trim().slice(0, 1000);
+        if (!cleanMessage) return socketError(socket, "Message is required");
         const { allowed } = await canAccessRide(socket, rideId);
         if (!allowed) return socketError(socket, "Access denied");
         io.to(`ride:${rideId}`).emit("new-message", {
-            message,
+            message: cleanMessage,
             sender: socket.user.userId,
-            senderName,
+            senderName: String(senderName || "משתמש").slice(0, 80),
             timestamp: new Date()
         });
-    });
+    }));
 
-    socket.on("join-driver", async (driverId) => {
+    socket.on("join-driver", safeSocketHandler(socket, async (driverId) => {
+        if (!isValidObjectId(driverId)) return socketError(socket, "Invalid driver ID");
         if (socket.user.role !== "admin") {
             const driver = await DriverProfile.findOne({ userId: socket.user.userId });
             if (!driver || !sameId(driver._id, driverId)) return socketError(socket, "Access denied");
         }
         socket.join(`driver:${driverId}`);
-    });
+    }));
 
-    socket.on("sos", async ({ rideId, lat, lng }) => {
+    socket.on("sos", safeSocketHandler(socket, async ({ rideId, lat, lng }) => {
+        if (!isValidObjectId(rideId)) return socketError(socket, "Invalid ride ID");
+        if (!hasValidCoordinates(lat, lng)) return socketError(socket, "Invalid SOS location");
         const { allowed } = await canAccessRide(socket, rideId);
         if (!allowed) return socketError(socket, "Access denied");
-        io.emit("sos-alert", { rideId, lat, lng, userId: socket.user.userId, timestamp: new Date() });
-        console.warn("🚨 SOS ALERT from ride:", rideId, "at", lat, lng);
-    });
+        io.emit("sos-alert", { rideId, lat: Number(lat), lng: Number(lng), userId: socket.user.userId, timestamp: new Date() });
+        console.warn("SOS ALERT from ride:", rideId, "at", lat, lng);
+    }));
 
     socket.on("disconnect", () => {});
 });
@@ -120,8 +167,8 @@ async function autoCancelStaleRides() {
         for (const ride of staleRides) {
             ride.status = "cancelled";
             ride.cancelledBy = "system";
-            ride.cancellationReason = "בוטלה אוטומטית - לא נמצא נהג תוך 30 דקות";
             ride.cancelledAt = new Date();
+            ride.cancellationReason = "בוטלה אוטומטית - לא נמצא נהג תוך 30 דקות";
             await ride.save();
 
             const passenger = await PassengerProfile.findById(ride.passengerId);
@@ -169,12 +216,11 @@ async function notifyNearbyDrivers() {
         const availableDrivers = await DriverProfile.find({ status: "available", isVerified: true });
 
         for (const ride of recentRides) {
-            if (!ride.pickupLocation?.lat) continue;
+            if (!hasValidCoordinates(ride.pickupLocation?.lat, ride.pickupLocation?.lng)) continue;
             for (const driver of availableDrivers) {
-                if (!driver.currentLocation?.lat) continue;
-                const dlat = driver.currentLocation.lat - ride.pickupLocation.lat;
-                const dlng = driver.currentLocation.lng - ride.pickupLocation.lng;
-                const distKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
+                if (ride.rideType === "carpool" && !driver.acceptsCarpoolRides) continue;
+                if (!hasValidCoordinates(driver.currentLocation?.lat, driver.currentLocation?.lng)) continue;
+                const distKm = haversineKm(driver.currentLocation, ride.pickupLocation);
 
                 if (distKm <= 5) {
                     io.to(`driver:${driver._id}`).emit("nearby-ride-request", {
@@ -196,7 +242,8 @@ async function notifyNearbyDrivers() {
 
 connectMongo().then(() => {
     server.listen(PORT, () => {
-        console.log(`🚕 HailNow server running on port ${PORT}`);
+        console.log(`HailNow server running on port ${PORT}`);
+        console.log(`Allowed origins: ${configuredOrigins().join(", ")}`);
     });
 
     // Run auto-cancel every 5 minutes

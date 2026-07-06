@@ -1,28 +1,32 @@
 // controllers/mapsController.js
 
 const axios = require("axios");
+const DriverProfile = require("../db/models/DriverProfile");
+const Ride = require("../db/models/Ride");
+const {
+    calcSurge,
+    calculateFare,
+    getLocalHour,
+    hasValidCoordinates,
+    haversineKm,
+    estimateDurationMinutes
+} = require("../utils/pricing");
+const { forbidden, getDriverProfileForUser, getPassengerProfileForUser, isAdmin } = require("../utils/authz");
 
-const VEHICLE_RATES = {
-    regular: { perKm: 2.8, perMin: 0.5, minimum: 15, label: "רגיל"     },
-    comfort:  { perKm: 4.0, perMin: 0.7, minimum: 22, label: "קומפורט" },
-    luxury:   { perKm: 6.5, perMin: 1.2, minimum: 40, label: "יוקרה"   },
-    van:      { perKm: 5.0, perMin: 0.9, minimum: 30, label: "מיניוואן" }
-};
-
-function getLocalHour(date = new Date()) {
-    const timeZone = process.env.APP_TIME_ZONE || "Asia/Jerusalem";
-    return Number(new Intl.DateTimeFormat("en-US", {
-        timeZone,
-        hour: "2-digit",
-        hour12: false
-    }).format(date));
+function parseLatLng(value) {
+    const [lat, lng] = String(value || "").split(",").map(Number);
+    if (!hasValidCoordinates(lat, lng)) return null;
+    return { lat, lng };
 }
 
-function calcSurge() {
-    const h = getLocalHour();
-    if ((h >= 7 && h <= 9) || (h >= 16 && h <= 19)) return 1.5;
-    if (h >= 23 || h <= 5) return 1.2;
-    return 1.0;
+function roundCoordinate(value) {
+    return Math.round(Number(value) * 1000) / 1000;
+}
+
+function clampRadius(value) {
+    const radius = Number(value);
+    if (!Number.isFinite(radius)) return 10;
+    return Math.min(25, Math.max(1, radius));
 }
 
 // GET /api/maps/distance-price
@@ -34,72 +38,71 @@ async function getDistanceAndPrice(req, res) {
             return res.status(400).json({ error: "origins and destinations are required" });
         }
 
+        const pickupLocation = parseLatLng(origins);
+        const destinationLocation = parseLatLng(destinations);
+        if (!pickupLocation || !destinationLocation) {
+            return res.status(400).json({ error: "Valid coordinate origins and destinations are required" });
+        }
+
+        let fare;
+        let distanceText;
+        let durationText;
         const key = process.env.GOOGLE_MAPS_API_KEY;
-        if (!key || key === "place_holder" || key.startsWith("your_")) {
-            // Fallback: estimate based on straight-line distance if no key configured
-            return res.status(200).json({
-                distanceKm: 10,
-                durationMinutes: 20,
-                price: 55,
-                surgeMultiplier: 1.0,
-                breakdown: { base: 55, surge: 0 },
-                note: "Google Maps API key not configured — using estimated values"
-            });
-        }
 
-        const { data } = await axios.get(
-            "https://maps.googleapis.com/maps/api/distancematrix/json",
-            {
-                params: {
-                    origins,
-                    destinations,
-                    key,
-                    language: "he",
-                    mode: "driving"
+        if (key && key !== "place_holder" && !key.startsWith("your_") && key !== "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
+            const { data } = await axios.get(
+                "https://maps.googleapis.com/maps/api/distancematrix/json",
+                {
+                    params: {
+                        origins,
+                        destinations,
+                        key,
+                        language: "he",
+                        mode: "driving"
+                    }
                 }
+            );
+
+            if (data.status !== "OK") {
+                return res.status(400).json({ error: "Google Maps API error: " + data.status });
             }
-        );
 
-        if (data.status !== "OK") {
-            return res.status(400).json({ error: "Google Maps API error: " + data.status });
+            const element = data.rows[0]?.elements[0];
+            if (!element || element.status !== "OK") {
+                return res.status(400).json({ error: "No route found between locations" });
+            }
+
+            const distanceKm = element.distance.value / 1000;
+            const durationMinutes = Math.ceil(element.duration.value / 60);
+            fare = calculateFare({
+                pickupLocation,
+                destinationLocation,
+                vehicleType,
+                rideType,
+                passengerCount,
+                distanceKm,
+                durationMinutes
+            });
+            distanceText = element.distance.text;
+            durationText = element.duration.text;
+        } else {
+            fare = calculateFare({ pickupLocation, destinationLocation, vehicleType, rideType, passengerCount });
+            distanceText = `${fare.distanceKm} ק"מ`;
+            durationText = `${fare.estimatedDurationMinutes} דקות`;
         }
-
-        const element = data.rows[0]?.elements[0];
-        if (!element || element.status !== "OK") {
-            return res.status(400).json({ error: "No route found between locations" });
-        }
-
-        const distanceKm      = element.distance.value / 1000;
-        const durationMinutes = Math.ceil(element.duration.value / 60);
-
-        const rate = VEHICLE_RATES[vehicleType] || VEHICLE_RATES.regular;
-        const surge = calcSurge();
-
-        let base = Math.max(
-            rate.minimum,
-            distanceKm * rate.perKm + durationMinutes * rate.perMin
-        );
-
-        // Carpool discount
-        if (rideType === "carpool") base *= 0.65;
-
-        const total = Math.ceil(base * surge);
-
-        // Split payment info
-        const perPerson = rideType === "carpool" ? Math.ceil(total / Math.max(1, Number(passengerCount))) : total;
 
         res.json({
-            distanceKm:      Math.round(distanceKm * 10) / 10,
-            durationMinutes,
-            price:           total,
-            pricePerPerson:  perPerson,
-            surgeMultiplier: surge,
+            distanceKm: fare.distanceKm,
+            durationMinutes: fare.estimatedDurationMinutes,
+            price: fare.finalPrice,
+            pricePerPerson: fare.pricePerPerson,
+            surgeMultiplier: fare.surgeMultiplier,
             breakdown: {
-                base: Math.round(base),
-                surgeBonus: Math.round(total - base)
+                base: fare.basePrice,
+                surgeBonus: Math.round(fare.finalPrice - fare.basePrice)
             },
-            distanceText:  element.distance.text,
-            durationText:  element.duration.text
+            distanceText,
+            durationText
         });
 
     } catch (error) {
@@ -110,23 +113,38 @@ async function getDistanceAndPrice(req, res) {
 // GET /api/maps/nearby-drivers
 async function getNearbyDrivers(req, res) {
     try {
-        const DriverProfile = require("../db/models/DriverProfile");
-        const User = require("../db/models/User");
-
+        if (!isAdmin(req)) {
+            const passenger = await getPassengerProfileForUser(req.user.userId);
+            if (!passenger) return forbidden(res, "Passenger access required");
+        }
         const { lat, lng, radius = 10 } = req.query;
+        if (!hasValidCoordinates(lat, lng)) {
+            return res.status(400).json({ error: "Valid lat/lng are required" });
+        }
 
+        const origin = { lat: Number(lat), lng: Number(lng) };
+        const maxRadius = clampRadius(radius);
         const drivers = await DriverProfile.find({ status: "available", isVerified: true })
-            .populate("userId", "fullName profileImage preferredLanguage");
+            .populate("userId", "fullName");
 
         const nearby = drivers
-            .filter(d => d.currentLocation?.lat && d.currentLocation?.lng)
+            .filter(d => hasValidCoordinates(d.currentLocation?.lat, d.currentLocation?.lng))
             .map(d => {
-                const dlat = d.currentLocation.lat - Number(lat);
-                const dlng = d.currentLocation.lng - Number(lng);
-                const dist = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
-                return { ...d.toObject(), distanceKm: Math.round(dist * 10) / 10 };
+                const distanceKm = haversineKm(origin, d.currentLocation);
+                return {
+                    _id: d._id,
+                    userId: d.userId,
+                    ratingAverage: d.ratingAverage,
+                    totalRides: d.totalRides,
+                    currentLocation: {
+                        lat: roundCoordinate(d.currentLocation.lat),
+                        lng: roundCoordinate(d.currentLocation.lng),
+                        updatedAt: d.currentLocation.updatedAt
+                    },
+                    distanceKm: Math.round(distanceKm * 10) / 10
+                };
             })
-            .filter(d => d.distanceKm <= Number(radius))
+            .filter(d => d.distanceKm <= maxRadius)
             .sort((a, b) => a.distanceKm - b.distanceKm);
 
         res.json(nearby);
@@ -138,17 +156,22 @@ async function getNearbyDrivers(req, res) {
 // GET /api/maps/demand
 async function getDemandInfo(req, res) {
     try {
-        const Ride = require("../db/models/Ride");
-        const { lat, lng } = req.query;
+        const driver = !isAdmin(req) ? await getDriverProfileForUser(req.user.userId) : null;
+        if (!isAdmin(req) && !driver?.isVerified) {
+            return forbidden(res, "Verified driver access required");
+        }
 
-        const recentRides = await Ride.find({
+        const filter = {
             status: "searching",
             createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) },
             $or: [
                 { scheduledTime: null },
                 { scheduledTime: { $lte: new Date(Date.now() + 15 * 60 * 1000) } }
             ]
-        });
+        };
+        if (driver && !driver.acceptsCarpoolRides) filter.rideType = { $ne: "carpool" };
+
+        const recentRides = await Ride.find(filter);
 
         const h = getLocalHour();
         let demand = "medium";
@@ -156,35 +179,35 @@ async function getDemandInfo(req, res) {
 
         if (recentRides.length > 10 || (h >= 7 && h <= 9) || (h >= 16 && h <= 19)) {
             demand = "high";
-            message = "ביקוש גבוה! כדאי לצאת לדרך עכשיו 🔥";
+            message = "ביקוש גבוה. כדאי לצאת לדרך עכשיו.";
         } else if (recentRides.length < 2) {
             demand = "low";
             message = "ביקוש נמוך כרגע";
         }
 
-        // Group requests by area for demand heatmap
         const demandAreas = {};
         for (const r of recentRides) {
-            if (!r.pickupLocation?.lat) continue;
-            const areaKey = `${(r.pickupLocation.lat).toFixed(2)},${(r.pickupLocation.lng).toFixed(2)}`;
-            if (!demandAreas[areaKey]) demandAreas[areaKey] = { lat: r.pickupLocation.lat, lng: r.pickupLocation.lng, count: 0 };
+            if (!hasValidCoordinates(r.pickupLocation?.lat, r.pickupLocation?.lng)) continue;
+            const areaKey = `${Number(r.pickupLocation.lat).toFixed(2)},${Number(r.pickupLocation.lng).toFixed(2)}`;
+            if (!demandAreas[areaKey]) {
+                demandAreas[areaKey] = {
+                    lat: Number(Number(r.pickupLocation.lat).toFixed(2)),
+                    lng: Number(Number(r.pickupLocation.lng).toFixed(2)),
+                    count: 0
+                };
+            }
             demandAreas[areaKey].count++;
         }
 
         const hotspots = Object.values(demandAreas).sort((a, b) => b.count - a.count);
-
-        // Individual request locations for map markers
         const requestLocations = recentRides
-            .filter(r => r.pickupLocation?.lat)
+            .filter(r => hasValidCoordinates(r.pickupLocation?.lat, r.pickupLocation?.lng))
             .map(r => ({
                 rideId: r._id,
-                lat: r.pickupLocation.lat,
-                lng: r.pickupLocation.lng,
-                address: r.pickupLocation.address,
-                destAddress: r.destinationLocation?.address,
+                lat: roundCoordinate(r.pickupLocation.lat),
+                lng: roundCoordinate(r.pickupLocation.lng),
                 rideType: r.rideType,
                 passengerCount: r.passengerCount,
-                finalPrice: r.finalPrice,
                 createdAt: r.createdAt
             }));
 
@@ -207,10 +230,10 @@ async function getBestDeparture(req, res) {
     const h = getLocalHour();
     const suggestions = [];
 
-    if (h >= 6 && h < 7)  suggestions.push({ time: "06:30", reason: "לפני פקק הבוקר" });
-    if (h >= 7 && h <= 9)  suggestions.push({ time: "09:30", reason: "אחרי שעת הפקק" });
-    if (h >= 15 && h < 16) suggestions.push({ time: "15:00", reason: "לפני פקק אחה\"צ" });
-    if (h >= 16 && h <= 19) suggestions.push({ time: "20:00", reason: "אחרי שעת הפקק" });
+    if (h >= 6 && h < 7) suggestions.push({ time: "06:30", reason: "לפני פקק הבוקר" });
+    if (h >= 7 && h <= 9) suggestions.push({ time: "09:30", reason: "אחרי שעת העומס" });
+    if (h >= 15 && h < 16) suggestions.push({ time: "15:00", reason: "לפני עומס אחר הצהריים" });
+    if (h >= 16 && h <= 19) suggestions.push({ time: "20:00", reason: "אחרי שעת העומס" });
 
     if (suggestions.length === 0) {
         suggestions.push({ time: "עכשיו", reason: "ביקוש נמוך, זמן טוב לנסוע" });
@@ -228,9 +251,9 @@ async function getPricePrediction(req, res) {
     let minutesUntilCheaper = 0;
 
     if (surge > 1.0) {
-        if (h === 9) { cheaperSoon = true; cheaperMessage = "עוד כ-10 דקות שעת הפקק תסתיים והמחיר ירד"; minutesUntilCheaper = 10; }
+        if (h === 9) { cheaperSoon = true; cheaperMessage = "עוד כ-10 דקות שעת העומס צפויה להסתיים והמחיר ירד"; minutesUntilCheaper = 10; }
         if (h === 19) { cheaperSoon = true; cheaperMessage = "עוד כ-30 דקות המחיר צפוי לרדת"; minutesUntilCheaper = 30; }
-        if (h === 8) { cheaperSoon = true; cheaperMessage = "עוד כ-60 דקות שעת הפקק תסתיים"; minutesUntilCheaper = 60; }
+        if (h === 8) { cheaperSoon = true; cheaperMessage = "עוד כ-60 דקות שעת העומס צפויה להסתיים"; minutesUntilCheaper = 60; }
         if (h === 17) { cheaperSoon = true; cheaperMessage = "עוד כ-120 דקות המחיר צפוי לרדת"; minutesUntilCheaper = 120; }
     }
 
@@ -241,13 +264,17 @@ async function getPricePrediction(req, res) {
 async function getDriverETA(req, res) {
     try {
         const { driverLat, driverLng, passengerLat, passengerLng } = req.query;
-        const key = process.env.GOOGLE_MAPS_API_KEY;
+        if (!hasValidCoordinates(driverLat, driverLng) || !hasValidCoordinates(passengerLat, passengerLng)) {
+            return res.status(400).json({ error: "Valid driver and passenger coordinates are required" });
+        }
 
+        const key = process.env.GOOGLE_MAPS_API_KEY;
         if (!key || key === "place_holder" || key.startsWith("your_") || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
-            const dlat = Number(driverLat) - Number(passengerLat);
-            const dlng = Number(driverLng) - Number(passengerLng);
-            const distKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
-            const etaMin = Math.max(1, Math.round(distKm * 3));
+            const distKm = haversineKm(
+                { lat: Number(driverLat), lng: Number(driverLng) },
+                { lat: Number(passengerLat), lng: Number(passengerLng) }
+            );
+            const etaMin = estimateDurationMinutes(distKm);
             return res.json({ etaMinutes: etaMin, etaText: `כ-${etaMin} דקות`, distanceKm: Math.round(distKm * 10) / 10 });
         }
 
@@ -266,9 +293,9 @@ async function getDriverETA(req, res) {
             });
         }
 
-        res.json({ etaMinutes: 10, etaText: "כ-10 דקות" });
+        return res.status(400).json({ error: "Could not calculate ETA" });
     } catch (error) {
-        res.json({ etaMinutes: 10, etaText: "כ-10 דקות" });
+        res.status(500).json({ error: "ETA calculation failed" });
     }
 }
 

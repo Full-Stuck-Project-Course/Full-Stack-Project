@@ -16,14 +16,10 @@ const createRideSchema = Joi.object({
     rideType:                 Joi.string().valid("ride", "delivery", "carpool").optional(),
     pickupLocation:           locationSchema.required(),
     destinationLocation:      locationSchema.required(),
-    passengerCount:           Joi.number().min(1).optional(),
+    passengerCount:           Joi.number().integer().min(1).max(8).optional(),
     scheduledTime:            Joi.date().optional().allow(null),
-    vehicleType:              Joi.string().optional(),
-    basePrice:                Joi.number().optional(),
-    finalPrice:               Joi.number().optional(),
-    distanceKm:               Joi.number().optional(),
-    estimatedDurationMinutes: Joi.number().optional(),
-    surgeMultiplier:          Joi.number().optional(),
+    vehicleType:              Joi.string().valid("regular", "comfort", "luxury", "van").optional(),
+    pointsToRedeem:           Joi.number().integer().min(0).optional(),
 });
 
 const acceptRideSchema = Joi.object({

@@ -150,10 +150,17 @@ async function refundPayment(req, res) {
         const existing = await Payment.findById(req.params.id);
         if (!existing) return res.status(404).json({ error: "Payment not found" });
         if (!isAdmin(req)) return forbidden(res, "Admin access required");
+        const amount = Number(refundAmount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return res.status(400).json({ error: "Refund amount must be positive" });
+        }
+        if (amount > existing.amount) {
+            return res.status(400).json({ error: "Refund amount cannot exceed payment amount" });
+        }
 
         const payment = await Payment.findByIdAndUpdate(
             req.params.id,
-            { paymentStatus: "refunded", refundAmount, refundReason },
+            { paymentStatus: "refunded", refundAmount: amount, refundReason },
             { new: true }
         );
 

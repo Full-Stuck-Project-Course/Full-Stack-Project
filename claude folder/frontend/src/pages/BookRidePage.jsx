@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 import MapComponent, { AddressInput } from "../components/MapComponent";
 
@@ -65,7 +64,7 @@ function hasCoordinates(loc) {
 
 export default function BookRidePage() {
     const { user, updateUser } = useAuth();
-    const { t }        = useLang();
+    const userId       = user?.userId;
     const navigate     = useNavigate();
     const [params]     = useSearchParams();
 
@@ -83,7 +82,6 @@ export default function BookRidePage() {
     const [nearbyDrivers, setNearbyDrivers] = useState([]);
     const [userLoc,       setUserLoc]     = useState(null);
     const [bestTime,      setBestTime]    = useState(null);
-    const [splitPayment,  setSplitPayment] = useState(false);
     const [pricePrediction, setPricePrediction] = useState(null);
 
     // Points redemption
@@ -115,14 +113,14 @@ export default function BookRidePage() {
         }
         // Fetch saved addresses
         api.get("/passengers").then(r => {
-            const p = r.data.find(p => p.userId === user?.userId || p.userId?._id === user?.userId);
+            const p = r.data.find(p => p.userId === userId || p.userId?._id === userId);
             if (p?.savedLocations) setSavedAddresses(p.savedLocations);
         }).catch(() => {});
         // Fetch current points
-        api.get(`/users/${user?.userId}`).then(r => setUserPoints(r.data.loyaltyPoints || 0)).catch(() => {});
+        if (userId) api.get(`/users/${userId}`).then(r => setUserPoints(r.data.loyaltyPoints || 0)).catch(() => {});
         // Price prediction
         api.get("/maps/price-prediction").then(r => setPricePrediction(r.data)).catch(() => {});
-    }, [userLoc]);
+    }, [userLoc, userId]);
 
     // Calculate price
     const calcPrice = useCallback(async () => {
@@ -142,11 +140,15 @@ export default function BookRidePage() {
         return () => clearTimeout(timer);
     }, [calcPrice]);
 
+    useEffect(() => {
+        if (rideType === "carpool" && passengerCount > 4) setPassCount(4);
+    }, [rideType, passengerCount]);
+
     const addStop = () => setStops(s => [...s, { address: "", lat: null, lng: null }]);
     const removeStop = (i) => setStops(s => s.filter((_, idx) => idx !== i));
     const updateStop = (i, val) => setStops(s => s.map((st, idx) => idx === i ? { ...st, ...val } : st));
 
-    const useSavedAddr = (addr, target) => {
+    const applySavedAddress = (addr, target) => {
         const loc = { address: addr.address || addr.name, lat: addr.lat, lng: addr.lng };
         if (target === "pickup") setPickup(loc);
         else setDest(loc);
@@ -160,23 +162,12 @@ export default function BookRidePage() {
 
         if (!hasCoordinates(pickup)) return setError("נא לבחור כתובת איסוף מהרשימה");
         if (!hasCoordinates(dest)) return setError("נא לבחור כתובת יעד מהרשימה");
+        if (stops.some(stop => !stop.address || !hasCoordinates(stop))) {
+            return setError("נא לבחור כל עצירת ביניים מהרשימה");
+        }
 
         setLoading(true);
         try {
-            let discount = 0;
-            // Redeem points
-            if (redeemPoints && pointsToUse > 0) {
-                const { data: ptData } = await api.post("/points/redeem", {
-                    userId: user?.userId,
-                    pointsToRedeem: pointsToUse
-                });
-                discount = ptData.discount;
-                setUserPoints(ptData.remainingPoints);
-                updateUser({ loyaltyPoints: ptData.remainingPoints });
-            }
-
-            const finalPrice = Math.max(0, (priceData?.price || 0) - discount);
-
             const { data } = await api.post("/rides", {
                 rideType,
                 vehicleType,
@@ -184,12 +175,22 @@ export default function BookRidePage() {
                 destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                 passengerCount,
                 scheduledTime: scheduledTime || null,
-                basePrice:  priceData?.price || 0,
-                finalPrice: finalPrice,
-                distanceKm: priceData?.distanceKm || 0,
-                estimatedDurationMinutes: priceData?.durationMinutes || 0,
-                surgeMultiplier: priceData?.surgeMultiplier || 1
+                pointsToRedeem: redeemPoints ? pointsToUse : 0
             });
+            if (data.remainingPoints !== undefined) {
+                setUserPoints(data.remainingPoints);
+                updateUser({ loyaltyPoints: data.remainingPoints });
+            }
+            if (stops.length > 0) {
+                await Promise.all(stops.map((stop, i) => api.post("/ride-stops", {
+                    rideId: data.ride._id,
+                    order: i + 1,
+                    address: stop.address,
+                    lat: stop.lat,
+                    lng: stop.lng,
+                    stopType: "waypoint"
+                })));
+            }
             navigate(`/ride/${data.ride._id}`);
         } catch (err) {
             setError(err.response?.data?.error || "שגיאה ביצירת הנסיעה");
@@ -229,16 +230,16 @@ export default function BookRidePage() {
                     {/* Saved addresses */}
                     {savedAddresses.length > 0 && (
                         <div style={{ marginBottom: 16 }}>
-                            <label style={{ ...s.label, fontSize: 13 }}>{"📌 " + "כתובות שמורות"}</label>
+                            <label style={{ ...s.label, fontSize: 13 }}>{"📌 כתובות שמורות"}</label>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                 {savedAddresses.map((addr, i) => (
                                     <div key={i} style={{ display: "flex", gap: 4 }}>
                                         <span style={s.savedAddr(pickup.address === addr.address)}
-                                            onClick={() => useSavedAddr(addr, "pickup")}>
+                                            onClick={() => applySavedAddress(addr, "pickup")}>
                                             📍 {addr.name || addr.address}
                                         </span>
                                         <span style={s.savedAddr(dest.address === addr.address)}
-                                            onClick={() => useSavedAddr(addr, "dest")}>
+                                            onClick={() => applySavedAddress(addr, "dest")}>
                                             🏁
                                         </span>
                                     </div>
@@ -292,7 +293,8 @@ export default function BookRidePage() {
                         <div style={s.group}>
                             <label style={s.label}>{"נוסעים"}</label>
                             <select value={passengerCount} onChange={e => setPassCount(Number(e.target.value))}>
-                                {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
+                                {Array.from({ length: rideType === "carpool" ? 4 : 6 }, (_, i) => i + 1)
+                                    .map(n => <option key={n} value={n}>{n}</option>)}
                             </select>
                         </div>
                         <div style={s.group}>
@@ -301,14 +303,6 @@ export default function BookRidePage() {
                                 onChange={e => setSched(e.target.value)} min={toLocalDateTimeInputValue()} />
                         </div>
                     </div>
-
-                    {/* Split payment */}
-                    {rideType === "carpool" && passengerCount > 1 && (
-                        <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, cursor: "pointer", fontSize: 14 }}>
-                            <input type="checkbox" checked={splitPayment} onChange={e => setSplitPayment(e.target.checked)} />
-                            {"פיצול תשלום"} ({passengerCount} נוסעים)
-                        </label>
-                    )}
 
                     {/* Price display */}
                     <div style={s.priceBox}>
@@ -327,9 +321,9 @@ export default function BookRidePage() {
                                         </span>
                                     </div>
                                 </div>
-                                {splitPayment && passengerCount > 1 && (
+                                {rideType === "carpool" && passengerCount > 1 && (
                                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--success)" }}>
-                                        <span>{"לנוסע"}</span>
+                                        <span>{"מחיר משוער לנוסע"}</span>
                                         <span style={{ fontWeight: 700 }}>₪{Math.ceil(Math.max(0, priceData.price - pointsValue) / passengerCount)}</span>
                                     </div>
                                 )}
@@ -399,7 +393,7 @@ export default function BookRidePage() {
                                 </div>
                                 <div style={{ textAlign: "left" }}>
                                     <div style={{ fontSize: 14, fontWeight: 700 }}>⭐ {d.ratingAverage}</div>
-                                    <div style={{ fontSize: 11, color: "var(--success)" }}>{"● " + "זמין"}</div>
+                                    <div style={{ fontSize: 11, color: "var(--success)" }}>{"● זמין"}</div>
                                 </div>
                             </div>
                         ))}

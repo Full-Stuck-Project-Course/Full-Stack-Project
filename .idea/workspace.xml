@@ -5,11 +5,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e52d2a56-f49c-4631-81a3-34d8b4c6bdb4" name="Changes" comment="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
-      <change afterPath="$PROJECT_DIR$/claude folder/backend/utils/authz.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/claude folder/frontend/src/api/assets.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/claude folder/frontend/src/api/socket.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/claude folder/reports/verification-report-after-fixes.docx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/claude folder/backend/middleware/rateLimit.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/claude folder/backend/scripts/check-syntax.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/claude folder/backend/utils/pricing.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/claude folder/frontend/.eslintrc.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/claude folder/reports/דוח_סקירת_באגים_2026-06-30.docx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/backend/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/app.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/carpoolController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/carpoolController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/driverAlertController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/driverAlertController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/driverController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/driverController.js" afterDir="false" />
@@ -19,26 +21,33 @@
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/paymentController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/paymentController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/ratingController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/ratingController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/rideController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/rideController.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/rideStopController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/rideStopController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/translateController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/translateController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/uploadController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/uploadController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/userController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/userController.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/controllers/vehicleController.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/controllers/vehicleController.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/backend/db/models/DriverProfile.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/db/models/DriverProfile.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/backend/db/models/Vehicle.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/db/models/Vehicle.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/backend/db/models/rating.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/db/models/rating.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/middleware/upload.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/middleware/upload.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/backend/middleware/validate.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/middleware/validate.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/backend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/package.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/routes/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/routes/index.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/server.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/backend/validators/ratingValidators.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/validators/ratingValidators.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/validators/rideValidators.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/validators/rideValidators.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/backend/validators/userValidators.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/backend/validators/userValidators.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/context/AuthContext.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/context/AuthContext.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/api/assets.js" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/api/assets.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/components/MapComponent.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/components/MapComponent.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/AdminPanel.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/AdminPanel.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/BookRidePage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/BookRidePage.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/DriverDashboard.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/DriverDashboard.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/DriverSetupPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/DriverSetupPage.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/ForgotPasswordPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/ForgotPasswordPage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/HomePage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/HomePage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/LoginPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/LoginPage.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/PassengerDashboard.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/PassengerDashboard.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/ProfilePage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/ProfilePage.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/RatingPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/RatingPage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/RegisterPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/RegisterPage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/ResetPasswordPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/ResetPasswordPage.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/claude folder/frontend/src/pages/RideStatusPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/claude folder/frontend/src/pages/RideStatusPage.jsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -116,6 +125,7 @@
           </model>
         </option>
         <option name="targetType" value="BACKGROUND" />
+        <option name="worktreeMode" value="WORKSPACE" />
       </template>
     </option>
   </component>
@@ -123,42 +133,42 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "Batch.RUN_RIDELOOP.executor": "Run",
-    "Batch.start.executor": "Run",
-    "JavaScript Debug.index.html.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Node.js.backend > app.js.executor": "Run",
-    "Node.js.backend > mongo.js.executor": "Run",
-    "Node.js.backend > server.js.executor": "Run",
-    "Node.js.server.js.executor": "Run",
-    "Node.js.vite.config.ts.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "copilot.chat.legacySessionMetadata.migrated": "true",
-    "git-widget-placeholder": "main",
-    "javascript.nodejs.core.library.configured.version": "25.9.0",
-    "javascript.nodejs.core.library.typings.version": "25.9.4",
-    "javascript.preferred.runtime.type.id": "node",
-    "last_opened_file_path": "C:/Users/David Yuval/OneDrive - Bar-Ilan University - Students/אוניברסיטה/לימודי מידע/שנה ב סמסטר ב/פיתוח Full Stack מתקדם/Full-Stack-Project",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "ts.external.directory.path": "C:\\Program Files\\JetBrains\\WebStorm 2025.3.4\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;Batch.RUN_RIDELOOP.executor&quot;: &quot;Run&quot;,
+    &quot;Batch.start.executor&quot;: &quot;Run&quot;,
+    &quot;JavaScript Debug.index.html.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Node.js.backend &gt; app.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.backend &gt; mongo.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.backend &gt; server.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.server.js.executor&quot;: &quot;Run&quot;,
+    &quot;Node.js.vite.config.ts.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;javascript.nodejs.core.library.configured.version&quot;: &quot;25.9.0&quot;,
+    &quot;javascript.nodejs.core.library.typings.version&quot;: &quot;25.9.4&quot;,
+    &quot;javascript.preferred.runtime.type.id&quot;: &quot;node&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/David Yuval/OneDrive - Bar-Ilan University - Students/אוניברסיטה/לימודי מידע/שנה ב סמסטר ב/פיתוח Full Stack מתקדם/Full-Stack-Project&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\WebStorm 2025.3.4\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-WS-261.25134.101" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-WS-261.26222.58" />
       </set>
     </attachedChunks>
   </component>
@@ -200,7 +210,9 @@
       <workItem from="1782671792863" duration="764000" />
       <workItem from="1782675269977" duration="230000" />
       <workItem from="1782675613854" duration="1193000" />
-      <workItem from="1782676849093" duration="2545000" />
+      <workItem from="1782676849093" duration="3288000" />
+      <workItem from="1783330570671" duration="612000" />
+      <workItem from="1783336097663" duration="750000" />
     </task>
     <task id="LOCAL‎-00001" summary="remove syllabus file">
       <option name="closed" value="true" />
@@ -426,7 +438,15 @@
       <option name="project" value="LOCAL‎" />
       <updated>1782676871432</updated>
     </task>
-    <option name="localTasksCounter" value="29" />
+    <task id="LOCAL‎-00029" summary="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
+      <option name="closed" value="true" />
+      <created>1782714806904</created>
+      <option name="number" value="00029" />
+      <option name="presentableId" value="LOCAL‎-00029" />
+      <option name="project" value="LOCAL‎" />
+      <updated>1782714806904</updated>
+    </task>
+    <option name="localTasksCounter" value="30" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

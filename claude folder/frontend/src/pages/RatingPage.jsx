@@ -24,7 +24,7 @@ export default function RatingPage() {
 
     useEffect(() => {
         api.get(`/rides/${id}`).then(r => setRide(r.data)).catch(() => navigate("/"));
-    }, [id]);
+    }, [id, navigate]);
 
     const toggleTag = (tag) => setTags(prev => prev.includes(tag) ? prev.filter(x => x !== tag) : [...prev, tag]);
 
@@ -131,7 +131,7 @@ export default function RatingPage() {
 
                 {/* Comment */}
                 <textarea
-                    placeholder={"הוסף תגובה" + "..."}
+                    placeholder="הוסף תגובה..."
                     value={comment}
                     onChange={e => setComment(e.target.value)}
                     rows={3}
@@ -148,9 +148,9 @@ export default function RatingPage() {
                 {/* Complaint toggle */}
                 <button type="button" onClick={() => setShowC(c => !c)}
                     style={{ background: "none", color: "var(--danger)", fontSize: 13, padding: 0, fontWeight: 500 }}>
-                    ⚑ {"הגש תלונה"} {showC ? "▲" : "▼"}
+                    ⚑ {"הגש תלונה"} {showComplaint ? "▲" : "▼"}
                 </button>
-                {showC && (
+                {showComplaint && (
                     <textarea
                         placeholder={"תאר את הבעיה..."}
                         value={complaint}

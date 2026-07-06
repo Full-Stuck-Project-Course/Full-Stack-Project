@@ -3,13 +3,42 @@
 const DriverAlert = require("../db/models/DriverAlert");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 
+function trimText(value, maxLength) {
+    return String(value || "").trim().slice(0, maxLength);
+}
+
+function parseArea(area = {}) {
+    const lat = area.lat === undefined || area.lat === null ? null : Number(area.lat);
+    const lng = area.lng === undefined || area.lng === null ? null : Number(area.lng);
+
+    return {
+        city: trimText(area.city, 80),
+        address: trimText(area.address, 200),
+        lat: Number.isFinite(lat) && lat >= -90 && lat <= 90 ? lat : null,
+        lng: Number.isFinite(lng) && lng >= -180 && lng <= 180 ? lng : null
+    };
+}
+
 // POST /driver-alerts
 async function createDriverAlert(req, res) {
     try {
-        if (!isAdmin(req) && !await canAccessDriver(req, req.body.driverId)) {
-            return forbidden(res);
+        if (!isAdmin(req)) return forbidden(res, "Admin access required");
+
+        const payload = {
+            driverId: req.body.driverId,
+            alertType: req.body.alertType,
+            title: trimText(req.body.title, 120),
+            message: trimText(req.body.message, 1000),
+            area: parseArea(req.body.area),
+            demandLevel: req.body.demandLevel,
+            expiresAt: req.body.expiresAt || null
+        };
+
+        if (!payload.title || !payload.message) {
+            return res.status(400).json({ error: "Alert title and message are required" });
         }
-        const alert = await DriverAlert.create(req.body);
+
+        const alert = await DriverAlert.create(payload);
         res.status(201).json({ message: "Alert created", alert });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -41,7 +70,9 @@ async function markAlertAsRead(req, res) {
         if (!await canAccessDriver(req, existing.driverId)) return forbidden(res);
 
         const alert = await DriverAlert.findByIdAndUpdate(
-            req.params.id, { isRead: true }, { new: true }
+            req.params.id,
+            { isRead: true },
+            { new: true }
         );
         if (!alert) return res.status(404).json({ error: "Alert not found" });
         res.status(200).json({ message: "Alert marked as read", alert });
@@ -81,5 +112,9 @@ async function deleteAlert(req, res) {
 }
 
 module.exports = {
-    createDriverAlert, getAlertsByDriver, markAlertAsRead, markAllAlertsAsRead, deleteAlert
+    createDriverAlert,
+    getAlertsByDriver,
+    markAlertAsRead,
+    markAllAlertsAsRead,
+    deleteAlert
 };

@@ -29,7 +29,7 @@ async function translate(req, res) {
         const translatedText = data?.data?.translations?.[0]?.translatedText || text;
         res.json({ translatedText, detectedLanguage: data?.data?.translations?.[0]?.detectedSourceLanguage });
     } catch (error) {
-        res.json({ translatedText: req.body.text, error: "Translation failed" });
+        res.status(502).json({ translatedText: req.body.text, error: "Translation failed" });
     }
 }
 
@@ -57,7 +57,11 @@ async function translateBatch(req, res) {
 
         res.json({ translations: results });
     } catch (error) {
-        res.json({ translations: req.body.texts.map(t => ({ original: t, translated: t })) });
+        const texts = Array.isArray(req.body.texts) ? req.body.texts : [];
+        res.status(502).json({
+            error: "Translation failed",
+            translations: texts.map(t => ({ original: t, translated: t }))
+        });
     }
 }
 

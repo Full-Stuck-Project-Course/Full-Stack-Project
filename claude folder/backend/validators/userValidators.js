@@ -17,7 +17,7 @@ const registerSchema = Joi.object({
     email:             Joi.string().email().required(),
     password:          passwordSchema.required(),
     phone:             Joi.string().pattern(/^05\d{8}$/).required(),
-    role:              Joi.string().valid("passenger", "driver", "admin").optional(),
+    role:              Joi.string().valid("passenger", "driver", "both").optional(),
     preferredLanguage: Joi.string().valid("he", "en").optional(),
     referralCode:      Joi.string().optional(),
 });
@@ -42,7 +42,7 @@ const resetPasswordSchema = Joi.object({
 
 const updateUserSchema = Joi.object({
     fullName:          Joi.string().min(2).optional(),
-    phone:             Joi.string().optional(),
+    phone:             Joi.string().pattern(/^05\d{8}$/).optional(),
     preferredLanguage: Joi.string().valid("he", "en").optional(),
     profileImage:      Joi.string().optional(),
     role:              Joi.string().valid("passenger", "driver", "both", "admin").optional(),

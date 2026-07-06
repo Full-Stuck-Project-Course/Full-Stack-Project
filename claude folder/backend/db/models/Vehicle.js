@@ -24,7 +24,9 @@ const vehicleSchema = new mongoose.Schema({
 
     year: {
         type: Number,
-        required: true
+        required: true,
+        min: 1990,
+        max: new Date().getFullYear() + 1
     },
 
     color: {
@@ -35,7 +37,8 @@ const vehicleSchema = new mongoose.Schema({
     licensePlate: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
+        match: /^\d{7,8}$/
     },
 
     vehicleType: {
@@ -46,7 +49,9 @@ const vehicleSchema = new mongoose.Schema({
 
     seats: {
         type: Number,
-        default: 4
+        default: 4,
+        min: 2,
+        max: 8
     },
 
     testApproval: {
@@ -54,9 +59,25 @@ const vehicleSchema = new mongoose.Schema({
         default: false
     },
 
+    testImagePath: {
+        type: String,
+        default: null
+    },
+
     insuranceApproval: {
         type: Boolean,
         default: false
+    },
+
+    insuranceImagePath: {
+        type: String,
+        default: null
+    },
+
+    documentsVerificationStatus: {
+        type: String,
+        enum: ["not_submitted", "pending", "approved", "rejected"],
+        default: "not_submitted"
     },
 
     allowPets: {

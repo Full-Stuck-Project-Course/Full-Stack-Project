@@ -3,14 +3,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
-import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import { fetchRides, cancelRide as cancelRideThunk } from "../store/ridesSlice";
 
 export default function RideHistoryPage() {
-    const { user }     = useAuth();
-    const { t }        = useLang();
-
     const STATUS_LABELS = {
         completed:       { label: "הושלמה",      color: "#10b981", icon: "✅" },
         cancelled:       { label: "בוטלה",      color: "#ef4444", icon: "❌" },
@@ -22,9 +17,9 @@ export default function RideHistoryPage() {
 
     const FILTERS = [
         { key: "all",       label: "הכל" },
-        { key: "completed", label: "✅ " + "הושלמו" },
-        { key: "cancelled", label: "❌ " + "בוטלו" },
-        { key: "scheduled", label: "📅 " + "מתוכננות" }
+        { key: "completed", label: "✅ הושלמו" },
+        { key: "cancelled", label: "❌ בוטלו" },
+        { key: "scheduled", label: "📅 מתוכננות" }
     ];
     const navigate = useNavigate();
     const dispatch = useDispatch();

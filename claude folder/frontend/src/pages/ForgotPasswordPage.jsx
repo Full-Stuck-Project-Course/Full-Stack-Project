@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 
 const s = {
@@ -21,7 +20,6 @@ const s = {
 };
 
 export default function ForgotPasswordPage() {
-    const { t } = useLang();
     const [email,    setEmail]    = useState("");
     const [error,    setError]    = useState("");
     const [loading,  setLoading]  = useState(false);

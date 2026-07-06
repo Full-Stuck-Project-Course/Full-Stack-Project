@@ -2,6 +2,7 @@
 
 const CarpoolRequest = require("../db/models/CarpoolRequest");
 const Ride = require("../db/models/Ride");
+const Vehicle = require("../db/models/Vehicle");
 const {
     canAccessPassenger,
     forbidden,
@@ -33,6 +34,24 @@ function publicPopulate(query) {
         .populate("rideId");
 }
 
+function parsePositiveInteger(value, fallback) {
+    const parsed = Number(value ?? fallback);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseNonNegativeNumber(value, fallback) {
+    const parsed = Number(value ?? fallback);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseFutureDate(value, fieldName) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        throw new Error(`${fieldName} must be a valid date`);
+    }
+    return parsed;
+}
+
 async function canReadCarpoolRequest(req, request) {
     if (isAdmin(req)) return true;
 
@@ -55,21 +74,35 @@ async function createCarpoolRequest(req, res) {
             return forbidden(res);
         }
 
-        const { pickupLocation, destinationLocation, requestedTime, seatsNeeded, maxDetourMinutes, pricePerSeat, notes, expiresAt } = req.body;
+        const { pickupLocation, destinationLocation, requestedTime, notes } = req.body;
         if (!hasValidLocation(pickupLocation) || !hasValidLocation(destinationLocation)) {
             return res.status(400).json({ error: "Valid pickup and destination coordinates are required" });
         }
+        const parsedSeats = parsePositiveInteger(req.body.seatsNeeded, 1);
+        if (!parsedSeats || parsedSeats > 4) {
+            return res.status(400).json({ error: "Seats needed must be between 1 and 4" });
+        }
+        const parsedDetour = parseNonNegativeNumber(req.body.maxDetourMinutes, 10);
+        if (parsedDetour === null || parsedDetour > 60) {
+            return res.status(400).json({ error: "Max detour must be between 0 and 60 minutes" });
+        }
+        const parsedPrice = parseNonNegativeNumber(req.body.pricePerSeat, 0);
+        if (parsedPrice === null) {
+            return res.status(400).json({ error: "Price per seat must be a non-negative number" });
+        }
+        const parsedRequestedTime = parseFutureDate(requestedTime, "Requested time");
+        const parsedExpiresAt = req.body.expiresAt ? parseFutureDate(req.body.expiresAt, "Expiration time") : null;
 
         const request = await CarpoolRequest.create({
             passengerId,
             pickupLocation,
             destinationLocation,
-            requestedTime,
-            seatsNeeded,
-            maxDetourMinutes,
-            pricePerSeat,
+            requestedTime: parsedRequestedTime,
+            seatsNeeded: parsedSeats,
+            maxDetourMinutes: parsedDetour,
+            pricePerSeat: parsedPrice,
             notes,
-            expiresAt,
+            expiresAt: parsedExpiresAt,
             status: "pending",
             rideId: null
         });
@@ -128,13 +161,47 @@ async function matchCarpoolRequest(req, res) {
         const { rideId } = req.body;
         const ride = await Ride.findById(rideId);
         if (!ride) return res.status(404).json({ error: "Ride not found" });
+        if (ride.rideType !== "carpool") {
+            return res.status(400).json({ error: "Request can only be matched to a carpool ride" });
+        }
+        if (["completed", "cancelled"].includes(ride.status)) {
+            return res.status(400).json({ error: "Cannot match request to a finished ride" });
+        }
 
-        const request = await CarpoolRequest.findByIdAndUpdate(
-            req.params.id,
+        const existing = await CarpoolRequest.findById(req.params.id);
+        if (!existing) return res.status(404).json({ error: "Carpool request not found" });
+        if (existing.status !== "pending") {
+            return res.status(409).json({ error: "Only pending carpool requests can be matched" });
+        }
+        if (existing.expiresAt && existing.expiresAt <= new Date()) {
+            return res.status(400).json({ error: "Carpool request has expired" });
+        }
+
+        if (ride.vehicleId) {
+            const vehicle = await Vehicle.findById(ride.vehicleId);
+            if (!vehicle) return res.status(404).json({ error: "Ride vehicle not found" });
+            const matchedRequests = await CarpoolRequest.find({
+                rideId,
+                status: { $in: ["matched", "confirmed"] },
+                _id: { $ne: existing._id }
+            });
+            const alreadyReservedSeats = matchedRequests.reduce((sum, request) => sum + Number(request.seatsNeeded || 0), 0);
+            const totalSeats = Number(ride.passengerCount || 1) + alreadyReservedSeats + Number(existing.seatsNeeded || 1);
+            if (vehicle.seats < totalSeats) {
+                return res.status(400).json({ error: "Vehicle does not have enough seats for this match" });
+            }
+        }
+
+        const request = await CarpoolRequest.findOneAndUpdate(
+            {
+                _id: req.params.id,
+                status: "pending",
+                $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }]
+            },
             { status: "matched", rideId },
             { new: true }
         );
-        if (!request) return res.status(404).json({ error: "Carpool request not found" });
+        if (!request) return res.status(409).json({ error: "Carpool request is no longer available" });
         res.status(200).json({ message: "Carpool request matched to ride", request });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -147,9 +214,16 @@ async function cancelCarpoolRequest(req, res) {
         const existing = await CarpoolRequest.findById(req.params.id);
         if (!existing) return res.status(404).json({ error: "Carpool request not found" });
         if (!isAdmin(req) && !await canAccessPassenger(req, existing.passengerId)) return forbidden(res);
+        if (!["pending", "matched"].includes(existing.status)) {
+            return res.status(400).json({ error: "Only pending or matched carpool requests can be cancelled" });
+        }
 
-        const request = await CarpoolRequest.findByIdAndUpdate(req.params.id, { status: "cancelled" }, { new: true });
-        if (!request) return res.status(404).json({ error: "Carpool request not found" });
+        const request = await CarpoolRequest.findOneAndUpdate(
+            { _id: req.params.id, status: { $in: ["pending", "matched"] } },
+            { status: "cancelled" },
+            { new: true }
+        );
+        if (!request) return res.status(409).json({ error: "Carpool request can no longer be cancelled" });
         res.status(200).json({ message: "Carpool request cancelled", request });
     } catch (error) {
         res.status(400).json({ error: error.message });

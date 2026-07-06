@@ -5,6 +5,7 @@ const DriverProfile = require("../db/models/DriverProfile");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const Ride = require("../db/models/Ride");
 const User = require("../db/models/User");
+const Notification = require("../db/models/Notification");
 const {
     sameId,
     isAdmin,
@@ -41,9 +42,30 @@ async function createRating(req, res) {
         const existing = await Rating.findOne({ rideId });
         if (existing) return res.status(409).json({ error: "Ride has already been rated" });
 
+        const complaintText = String(complaint || "").trim().slice(0, 1000);
         const newRating = await Rating.create({
-            rideId, passengerId, driverId, rating, comment, complaint, tags, wouldRideAgain
+            rideId,
+            passengerId,
+            driverId,
+            rating,
+            comment,
+            complaint: complaintText || undefined,
+            tags,
+            wouldRideAgain
         });
+
+        if (complaintText) {
+            const admins = await User.find({ role: "admin", isActive: true }).select("_id");
+            if (admins.length > 0) {
+                await Notification.insertMany(admins.map(admin => ({
+                    userId: admin._id,
+                    type: "system",
+                    title: "Ride complaint",
+                    body: `Ride ${rideId}: ${complaintText}`,
+                    rideId
+                }))).catch(() => {});
+            }
+        }
 
         // Recalculate driver average rating
         const allRatings = await Rating.find({ driverId });
@@ -65,6 +87,9 @@ async function createRating(req, res) {
 
         res.status(201).json({ message: "Rating submitted", rating: newRating });
     } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({ error: "Ride has already been rated" });
+        }
         res.status(400).json({ error: error.message });
     }
 }

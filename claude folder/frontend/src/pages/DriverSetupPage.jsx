@@ -64,7 +64,9 @@ function FileUpload({ label, preview, onChange, fieldName }) {
             <label style={s.label}>{label}</label>
             <label style={{ ...s.fileBox, borderColor: preview ? "var(--success)" : undefined }}>
                 {preview
-                    ? <img src={preview} alt={label} style={{ maxHeight: 100, borderRadius: 8, objectFit: "cover" }} />
+                    ? preview === "existing"
+                        ? <div><div style={{ fontSize: 28, marginBottom: 6 }}>✓</div><div style={{ fontSize: 13, color: "var(--success)" }}>{"\u05DE\u05E1\u05DE\u05DA \u05E7\u05D9\u05D9\u05DD"}</div></div>
+                        : <img src={preview} alt={label} style={{ maxHeight: 100, borderRadius: 8, objectFit: "cover" }} />
                     : <div><div style={{ fontSize: 28, marginBottom: 6 }}>📄</div><div style={{ fontSize: 13, color: "var(--text-muted)" }}>לחץ להעלאה</div></div>
                 }
                 <input type="file" accept="image/*" style={{ display: "none" }}
@@ -81,9 +83,11 @@ function FileUpload({ label, preview, onChange, fieldName }) {
 export default function DriverSetupPage() {
     const { user, updateUser } = useAuth();
     const { t }     = useLang();
+    const userId    = user?.userId;
     const navigate  = useNavigate();
     const [step, setStep] = useState(0);
     const [existingDriver, setExistingDriver] = useState(null);
+    const [existingVehicle, setExistingVehicle] = useState(null);
     const [driverForm, setDF] = useState({
         licenseNumber: "", licenseExpiry: "", gender: "other",
         preferredMusic: "", hobbies: "",
@@ -92,8 +96,7 @@ export default function DriverSetupPage() {
     });
     const [vehicleForm, setVF] = useState({
         company: "", companyOther: "", model: "", modelOther: "", year: "", color: "", colorOther: "", licensePlate: "",
-        vehicleType: "regular", seats: 4,
-        testApproval: false, insuranceApproval: false
+        vehicleType: "regular", seats: 4
     });
     const [licenseFile, setLicenseFile] = useState(null);
     const [licensePreview, setLicensePreview] = useState("");
@@ -107,7 +110,7 @@ export default function DriverSetupPage() {
 
     useEffect(() => {
         api.get("/drivers").then(r => {
-            const d = r.data.find(d => d.userId?._id === user?.userId || d.userId === user?.userId);
+            const d = r.data.find(d => d.userId?._id === userId || d.userId === userId);
             if (d) {
                 setExistingDriver(d);
                 setDF(prev => ({
@@ -120,9 +123,27 @@ export default function DriverSetupPage() {
                     acceptsCarpoolRides: d.acceptsCarpoolRides ?? true,
                     vehicleConditions: d.vehicleConditions || { noPets: false, noSmoking: true, noFood: false }
                 }));
+                if (d.licenseImagePath) setLicensePreview("existing");
+                api.get(`/vehicles/driver/${d._id}`).then(vehicleResponse => {
+                    const vehicle = vehicleResponse.data?.[0];
+                    if (!vehicle) return;
+                    setExistingVehicle(vehicle);
+                    setVF(prev => ({
+                        ...prev,
+                        company: vehicle.company || "",
+                        model: vehicle.model || "",
+                        year: vehicle.year || "",
+                        color: vehicle.color || "",
+                        licensePlate: vehicle.licensePlate || "",
+                        vehicleType: vehicle.vehicleType || "regular",
+                        seats: vehicle.seats || 4
+                    }));
+                    if (vehicle.testImagePath) setTestPreview("existing");
+                    if (vehicle.insuranceImagePath) setInsurancePreview("existing");
+                }).catch(() => {});
             }
         }).catch(() => {});
-    }, []);
+    }, [userId]);
 
     const setD = (k, v) => setDF(f => ({ ...f, [k]: v }));
     const setV = (k, v) => setVF(f => ({ ...f, [k]: v }));
@@ -133,9 +154,7 @@ export default function DriverSetupPage() {
             : [...f.spokenLanguages, lang]
     }));
 
-    const HE_OR_EN = /^[֐-׿a-zA-Z\s\-'.]+$/;
     const HE_EN_NUMS = /^[֐-׿a-zA-Z0-9\s\-'.,]+$/;
-    const PLATE_IL = /^\d{2,3}-?\d{2,3}-?\d{2,3}$/;
 
     const validateStep = () => {
         const errs = {};
@@ -213,7 +232,7 @@ export default function DriverSetupPage() {
                 driverId = existingDriver._id;
             } else {
                 const { data } = await api.post("/drivers", {
-                    userId: user?.userId,
+                    userId,
                     licenseNumber: driverForm.licenseNumber,
                     gender: driverForm.gender,
                     preferredMusic: driverForm.preferredMusic,
@@ -239,16 +258,22 @@ export default function DriverSetupPage() {
                 color:   finalColor,
                 licensePlate: vehicleForm.licensePlate,
                 vehicleType:  vehicleForm.vehicleType,
-                seats:   Number(vehicleForm.seats),
-                testApproval:      vehicleForm.testApproval,
-                insuranceApproval: vehicleForm.insuranceApproval
+                seats:   Number(vehicleForm.seats)
             };
 
-            const existingVehicles = await api.get(`/vehicles/driver/${driverId}`).catch(() => ({ data: [] }));
-            if (existingVehicles.data?.length > 0) {
-                await api.put(`/vehicles/${existingVehicles.data[0]._id}`, vehicleData);
+            let vehicleId;
+            if (existingVehicle?._id) {
+                vehicleId = existingVehicle._id;
+                await api.put(`/vehicles/${vehicleId}`, vehicleData);
             } else {
-                await api.post("/vehicles", vehicleData);
+                const existingVehicles = await api.get(`/vehicles/driver/${driverId}`).catch(() => ({ data: [] }));
+                if (existingVehicles.data?.length > 0) {
+                    vehicleId = existingVehicles.data[0]._id;
+                    await api.put(`/vehicles/${vehicleId}`, vehicleData);
+                } else {
+                    const { data: vehicleResponse } = await api.post("/vehicles", vehicleData);
+                    vehicleId = vehicleResponse.vehicle?._id;
+                }
             }
 
             // License photo
@@ -257,6 +282,20 @@ export default function DriverSetupPage() {
                 fd.append("licensePhoto", licenseFile);
                 fd.append("driverProfileId", driverId);
                 await api.post("/uploads/license", fd, { headers: { "Content-Type": "multipart/form-data" } });
+            }
+
+            if (testFile && vehicleId) {
+                const fd = new FormData();
+                fd.append("testPhoto", testFile);
+                fd.append("vehicleId", vehicleId);
+                await api.post("/uploads/vehicle-test", fd, { headers: { "Content-Type": "multipart/form-data" } });
+            }
+
+            if (insuranceFile && vehicleId) {
+                const fd = new FormData();
+                fd.append("insurancePhoto", insuranceFile);
+                fd.append("vehicleId", vehicleId);
+                await api.post("/uploads/vehicle-insurance", fd, { headers: { "Content-Type": "multipart/form-data" } });
             }
 
             // Update user role if needed
@@ -483,27 +522,6 @@ export default function DriverSetupPage() {
                                 </span>
                             ))}
                         </div>
-                    </div>
-                    <div style={s.group}>
-                        <label style={s.label}>אישורים</label>
-                        {[
-                            { key: "testApproval",      icon: "🔧", label: "אישור טסט תקף" },
-                            { key: "insuranceApproval", icon: "🛡️", label: "ביטוח תקף" }
-                        ].map(c => (
-                            <div key={c.key}
-                                className={`toggle-row${vehicleForm[c.key] ? " active" : ""}`}
-                                onClick={() => setV(c.key, !vehicleForm[c.key])}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                    <span style={{ fontSize: 20 }}>{c.icon}</span>
-                                    <span style={{ fontWeight: 500, fontSize: 14 }}>{c.label}</span>
-                                </div>
-                                <div className="toggle-switch">
-                                    <input type="checkbox" checked={vehicleForm[c.key]} readOnly />
-                                    <span className="toggle-track" />
-                                    <span className="toggle-knob" />
-                                </div>
-                            </div>
-                        ))}
                     </div>
                 </div>
             )}

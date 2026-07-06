@@ -5,6 +5,7 @@ const PassengerProfile = require("../db/models/PassengerProfile");
 const bcrypt           = require("bcryptjs");
 const jwt              = require("jsonwebtoken");
 const crypto           = require("crypto");
+const axios            = require("axios");
 const { OAuth2Client } = require("google-auth-library");
 const DriverProfile    = require("../db/models/DriverProfile");
 const { sameId, isAdmin } = require("../utils/authz");
@@ -66,7 +67,18 @@ async function register(req, res) {
             await PassengerProfile.create({ userId: user._id });
         }
 
-        res.status(201).json({ message: "User registered successfully", userId: user._id, referralCode: user.referralCode });
+        const token = jwt.sign(
+            { userId: user._id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: "7d" }
+        );
+        const userData = await buildUserResponse(user);
+
+        res.status(201).json({
+            message: "User registered successfully",
+            token,
+            ...userData
+        });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -79,6 +91,7 @@ async function login(req, res) {
 
         const user = await User.findOne({ email: email.toLowerCase() });
         if (!user) return res.status(404).json({ error: "User not found" });
+        if (!user.isActive) return res.status(403).json({ error: "Account is disabled" });
 
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) return res.status(401).json({ error: "Invalid credentials" });
@@ -119,10 +132,21 @@ async function forgotPassword(req, res) {
         user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
         await user.save();
 
+        const clientBase = process.env.CLIENT_BASE_URL || "http://localhost:3000";
+        const resetLink = `${clientBase}/reset-password?token=${token}`;
+        if (process.env.RESET_EMAIL_WEBHOOK_URL) {
+            await axios.post(process.env.RESET_EMAIL_WEBHOOK_URL, {
+                email: user.email,
+                fullName: user.fullName,
+                resetLink
+            });
+        } else if (process.env.NODE_ENV === "production") {
+            return res.status(503).json({ error: "Password reset delivery is not configured" });
+        }
+
         const response = { message: genericMessage };
         if (process.env.NODE_ENV !== "production" && process.env.RETURN_RESET_TOKEN === "true") {
-            const clientBase = process.env.CLIENT_BASE_URL || "http://localhost:3000";
-            response.resetLink = `${clientBase}/reset-password?token=${token}`;
+            response.resetLink = resetLink;
             response.resetToken = token;
         }
         res.status(200).json(response);
@@ -233,9 +257,15 @@ async function changePassword(req, res) {
 // DELETE /users/:id
 async function deleteUser(req, res) {
     try {
-        const user = await User.findByIdAndDelete(req.params.id);
+        const user = await User.findByIdAndUpdate(req.params.id, {
+            isActive: false,
+            email: `deleted-${req.params.id}@deleted.local`,
+            phone: null,
+            resetPasswordToken: null,
+            resetPasswordExpires: null
+        }, { new: true });
         if (!user) return res.status(404).json({ error: "User not found" });
-        res.status(200).json({ message: "User deleted successfully" });
+        res.status(200).json({ message: "User disabled successfully" });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -274,6 +304,7 @@ async function googleLogin(req, res) {
 
             await PassengerProfile.create({ userId: user._id });
         }
+        if (!user.isActive) return res.status(403).json({ error: "Account is disabled" });
 
         const token = jwt.sign(
             { userId: user._id, role: user.role },

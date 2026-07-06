@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
-import { assetUrl } from "../api/assets";
+import { assetUrl, secureUploadPath } from "../api/assets";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 640, margin: "0 auto" },
@@ -34,9 +33,33 @@ const ROLE_COLORS = { passenger: "#3b82f6", driver: "#10b981", both: "#8b5cf6", 
 const VERIFY_LABELS = { not_submitted: "לא הוגש", pending: "ממתין לאישור", approved: "מאושר", rejected: "נדחה" };
 const VERIFY_ICONS  = { not_submitted: "📄", pending: "⏳", approved: "✅", rejected: "❌" };
 
+function SecureImage({ path, alt, style }) {
+    const [src, setSrc] = useState("");
+    useEffect(() => {
+        if (!path) return;
+        let active = true;
+        let objectUrl = "";
+        const apiPath = secureUploadPath(path);
+        if (!apiPath) return;
+        api.get(apiPath, { responseType: "blob" })
+            .then(({ data }) => {
+                if (!active) return;
+                objectUrl = URL.createObjectURL(data);
+                setSrc(objectUrl);
+            })
+            .catch(() => {});
+        return () => {
+            active = false;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [path]);
+    if (!src) return null;
+    return <img src={src} alt={alt} style={style} />;
+}
+
 export default function ProfilePage() {
     const { user, updateUser } = useAuth();
-    const { t }                = useLang();
+    const userId               = user?.userId;
     const navigate             = useNavigate();
     const [profile,  setProfile]  = useState(null);
     const [form,     setForm]     = useState({});
@@ -52,7 +75,7 @@ export default function ProfilePage() {
     useEffect(() => {
         (async () => {
             try {
-                const { data } = await api.get(`/users/${user.userId}`);
+                const { data } = await api.get(`/users/${userId}`);
                 setProfile(data);
                 setForm({
                     fullName: data.fullName,
@@ -61,7 +84,7 @@ export default function ProfilePage() {
                 });
             } finally { setLoading(false); }
         })();
-    }, []);
+    }, [userId]);
 
     const [formErrors, setFormErrors] = useState({});
 
@@ -237,7 +260,7 @@ export default function ProfilePage() {
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>🪪 {"העלה תעודת זהות"}</div>
                 {profile?.idPhotoPath ? (
                     <div>
-                        <img src={assetUrl(profile.idPhotoPath)} alt="תעודת זהות"
+                        <SecureImage path={profile.idPhotoPath} alt="תעודת זהות"
                             style={{ maxHeight: 140, borderRadius: 8, objectFit: "cover", marginBottom: 10 }} />
                         <div style={s.verifyBadge(verifyStatus)}>
                             {VERIFY_ICONS[verifyStatus]} {VERIFY_LABELS[verifyStatus]}
