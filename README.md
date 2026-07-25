@@ -1,11 +1,58 @@
+# CarPool App
 
-  # Ride-Hailing App UI Design
+## מבנה הפרויקט
 
-  This is a code bundle for Ride-Hailing App UI Design. The original project is available at https://www.figma.com/design/lyMYkZdYcXQnkpErhTgCyN/Ride-Hailing-App-UI-Design.
+```
+claude folder/
+├── backend/
+│   ├── server.js          ← נקודת כניסה
+│   ├── app.js             ← Express setup
+│   ├── package.json
+│   ├── .env.example       ← העתק ל-.env ומלא פרטים
+│   ├── db/
+│   │   ├── mongo.js
+│   │   └── models/        ← כל מודלי MongoDB
+│   ├── controllers/       ← כל הקונטרולרים
+│   ├── routes/
+│   │   └── index.js
+│   └── middleware/
+│       ├── auth.js
+│       └── errorHandler.js
+└── frontend/
+    ├── package.json
+    └── src/
+        ├── App.jsx
+        ├── index.jsx
+        ├── api/axios.js
+        ├── context/AuthContext.jsx
+        ├── components/Navbar.jsx
+        └── pages/
+            ├── LoginPage.jsx
+            ├── RegisterPage.jsx
+            ├── HomePage.jsx
+            ├── BookRidePage.jsx
+            ├── RideStatusPage.jsx
+            ├── RideHistoryPage.jsx
+            ├── DriverDashboard.jsx
+            └── ProfilePage.jsx
+```
 
-  ## Running the code
+## הרצה
 
-  Run `npm i` to install the dependencies.
+### Backend
+```bash
+cd backend
+cp .env.example .env   # ערוך את DB_CONNECTION ו-JWT_SECRET
+npm install
+npm run dev
+```
 
-  Run `npm run dev` to start the development server.
-  
+### Frontend
+```bash
+cd frontend
+npm install
+npm start
+```
+
+הפרונטאנד ירוץ על http://localhost:3000
+הבקאנד ירוץ על http://localhost:5000
