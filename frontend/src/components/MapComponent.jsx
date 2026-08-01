@@ -1,11 +1,11 @@
 // src/components/MapComponent.jsx
-// Requires REACT_APP_GOOGLE_MAPS_KEY in frontend/.env
+// Requires VITE_GOOGLE_MAPS_KEY in frontend/.env
 
 import React, { useRef, useState } from "react";
 import { GoogleMap, useLoadScript, Marker, InfoWindow, Autocomplete } from "@react-google-maps/api";
 
 const LIBRARIES = ["places"];
-const _rawKey = process.env.REACT_APP_GOOGLE_MAPS_KEY || "";
+const _rawKey = import.meta.env.VITE_GOOGLE_MAPS_KEY || "";
 const MAPS_KEY = _rawKey.startsWith("your_") ? "" : _rawKey;
 
 const MAP_OPTIONS = {
@@ -97,7 +97,7 @@ function MapComponent({
                     <div style={{ fontSize: 32, marginBottom: 8 }}>🗺️</div>
                     <div style={{ fontWeight: 600 }}>מפה</div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>
-                        הוסף REACT_APP_GOOGLE_MAPS_KEY ל-.env להפעלת המפה
+                        הוסף VITE_GOOGLE_MAPS_KEY ל-.env להפעלת המפה
                     </div>
                 </div>
             </div>

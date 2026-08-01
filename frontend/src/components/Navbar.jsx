@@ -1,7 +1,7 @@
 // src/components/Navbar.jsx
 
 import React, { useState, useEffect, useRef } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
