@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "../routing";
 import api from "../api/axios";
 import MapComponent from "../components/MapComponent";
 import { createSocket } from "../api/socket";

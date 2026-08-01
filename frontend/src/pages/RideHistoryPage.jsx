@@ -1,7 +1,7 @@
 // src/pages/RideHistoryPage.jsx
 
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "../routing";
 import { useSelector, useDispatch } from "react-redux";
 import { fetchRides, cancelRide as cancelRideThunk } from "../store/ridesSlice";
 

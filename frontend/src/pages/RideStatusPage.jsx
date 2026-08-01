@@ -1,7 +1,7 @@
 // src/pages/RideStatusPage.jsx
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import MapComponent from "../components/MapComponent";

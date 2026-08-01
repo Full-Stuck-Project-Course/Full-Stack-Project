@@ -1,7 +1,7 @@
 // src/pages/RatingPage.jsx
 
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "../routing";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
 

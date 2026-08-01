@@ -1,7 +1,7 @@
 // src/pages/BookRidePage.jsx
 
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import MapComponent, { AddressInput } from "../components/MapComponent";

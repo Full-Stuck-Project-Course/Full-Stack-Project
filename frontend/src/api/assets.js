@@ -1,4 +1,4 @@
-const ASSET_ORIGIN = process.env.REACT_APP_ASSET_ORIGIN || "http://localhost:5000";
+const ASSET_ORIGIN = import.meta.env.VITE_ASSET_ORIGIN || "http://localhost:5000";
 
 export function assetUrl(path) {
     if (!path) return "";

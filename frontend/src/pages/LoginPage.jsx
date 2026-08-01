@@ -1,7 +1,7 @@
 // src/pages/LoginPage.jsx
 
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "../routing";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
@@ -23,6 +23,7 @@ export default function LoginPage() {
     const { login }    = useAuth();
     const navigate     = useNavigate();
     const location     = useLocation();
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     const [form, setF] = useState({ email: "", password: "" });
     const [error, setE] = useState("");
     const [loading, setL] = useState(false);
@@ -130,7 +131,7 @@ export default function LoginPage() {
                     </button>
                 </form>
 
-                {process.env.REACT_APP_GOOGLE_CLIENT_ID && !process.env.REACT_APP_GOOGLE_CLIENT_ID.startsWith("your_") && (
+                {googleClientId && !googleClientId.startsWith("your_") && (
                     <>
                         <div style={{ display: "flex", alignItems: "center", margin: "20px 0" }}>
                             <div style={{ flex: 1, height: 1, background: "var(--border)" }} />

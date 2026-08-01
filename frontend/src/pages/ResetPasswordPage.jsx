@@ -1,7 +1,7 @@
 // src/pages/ResetPasswordPage.jsx
 
 import { useState } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "../routing";
 import api from "../api/axios";
 
 const s = {
