@@ -7,6 +7,7 @@ set FRONTEND=%ROOT%frontend
 set BACKEND_ENV=%BACKEND%\.env
 set BACKEND_ENV_EXAMPLE=%BACKEND%\.env.example
 set DEFAULT_DB_CONNECTION=mongodb://localhost:27017/hailnow
+set FRONTEND_URL=http://127.0.0.1:3000
 
 echo ============================================
 echo          CarPool App - Starting Up
@@ -86,5 +87,9 @@ echo.
 :: Use /d parameter of start to set working directory (avoids nested quotes)
 start "CarPool Backend"  /d "%BACKEND%"  cmd /k "npm run dev"
 start "CarPool Frontend" /d "%FRONTEND%" cmd /k "npm start"
+
+echo Opening %FRONTEND_URL%...
+timeout /t 5 /nobreak >nul
+start "" "%FRONTEND_URL%"
 
 endlocal
