@@ -19,12 +19,34 @@ const s = {
     }
 };
 
+function toLocalResetPath(resetLink) {
+    try {
+        const url = new URL(resetLink);
+        return `${url.pathname}${url.search}`;
+    } catch {
+        return resetLink
+            .replace("http://localhost:3000", "")
+            .replace("http://127.0.0.1:3000", "");
+    }
+}
+
+function forgotPasswordErrorMessage(message) {
+    if (!message) return "שגיאה";
+    if (message.includes("delivery") || message.includes("send password reset email")) {
+        return "שליחת מייל איפוס הסיסמה לא מוגדרת או נכשלה.";
+    }
+    return message;
+}
+
 export default function ForgotPasswordPage() {
     const [email,    setEmail]    = useState("");
     const [error,    setError]    = useState("");
     const [loading,  setLoading]  = useState(false);
     const [resetLink, setResetLink] = useState("");
+    const [resetCode, setResetCode] = useState("");
+    const [deliveryConfigured, setDeliveryConfigured] = useState(true);
     const [submitted, setSubmitted] = useState(false);
+    const resetCodePath = `/reset-password?email=${encodeURIComponent(email)}${resetCode ? `&code=${resetCode}` : ""}`;
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -35,9 +57,11 @@ export default function ForgotPasswordPage() {
         try {
             const { data } = await api.post("/users/forgot-password", { email });
             setResetLink(data.resetLink || "");
+            setResetCode(data.resetCode || "");
+            setDeliveryConfigured(data.deliveryConfigured !== false);
             setSubmitted(true);
         } catch (err) {
-            setError(err.response?.data?.error || "שגיאה");
+            setError(forgotPasswordErrorMessage(err.response?.data?.error));
         } finally {
             setLoading(false);
         }
@@ -70,18 +94,37 @@ export default function ForgotPasswordPage() {
                     </form>
                 ) : (
                     <div style={s.resetBox}>
-                        <div style={{ fontWeight: 700, marginBottom: 10, color: "#166534" }}>✅ {"קישור לאיפוס נוצר!"}</div>
+                        <div style={{ fontWeight: 700, marginBottom: 10, color: "#166534" }}>
+                            {deliveryConfigured ? "✅ בדוק את האימייל שלך" : "⚠️ שליחת מייל לא מוגדרת"}
+                        </div>
                         <p style={{ fontSize: 13, color: "#166534", marginBottom: 14, lineHeight: 1.6 }}>
-                            {"בסביבת פיתוח הקישור מוצג כאן. בפרודקשן היה נשלח לאימייל."}
+                            {deliveryConfigured
+                                ? "אם קיים חשבון לכתובת הזו, שלחנו מייל עם קישור לאיפוס הסיסמה וקוד אימות."
+                                : "כדי לשלוח מייל אמיתי צריך להגדיר SMTP בקובץ backend\\.env. בינתיים אפשר להשתמש בקוד או בקישור שמופיעים כאן במצב פיתוח."}
                         </p>
-                        {resetLink && <Link to={resetLink.replace("http://localhost:3000", "")}
+                        <Link to={resetCodePath}
                             style={{
                                 display: "block", background: "#166534", color: "#fff",
                                 padding: "10px 16px", borderRadius: 8, textAlign: "center",
                                 fontWeight: 700, fontSize: 14
                             }}>
-                            {"לחץ כאן לאיפוס הסיסמה"} →
-                        </Link>}
+                            {"הזן קוד מהמייל"} →
+                        </Link>
+                        {(resetLink || resetCode) && (
+                            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #86efac" }}>
+                                <div style={{ fontWeight: 700, marginBottom: 8, color: "#166534", fontSize: 13 }}>{"מצב פיתוח"}</div>
+                                {resetCode && (
+                                    <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 3, color: "#166534", marginBottom: 10 }}>
+                                        {resetCode}
+                                    </div>
+                                )}
+                                {resetLink && (
+                                    <Link to={toLocalResetPath(resetLink)} style={{ color: "#166534", fontWeight: 700, fontSize: 13 }}>
+                                        {"פתח קישור איפוס"}
+                                    </Link>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 

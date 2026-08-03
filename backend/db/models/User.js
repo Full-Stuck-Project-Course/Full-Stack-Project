@@ -66,9 +66,19 @@ const userSchema = new mongoose.Schema({
         default: null
     },
 
+    resetPasswordCodeHash: {
+        type: String,
+        default: null
+    },
+
     resetPasswordExpires: {
         type: Date,
         default: null
+    },
+
+    resetPasswordCodeAttempts: {
+        type: Number,
+        default: 0
     },
 
     // Identity verification

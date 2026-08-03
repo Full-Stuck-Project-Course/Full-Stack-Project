@@ -36,8 +36,15 @@ const forgotPasswordSchema = Joi.object({
 });
 
 const resetPasswordSchema = Joi.object({
-    token:       Joi.string().required(),
+    token:       Joi.string().trim().optional(),
+    email:       Joi.string().email().optional(),
+    code:        Joi.string().pattern(/^\d{6}$/).optional(),
     newPassword: passwordSchema.required(),
+}).custom((value, helpers) => {
+    if (value.token || (value.email && value.code)) return value;
+    return helpers.error("any.custom");
+}).messages({
+    "any.custom": "נדרש קישור איפוס או אימייל וקוד אימות",
 });
 
 const updateUserSchema = Joi.object({

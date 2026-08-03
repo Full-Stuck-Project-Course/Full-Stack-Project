@@ -7,6 +7,9 @@ set FRONTEND=%ROOT%frontend
 set BACKEND_ENV=%BACKEND%\.env
 set BACKEND_ENV_EXAMPLE=%BACKEND%\.env.example
 set DEFAULT_DB_CONNECTION=mongodb://localhost:27017/hailnow
+set DEFAULT_BACKEND_PORT=5000
+set BACKEND_PORT=%DEFAULT_BACKEND_PORT%
+set FRONTEND_PORT=3000
 set FRONTEND_URL=http://127.0.0.1:3000
 
 echo ============================================
@@ -56,6 +59,18 @@ if errorlevel 1 (
     ) >> "%BACKEND_ENV%"
 )
 
+:: Read backend PORT from .env when it is configured
+for /f "usebackq tokens=1,* delims==" %%A in (`findstr /R /C:"^PORT=[0-9][0-9]*$" "%BACKEND_ENV%" 2^>nul`) do (
+    set "BACKEND_PORT=%%B"
+)
+
+echo.
+echo Closing existing CarPool app processes if any...
+call :StopWindow "CarPool Backend"
+call :StopWindow "CarPool Frontend"
+call :StopPort "%BACKEND_PORT%" "backend"
+call :StopPort "%FRONTEND_PORT%" "frontend"
+
 :: Install backend node_modules if missing
 if not exist "%BACKEND%\node_modules" (
     echo Installing backend dependencies...
@@ -93,3 +108,26 @@ timeout /t 5 /nobreak >nul
 start "" "%FRONTEND_URL%"
 
 endlocal
+exit /b 0
+
+:StopWindow
+set "WINDOW_TITLE=%~1"
+for /f "skip=1 tokens=2 delims=," %%P in ('tasklist /V /FO CSV /FI "WINDOWTITLE eq %WINDOW_TITLE%" 2^>nul') do (
+    set "WINDOW_PID=%%~P"
+    if defined WINDOW_PID (
+        echo Closing existing %WINDOW_TITLE% window, PID !WINDOW_PID!...
+        taskkill /PID !WINDOW_PID! /T /F >nul 2>&1
+    )
+)
+exit /b 0
+
+:StopPort
+set "TARGET_PORT=%~1"
+set "SERVICE_NAME=%~2"
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%TARGET_PORT% .*LISTENING"') do (
+    if not "%%P"=="0" (
+        echo Closing existing %SERVICE_NAME% process on port %TARGET_PORT%, PID %%P...
+        taskkill /PID %%P /T /F >nul 2>&1
+    )
+)
+exit /b 0

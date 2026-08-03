@@ -9,8 +9,27 @@ const axios            = require("axios");
 const { OAuth2Client } = require("google-auth-library");
 const DriverProfile    = require("../db/models/DriverProfile");
 const { sameId, isAdmin } = require("../utils/authz");
+const { sendPasswordResetEmail, isSmtpConfigured } = require("../utils/email");
 
 const googleClient = new OAuth2Client();
+const RESET_EXPIRES_MINUTES = 60;
+const RESET_MAX_CODE_ATTEMPTS = 5;
+const SAFE_USER_SELECT = "-passwordHash -resetPasswordToken -resetPasswordCodeHash -resetPasswordExpires -resetPasswordCodeAttempts";
+
+function hashResetSecret(value) {
+    return crypto.createHash("sha256").update(String(value)).digest("hex");
+}
+
+function clearPasswordResetFields(user) {
+    user.resetPasswordToken = null;
+    user.resetPasswordCodeHash = null;
+    user.resetPasswordExpires = null;
+    user.resetPasswordCodeAttempts = 0;
+}
+
+function isPasswordResetDeliveryConfigured() {
+    return Boolean(process.env.RESET_EMAIL_WEBHOOK_URL || isSmtpConfigured());
+}
 
 async function buildUserResponse(user) {
     const passengerProfile = await PassengerProfile.findOne({ userId: user._id });
@@ -124,30 +143,61 @@ async function forgotPassword(req, res) {
         if (!email) return res.status(400).json({ error: "Email is required" });
 
         const user = await User.findOne({ email: email.toLowerCase() });
-        const genericMessage = "If an account exists for this email, a reset link was generated";
-        if (!user) return res.status(200).json({ message: genericMessage });
+        const genericMessage = "If an account exists for this email, password reset instructions were sent";
+        if (!user) {
+            return res.status(200).json({
+                message: genericMessage,
+                deliveryConfigured: isPasswordResetDeliveryConfigured()
+            });
+        }
 
         const token = crypto.randomBytes(32).toString("hex");
-        user.resetPasswordToken   = token;
-        user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
+        const resetCode = crypto.randomInt(100000, 1000000).toString();
+        user.resetPasswordToken = hashResetSecret(token);
+        user.resetPasswordCodeHash = hashResetSecret(resetCode);
+        user.resetPasswordExpires = new Date(Date.now() + RESET_EXPIRES_MINUTES * 60 * 1000);
+        user.resetPasswordCodeAttempts = 0;
         await user.save();
 
         const clientBase = process.env.CLIENT_BASE_URL || "http://localhost:3000";
         const resetLink = `${clientBase}/reset-password?token=${token}`;
-        if (process.env.RESET_EMAIL_WEBHOOK_URL) {
-            await axios.post(process.env.RESET_EMAIL_WEBHOOK_URL, {
-                email: user.email,
-                fullName: user.fullName,
-                resetLink
-            });
-        } else if (process.env.NODE_ENV === "production") {
-            return res.status(503).json({ error: "Password reset delivery is not configured" });
+        try {
+            if (process.env.RESET_EMAIL_WEBHOOK_URL) {
+                await axios.post(process.env.RESET_EMAIL_WEBHOOK_URL, {
+                    email: user.email,
+                    fullName: user.fullName,
+                    resetLink,
+                    resetCode,
+                    expiresMinutes: RESET_EXPIRES_MINUTES
+                });
+            } else {
+                const delivery = await sendPasswordResetEmail({
+                    to: user.email,
+                    fullName: user.fullName,
+                    resetLink,
+                    resetCode,
+                    expiresMinutes: RESET_EXPIRES_MINUTES
+                });
+                if (!delivery.sent && process.env.NODE_ENV === "production") {
+                    return res.status(503).json({ error: "Password reset email delivery is not configured" });
+                }
+            }
+        } catch (deliveryError) {
+            if (process.env.NODE_ENV === "production") {
+                return res.status(503).json({ error: "Could not send password reset email" });
+            }
+            console.warn("Password reset email delivery failed:", deliveryError.message);
         }
 
-        const response = { message: genericMessage };
+        const response = {
+            message: genericMessage,
+            email: user.email,
+            deliveryConfigured: isPasswordResetDeliveryConfigured()
+        };
         if (process.env.NODE_ENV !== "production" && process.env.RETURN_RESET_TOKEN === "true") {
             response.resetLink = resetLink;
             response.resetToken = token;
+            response.resetCode = resetCode;
         }
         res.status(200).json(response);
     } catch (error) {
@@ -158,20 +208,49 @@ async function forgotPassword(req, res) {
 // POST /users/reset-password
 async function resetPassword(req, res) {
     try {
-        const { token, newPassword } = req.body;
-        if (!token || !newPassword) return res.status(400).json({ error: "Token and new password required" });
+        const { token, email, code, newPassword } = req.body;
+        if (!newPassword) return res.status(400).json({ error: "New password required" });
         if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
-        const user = await User.findOne({
-            resetPasswordToken:   token,
-            resetPasswordExpires: { $gt: new Date() }
-        });
+        let user;
+        if (token) {
+            user = await User.findOne({
+                resetPasswordToken: hashResetSecret(token),
+                resetPasswordExpires: { $gt: new Date() }
+            });
+        } else if (email && code) {
+            user = await User.findOne({
+                email: email.toLowerCase(),
+                resetPasswordCodeHash: { $ne: null },
+                resetPasswordExpires: { $gt: new Date() }
+            });
 
-        if (!user) return res.status(400).json({ error: "Invalid or expired reset token" });
+            if (user) {
+                if ((user.resetPasswordCodeAttempts || 0) >= RESET_MAX_CODE_ATTEMPTS) {
+                    clearPasswordResetFields(user);
+                    await user.save();
+                    return res.status(400).json({ error: "Too many invalid reset code attempts. Please request a new code." });
+                }
 
-        user.passwordHash         = await bcrypt.hash(newPassword, 10);
-        user.resetPasswordToken   = null;
-        user.resetPasswordExpires = null;
+                if (user.resetPasswordCodeHash !== hashResetSecret(code)) {
+                    user.resetPasswordCodeAttempts = (user.resetPasswordCodeAttempts || 0) + 1;
+                    if (user.resetPasswordCodeAttempts >= RESET_MAX_CODE_ATTEMPTS) {
+                        clearPasswordResetFields(user);
+                        await user.save();
+                        return res.status(400).json({ error: "Too many invalid reset code attempts. Please request a new code." });
+                    }
+                    await user.save();
+                    return res.status(400).json({ error: "Invalid or expired reset code" });
+                }
+            }
+        } else {
+            return res.status(400).json({ error: "Reset token or email and code required" });
+        }
+
+        if (!user) return res.status(400).json({ error: "Invalid or expired password reset request" });
+
+        user.passwordHash = await bcrypt.hash(newPassword, 10);
+        clearPasswordResetFields(user);
         await user.save();
 
         res.status(200).json({ message: "Password reset successfully" });
@@ -183,7 +262,7 @@ async function resetPassword(req, res) {
 // GET /users
 async function getAllUsers(req, res) {
     try {
-        const users = await User.find().select("-passwordHash -resetPasswordToken");
+        const users = await User.find().select(SAFE_USER_SELECT);
         res.status(200).json(users);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -196,7 +275,7 @@ async function getUserById(req, res) {
         if (!isAdmin(req) && !sameId(req.user.userId, req.params.id)) {
             return res.status(403).json({ error: "Cannot view another user" });
         }
-        const user = await User.findById(req.params.id).select("-passwordHash -resetPasswordToken");
+        const user = await User.findById(req.params.id).select(SAFE_USER_SELECT);
         if (!user) return res.status(404).json({ error: "User not found" });
         res.status(200).json(await buildUserResponse(user));
     } catch (error) {
@@ -220,7 +299,7 @@ async function updateUser(req, res) {
 
         const user = await User.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true
-        }).select("-passwordHash -resetPasswordToken");
+        }).select(SAFE_USER_SELECT);
 
         if (!user) return res.status(404).json({ error: "User not found" });
         res.status(200).json({ message: "User updated successfully", user });
@@ -262,7 +341,9 @@ async function deleteUser(req, res) {
             email: `deleted-${req.params.id}@deleted.local`,
             phone: null,
             resetPasswordToken: null,
-            resetPasswordExpires: null
+            resetPasswordCodeHash: null,
+            resetPasswordExpires: null,
+            resetPasswordCodeAttempts: 0
         }, { new: true });
         if (!user) return res.status(404).json({ error: "User not found" });
         res.status(200).json({ message: "User disabled successfully" });

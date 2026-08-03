@@ -200,7 +200,8 @@ async function uploadVehicleInsurance(req, res) {
 // GET /api/uploads/pending  (admin)
 async function getPendingVerifications(req, res) {
     try {
-        const users = await User.find({ idVerificationStatus: "pending" }).select("-passwordHash -resetPasswordToken");
+        const users = await User.find({ idVerificationStatus: "pending" })
+            .select("-passwordHash -resetPasswordToken -resetPasswordCodeHash -resetPasswordExpires -resetPasswordCodeAttempts");
         const drivers = await DriverProfile.find({ verificationStatus: "pending" }).populate("userId", "fullName email");
         const vehicles = await Vehicle.find({ documentsVerificationStatus: "pending" })
             .populate({
