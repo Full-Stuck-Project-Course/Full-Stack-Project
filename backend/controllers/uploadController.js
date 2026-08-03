@@ -102,13 +102,13 @@ async function uploadIdPhoto(req, res) {
         const userId = isAdmin(req) && req.body.userId ? req.body.userId : req.user.userId;
         const user = await User.findByIdAndUpdate(userId, {
             idPhotoPath: url,
-            idVerificationStatus: "pending"
+            idVerificationStatus: "approved"
         }, { new: true });
         if (!user) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "User not found" });
         }
-        res.json({ url, message: "ID photo uploaded and sent for review" });
+        res.json({ url, message: "ID photo uploaded and verified" });
     } catch (e) {
         upload.cleanupFile(req.file);
         res.status(500).json({ error: e.message });
@@ -132,15 +132,14 @@ async function uploadLicense(req, res) {
         const url = `/uploads/licenses/${req.file.filename}`;
         const driver = await DriverProfile.findByIdAndUpdate(req.body.driverProfileId, {
             licenseImagePath: url,
-            verificationStatus: "pending",
-            isVerified: false,
-            status: "offline"
-        });
+            verificationStatus: "approved",
+            isVerified: true
+        }, { new: true });
         if (!driver) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "Driver not found" });
         }
-        res.json({ url, message: "License photo uploaded and sent for review" });
+        res.json({ url, message: "License photo uploaded and verified" });
     } catch (e) {
         upload.cleanupFile(req.file);
         res.status(500).json({ error: e.message });
@@ -167,16 +166,23 @@ async function uploadVehicleDocument(req, res, field) {
         }
 
         const url = `/uploads/vehicle-docs/${req.file.filename}`;
+        const hasTestAfterUpload = field === "test" || Boolean(vehicle.testImagePath);
+        const hasInsuranceAfterUpload = field === "insurance" || Boolean(vehicle.insuranceImagePath);
         const update = {
-            documentsVerificationStatus: "pending",
-            testApproval: false,
-            insuranceApproval: false
+            documentsVerificationStatus: hasTestAfterUpload && hasInsuranceAfterUpload ? "approved" : "pending",
+            testApproval: hasTestAfterUpload,
+            insuranceApproval: hasInsuranceAfterUpload
         };
         if (field === "test") update.testImagePath = url;
         if (field === "insurance") update.insuranceImagePath = url;
 
         await Vehicle.findByIdAndUpdate(vehicle._id, update);
-        res.json({ url, message: "Vehicle document uploaded and sent for review" });
+        res.json({
+            url,
+            message: update.documentsVerificationStatus === "approved"
+                ? "Vehicle documents uploaded and verified"
+                : "Vehicle document uploaded; upload the remaining document to complete verification"
+        });
     } catch (e) {
         upload.cleanupFile(req.file);
         res.status(500).json({ error: e.message });

@@ -5,6 +5,7 @@ import { useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import { assetUrl, secureUploadPath } from "../api/assets";
+import AutoVerificationOverlay, { waitForAutoVerification } from "../components/AutoVerificationOverlay";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 640, margin: "0 auto" },
@@ -30,7 +31,7 @@ const s = {
 
 const ROLE_LABELS = { passenger: "נוסע", driver: "נהג", both: "נהג ונוסע", admin: "מנהל" };
 const ROLE_COLORS = { passenger: "#3b82f6", driver: "#10b981", both: "#8b5cf6", admin: "#ef4444" };
-const VERIFY_LABELS = { not_submitted: "לא הוגש", pending: "ממתין לאישור", approved: "מאושר", rejected: "נדחה" };
+const VERIFY_LABELS = { not_submitted: "לא הוגש", pending: "בבדיקה אוטומטית", approved: "מאושר", rejected: "נדחה" };
 const VERIFY_ICONS  = { not_submitted: "📄", pending: "⏳", approved: "✅", rejected: "❌" };
 
 function SecureImage({ path, alt, style }) {
@@ -71,6 +72,7 @@ export default function ProfilePage() {
     const [pwSaved,  setPwSaved]  = useState(false);
     const [pwError,  setPwError]  = useState("");
     const [showPw,   setShowPw]   = useState({ currentPassword: false, newPassword: false, confirm: false });
+    const [idVerification, setIdVerification] = useState(null);
 
     useEffect(() => {
         (async () => {
@@ -158,9 +160,38 @@ export default function ProfilePage() {
         const fd = new FormData();
         fd.append("idPhoto", file);
         fd.append("userId", user.userId);
-        await api.post("/uploads/id-photo", fd, { headers: { "Content-Type": "multipart/form-data" } });
-        const { data } = await api.get(`/users/${user.userId}`);
-        setProfile(data);
+        setError("");
+        setIdVerification({
+            title: "בודקים את תעודת הזהות שלך",
+            subtitle: "הפרופיל יתעדכן מיד אחרי הבדיקה.",
+            steps: [
+                { label: "מעלה תעודת זהות", detail: "הקובץ נשמר באזור פרטי" },
+                { label: "בודק איכות תמונה", detail: "מוודא שהצילום ברור וקריא" },
+                { label: "מעדכן סטטוס בפרופיל", detail: "תגית האימות עוברת למאושר" }
+            ],
+            successTitle: "תעודת הזהות אושרה",
+            successText: "הפרופיל שלך עודכן בהצלחה."
+        });
+        const verificationDelay = waitForAutoVerification();
+        try {
+            const [updatedProfile] = await Promise.all([
+                (async () => {
+                    await api.post("/uploads/id-photo", fd, { headers: { "Content-Type": "multipart/form-data" } });
+                    const { data } = await api.get(`/users/${user.userId}`);
+                    return data;
+                })(),
+                verificationDelay
+            ]);
+            setProfile(updatedProfile);
+            updateUser({
+                idPhotoPath: updatedProfile.idPhotoPath,
+                idVerificationStatus: updatedProfile.idVerificationStatus
+            });
+        } catch (err) {
+            setError(err.response?.data?.error || "שגיאה בהעלאת תעודת הזהות");
+        } finally {
+            setIdVerification(null);
+        }
     };
 
     if (loading) return <div className="spinner" />;
@@ -169,6 +200,7 @@ export default function ProfilePage() {
 
     return (
         <div style={s.page} className="fade-in">
+            <AutoVerificationOverlay open={Boolean(idVerification)} {...(idVerification || {})} />
             <h1 style={s.title}>{"הפרופיל שלי"}</h1>
 
             {/* Profile card */}

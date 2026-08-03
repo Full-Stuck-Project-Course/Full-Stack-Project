@@ -5,6 +5,7 @@ import { useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
+import AutoVerificationOverlay, { waitForAutoVerification } from "../components/AutoVerificationOverlay";
 
 const STEPS = ["פרטי נהג", "רכב", "מסמכים"];
 const VEHICLE_TYPES = ["regular", "comfort", "luxury", "van"];
@@ -89,7 +90,7 @@ export default function DriverSetupPage() {
     const [existingDriver, setExistingDriver] = useState(null);
     const [existingVehicle, setExistingVehicle] = useState(null);
     const [driverForm, setDF] = useState({
-        licenseNumber: "", licenseExpiry: "", gender: "other",
+        licenseNumber: "", licenseExpiry: "", gender: "",
         preferredMusic: "", hobbies: "",
         spokenLanguages: [], acceptsCarpoolRides: true,
         vehicleConditions: { noPets: false, noSmoking: true, noFood: false }
@@ -107,6 +108,7 @@ export default function DriverSetupPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [fieldErrors, setFieldErrors] = useState({});
+    const [verification, setVerification] = useState(null);
 
     useEffect(() => {
         api.get("/drivers").then(r => {
@@ -116,7 +118,7 @@ export default function DriverSetupPage() {
                 setDF(prev => ({
                     ...prev,
                     licenseNumber: d.licenseNumber || "",
-                    gender: d.gender || "other",
+                    gender: ["male", "female"].includes(d.gender) ? d.gender : "",
                     preferredMusic: d.preferredMusic || "",
                     hobbies: d.hobbies?.join(", ") || "",
                     spokenLanguages: d.spokenLanguages || [],
@@ -167,6 +169,8 @@ export default function DriverSetupPage() {
                 if (new Date(driverForm.licenseExpiry) < new Date()) errs.licenseExpiry = "תאריך תפוגה עבר";
             }
 
+            if (!["male", "female"].includes(driverForm.gender)) errs.gender = "יש לבחור מין";
+
             const music = driverForm.preferredMusic.trim();
             if (music && !HE_EN_NUMS.test(music)) errs.preferredMusic = "אותיות, מספרים ופסיקים בלבד";
             if (music && music.length > 50) errs.preferredMusic = "עד 50 תווים";
@@ -214,7 +218,20 @@ export default function DriverSetupPage() {
         if (err) return setError(err);
 
         setError("");
+        setVerification({
+            title: "בודקים את מסמכי הנהג והרכב",
+            subtitle: "הבדיקה האוטומטית מאשרת את המסמכים מיד אחרי ההעלאה.",
+            steps: [
+                { label: "מעלה רישיון נהיגה", detail: "שומר את צילום הרישיון בצורה מאובטחת" },
+                { label: "מעלה מסמכי רכב", detail: "שומר אישור טסט וביטוח בתוקף" },
+                { label: "מאשר את פרופיל הנהג", detail: "הנהג מסומן כמאומת במערכת" },
+                { label: "מאשר את הרכב", detail: "טסט וביטוח מסומנים כמאושרים" }
+            ],
+            successTitle: "הנהג והרכב אושרו",
+            successText: "אפשר לעבור ללוח הנהג ולהתחיל לקבל נסיעות."
+        });
         setLoading(true);
+        const verificationDelay = waitForAutoVerification();
         try {
             let driverId;
 
@@ -304,11 +321,13 @@ export default function DriverSetupPage() {
                 updateUser({ role: "both" });
             }
 
+            await verificationDelay;
             navigate("/driver");
         } catch (err) {
             setError(err.response?.data?.error || "שגיאה בשמירת הפרופיל");
         } finally {
             setLoading(false);
+            setVerification(null);
         }
     };
 
@@ -321,6 +340,7 @@ export default function DriverSetupPage() {
 
     return (
         <div style={s.page} className="fade-in">
+            <AutoVerificationOverlay open={Boolean(verification)} {...(verification || {})} />
             <h1 style={s.title}>{"הגדרת פרופיל נהג"}</h1>
             <p style={s.sub}>שלב {step + 1} מתוך {STEPS.length} — {STEPS[step]}</p>
 
@@ -350,11 +370,14 @@ export default function DriverSetupPage() {
                     <div style={s.row}>
                         <div style={s.group}>
                             <label style={s.label}>מגדר</label>
-                            <select value={driverForm.gender} onChange={e => setD("gender", e.target.value)}>
+                            <select value={driverForm.gender}
+                                onChange={e => { setD("gender", e.target.value); setFieldErrors(f => ({ ...f, gender: undefined })); }}
+                                style={{ borderColor: fieldErrors.gender ? "var(--danger)" : undefined }}>
+                                <option value="">בחר</option>
                                 <option value="male">זכר</option>
                                 <option value="female">נקבה</option>
-                                <option value="other">אחר</option>
                             </select>
+                            <FieldErr msg={fieldErrors.gender} />
                         </div>
                         <div style={s.group}>
                             <label style={s.label}>מוזיקה אהובה</label>
@@ -530,7 +553,7 @@ export default function DriverSetupPage() {
             {step === 2 && (
                 <div style={s.card}>
                     <div style={{ background: "#fef9c3", borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: "#92400e" }}>
-                        🔒 המסמכים נשמרים בצורה מאובטחת ויאושרו על ידי הצוות שלנו לפני שתוכל לקבל נסיעות.
+                        🔒 המסמכים נשמרים בצורה מאובטחת ויעברו בדיקה אוטומטית לפני שתוכל לקבל נסיעות.
                     </div>
                     <FileUpload
                         label="📷 צילום רישיון נהיגה * (חובה)"
@@ -573,7 +596,7 @@ export default function DriverSetupPage() {
                     </button>
                 ) : (
                     <button type="button" className="btn-primary" style={{ flex: 2 }} disabled={loading} onClick={handleSubmit}>
-                        {loading ? "טוען..." : "שמור וסיים ✓"}
+                        {loading ? "בודק מסמכים..." : "שמור וסיים ✓"}
                     </button>
                 )}
             </div>

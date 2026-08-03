@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
+import AutoVerificationOverlay, { waitForAutoVerification } from "../components/AutoVerificationOverlay";
 
 const s = {
     page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", padding: 16 },
@@ -105,6 +106,10 @@ export default function RegisterPage() {
                 errors.fullName = "שם מלא חייב להכיל לפחות 2 תווים";
             if (!formData.phone.match(/^05\d{8}$/))
                 errors.phone = "מספר טלפון לא תקין (לדוגמה: 0501234567)";
+            else if (phoneChecking)
+                errors.phone = "בודקים אם מספר הטלפון פנוי...";
+            else if (phoneInUse)
+                errors.phone = "מספר הטלפון כבר בשימוש";
             if (!formData.email.match(/^\S+@\S+\.\S+$/))
                 errors.email = "כתובת אימייל לא תקינה";
             if (formData.password.length < 8)
@@ -130,16 +135,21 @@ export default function RegisterPage() {
     const [step, setStep] = useState(0);
     const [form, setForm] = useState({
         fullName: "", phone: "", email: "", password: "", confirmPassword: "",
-        role: "", preferredLanguage: "he", gender: "other",
+        role: "", preferredLanguage: "he", gender: "",
         referralCode: "", idPhotoFile: null, idPhotoPreview: "", profilePhotoFile: null, profilePhotoPreview: ""
     });
     const [errors, setErrors] = useState({});
     const [error,  setError]  = useState("");
     const [loading, setLoading] = useState(false);
     const [showPw, setShowPw]   = useState(false);
+    const [verification, setVerification] = useState(null);
 
     const emailTimer = useRef(null);
+    const phoneCheckSeq = useRef(0);
     const [emailChecking, setEmailChecking] = useState(false);
+    const [phoneChecking, setPhoneChecking] = useState(false);
+    const [phoneInUse, setPhoneInUse] = useState(false);
+    const [phoneChecked, setPhoneChecked] = useState(false);
 
     const set = (k, v) => {
         setForm(f => ({ ...f, [k]: v }));
@@ -151,10 +161,33 @@ export default function RegisterPage() {
         }
         if (k === "phone") {
             const digits = v.replace(/\D/g, "");
-            if (digits.length > 0 && !digits.match(/^05\d{0,8}$/))
+            phoneCheckSeq.current += 1;
+            const checkId = phoneCheckSeq.current;
+            setPhoneInUse(false);
+            setPhoneChecked(false);
+
+            if (digits.length > 0 && !digits.match(/^05\d{0,8}$/)) {
+                setPhoneChecking(false);
                 setErrors(er => ({ ...er, phone: "מספר טלפון חייב להתחיל ב-05" }));
-            else if (digits.length > 0 && digits.length < 10)
+            } else if (digits.length > 0 && digits.length < 10) {
+                setPhoneChecking(false);
                 setErrors(er => ({ ...er, phone: `חסרות ${10 - digits.length} ספרות` }));
+            } else if (digits.match(/^05\d{8}$/)) {
+                setPhoneChecking(true);
+                (async () => {
+                    try {
+                        const { data } = await api.post("/users/check-phone", { phone: digits }, { skipAuthRedirect: true });
+                        if (phoneCheckSeq.current !== checkId) return;
+                        setPhoneChecked(true);
+                        setPhoneInUse(Boolean(data.exists));
+                        if (data.exists) setErrors(er => ({ ...er, phone: "מספר הטלפון כבר בשימוש" }));
+                    } catch {} finally {
+                        if (phoneCheckSeq.current === checkId) setPhoneChecking(false);
+                    }
+                })();
+            } else {
+                setPhoneChecking(false);
+            }
         }
         if (k === "password") {
             if (v.length > 0 && v.length < 8)
@@ -178,7 +211,7 @@ export default function RegisterPage() {
                 setEmailChecking(true);
                 emailTimer.current = setTimeout(async () => {
                     try {
-                        const { data } = await api.post("/users/check-email", { email: v });
+                        const { data } = await api.post("/users/check-email", { email: v }, { skipAuthRedirect: true });
                         if (data.exists) setErrors(er => ({ ...er, email: "כתובת אימייל זו כבר רשומה במערכת" }));
                     } catch {} finally { setEmailChecking(false); }
                 }, 500);
@@ -188,7 +221,12 @@ export default function RegisterPage() {
         }
     };
 
-    useEffect(() => { return () => clearTimeout(emailTimer.current); }, []);
+    useEffect(() => {
+        return () => {
+            clearTimeout(emailTimer.current);
+            phoneCheckSeq.current += 1;
+        };
+    }, []);
 
     const goNext = () => {
         const errs = validate(step, form);
@@ -213,7 +251,21 @@ export default function RegisterPage() {
         if (Object.keys(errs).length > 0) return;
 
         setError("");
+        setVerification({
+            title: "בודקים את תעודת הזהות שלך",
+            subtitle: "הבדיקה האוטומטית מתבצעת מיד אחרי ההעלאה.",
+            steps: [
+                { label: "מעלה תעודת זהות", detail: "הקובץ נשמר בצורה מאובטחת" },
+                { label: "בודק איכות תמונה", detail: "מוודא שהצילום ברור וקריא" },
+                { label: "מאמת את המסמך", detail: "סטטוס המשתמש מתעדכן למאושר" }
+            ],
+            successTitle: "תעודת הזהות אושרה",
+            successText: form.role === "driver" || form.role === "both"
+                ? "אפשר להמשיך להגדרת הנהג."
+                : "ההרשמה הושלמה ואפשר להתחיל להשתמש באפליקציה."
+        });
         setLoading(true);
+        const verificationDelay = waitForAutoVerification();
         try {
             const { data } = await api.post("/users/register", {
                 fullName: form.fullName,
@@ -252,12 +304,13 @@ export default function RegisterPage() {
                 await api.post("/uploads/profile", fd, { headers: { "Content-Type": "multipart/form-data" } });
             }
 
+            await verificationDelay;
             navigate(form.role === "driver" || form.role === "both" ? "/driver-setup" : "/");
         } catch (err) {
             setError(err.response?.data?.error || "שגיאה בהרשמה");
-            setError(err.response?.data?.error || "Registration failed");
         } finally {
             setLoading(false);
+            setVerification(null);
         }
     };
 
@@ -288,8 +341,18 @@ export default function RegisterPage() {
         }
     ];
 
+    const phoneIsValid = /^05\d{8}$/.test(form.phone);
+    const phoneStatusIcon = phoneChecking
+        ? "⏳"
+        : errors.phone || phoneInUse
+            ? "❌"
+            : phoneChecked && phoneIsValid
+                ? "✅"
+                : "";
+
     return (
         <div style={s.page}>
+            <AutoVerificationOverlay open={Boolean(verification)} {...(verification || {})} />
             <div style={s.card} className="fade-in">
                 <div style={{ textAlign: "center", fontSize: 36, marginBottom: 8 }}>🚕</div>
                 <h1 style={s.title}>{"הירשם"}</h1>
@@ -315,14 +378,19 @@ export default function RegisterPage() {
                         </div>
                         <div style={s.group}>
                             <label style={s.label} htmlFor="phone">{"טלפון"} *</label>
-                            <input id="phone" type="tel" placeholder="0501234567"
-                                value={form.phone}
-                                onChange={e => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))}
-                                inputMode="numeric"
-                                maxLength={10}
-                                aria-required="true"
-                                style={{ borderColor: errors.phone ? "var(--danger)" : undefined }}
-                            />
+                            <div style={{ position: "relative" }}>
+                                <input id="phone" type="tel" placeholder="0501234567"
+                                    value={form.phone}
+                                    onChange={e => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))}
+                                    inputMode="numeric"
+                                    maxLength={10}
+                                    aria-required="true"
+                                    style={{ borderColor: errors.phone ? "var(--danger)" : undefined, paddingLeft: 36 }}
+                                />
+                                <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14 }}>
+                                    {phoneStatusIcon}
+                                </span>
+                            </div>
                             <FieldErr msg={errors.phone} />
                         </div>
                         <div style={s.group}>
@@ -424,9 +492,9 @@ export default function RegisterPage() {
                                 <label style={s.label}>מגדר</label>
                                 <select value={form.gender}
                                     onChange={e => set("gender", e.target.value)}>
+                                    <option value="">בחר</option>
                                     <option value="male">זכר</option>
                                     <option value="female">נקבה</option>
-                                    <option value="other">אחר</option>
                                 </select>
                             </div>
                         </div>
@@ -438,7 +506,7 @@ export default function RegisterPage() {
                     <div>
                         <div style={{ ...s.group, textAlign: "center", background: "#fef9c3", borderRadius: 10, padding: 12, marginBottom: 20 }}>
                             <span style={{ fontSize: 13, color: "#92400e" }}>
-                                🔒 המסמכים שלך נשמרים בצורה מאובטחת ויישלחו לאישור הצוות שלנו
+                                🔒 המסמכים שלך נשמרים בצורה מאובטחת ויעברו בדיקה אוטומטית
                             </span>
                         </div>
 
@@ -501,7 +569,7 @@ export default function RegisterPage() {
                     ) : (
                         <button type="button" onClick={handleSubmit}
                             className="btn-primary" style={{ flex: 2 }} disabled={loading}>
-                            {loading ? "טוען..." : "סיים הרשמה ✓"}
+                            {loading ? "בודק מסמכים..." : "סיים הרשמה ✓"}
                         </button>
                     )}
                 </div>

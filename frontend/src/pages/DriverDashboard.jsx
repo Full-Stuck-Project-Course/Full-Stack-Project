@@ -120,7 +120,7 @@ export default function DriverDashboard() {
     const setStatus = async (status) => {
         if (!driver) return;
         if (status === "available" && !driver.isVerified) {
-            setStatusError("אי אפשר לעבור לזמין לפני שאדמין מאשר את פרופיל הנהג.");
+            setStatusError("אי אפשר לעבור לזמין לפני השלמת אימות המסמכים.");
             return;
         }
 
@@ -133,7 +133,7 @@ export default function DriverDashboard() {
             const serverMessage = err.response?.data?.error;
             setStatusError(
                 serverMessage === "Driver must be verified before becoming available"
-                    ? "אי אפשר לעבור לזמין לפני שאדמין מאשר את פרופיל הנהג."
+                    ? "אי אפשר לעבור לזמין לפני השלמת אימות המסמכים."
                     : serverMessage || "לא ניתן לעדכן סטטוס כרגע."
             );
         } finally {
@@ -242,7 +242,7 @@ export default function DriverDashboard() {
                 <div style={{ fontWeight: 700, marginBottom: 12 }}>{"סטטוס זמינות"}</div>
                 {!driver.isVerified && (
                     <div className="error-msg" style={{ marginBottom: 10 }}>
-                        פרופיל הנהג עדיין לא מאושר. אפשר להיות עסוק או לא מחובר, אבל אי אפשר להיות זמין לקבלת נסיעות עד אישור אדמין.
+                        פרופיל הנהג עדיין לא מאומת. אפשר להיות עסוק או לא מחובר, אבל אי אפשר להיות זמין לקבלת נסיעות עד השלמת אימות המסמכים.
                     </div>
                 )}
                 {statusError && <div className="error-msg" style={{ marginBottom: 10 }}>{statusError}</div>}

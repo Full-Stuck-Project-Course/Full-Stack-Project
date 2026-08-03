@@ -54,6 +54,19 @@ router.post("/users/check-email", authLimiter, async (req, res) => {
     }
 });
 
+router.post("/users/check-phone", authLimiter, async (req, res) => {
+    try {
+        const phone = String(req.body.phone || "");
+        if (!/^05\d{8}$/.test(phone)) return res.status(400).json({ error: "Invalid phone" });
+
+        const User = require("../db/models/User");
+        const exists = await User.findOne({ phone });
+        res.json({ exists: !!exists });
+    } catch {
+        res.status(500).json({ error: "Could not check phone availability" });
+    }
+});
+
 // All routes below require authentication.
 router.use(auth);
 

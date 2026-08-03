@@ -6,12 +6,14 @@
   <component name="ChangeListManager">
     <list default="true" id="64b1c922-fb76-4943-83b4-f78cb120b1ef" name="Changes" comment="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/carpool_documentation.docx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/verification-report-after-fixes.docx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/דוח_סקירת_באגים_2026-06-30.docx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/דוח_סטטוס_תקלות_בדיקה_חוזרת_2026-06-28.docx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/דוח_סטטוס_תקלות_לאחר_גרסה_חדשה_2026-06-24.docx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/דוח_תקלות_פרויקט_2026-06-23.docx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/driverController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/driverController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/uploadController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/uploadController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/db/models/DriverProfile.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/db/models/DriverProfile.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/routes/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/routes/index.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/pages/DriverDashboard.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/DriverDashboard.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/pages/DriverSetupPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/DriverSetupPage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/pages/ProfilePage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/ProfilePage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/pages/RegisterPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/RegisterPage.jsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -104,7 +106,8 @@
       <workItem from="1785621105433" duration="42000" />
       <workItem from="1785679330232" duration="1037000" />
       <workItem from="1785680771571" duration="118000" />
-      <workItem from="1785710630618" duration="494000" />
+      <workItem from="1785710630618" duration="528000" />
+      <workItem from="1785711873538" duration="2453000" />
     </task>
     <task id="LOCAL‎-00001" summary="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
       <option name="closed" value="true" />
@@ -130,7 +133,15 @@
       <option name="project" value="LOCAL‎" />
       <updated>1785619251396</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL‎-00004" summary="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
+      <option name="closed" value="true" />
+      <created>1785711138269</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL‎-00004" />
+      <option name="project" value="LOCAL‎" />
+      <updated>1785711138269</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

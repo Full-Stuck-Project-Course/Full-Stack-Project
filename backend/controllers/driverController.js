@@ -5,6 +5,8 @@ const User = require("../db/models/User");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 const { hasValidCoordinates } = require("../utils/pricing");
 
+const VALID_DRIVER_GENDERS = new Set(["male", "female"]);
+
 const DRIVER_UPDATE_FIELDS = [
     "licenseNumber",
     "spokenLanguages",
@@ -30,6 +32,10 @@ async function registerDriver(req, res) {
             acceptsCarpoolRides,
             vehicleConditions
         } = req.body;
+
+        if (!VALID_DRIVER_GENDERS.has(gender)) {
+            return res.status(400).json({ error: "Driver gender must be male or female" });
+        }
 
         const existing = await DriverProfile.findOne({ userId });
         if (existing) return res.status(409).json({ error: "Driver profile already exists for this user" });
@@ -118,11 +124,17 @@ async function updateDriver(req, res) {
         if (!await canAccessDriver(req, req.params.id)) {
             return forbidden(res);
         }
+        const existing = await DriverProfile.findById(req.params.id);
+        if (!existing) return res.status(404).json({ error: "Driver not found" });
+
         const update = {};
         for (const key of DRIVER_UPDATE_FIELDS) {
             if (req.body[key] !== undefined) update[key] = req.body[key];
         }
-        if (req.body.licenseNumber !== undefined) {
+        if (update.gender !== undefined && !VALID_DRIVER_GENDERS.has(update.gender)) {
+            return res.status(400).json({ error: "Driver gender must be male or female" });
+        }
+        if (req.body.licenseNumber !== undefined && String(req.body.licenseNumber) !== String(existing.licenseNumber)) {
             update.isVerified = false;
             update.verificationStatus = "pending";
             update.status = "offline";
