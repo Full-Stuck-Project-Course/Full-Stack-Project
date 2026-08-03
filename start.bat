@@ -1,16 +1,19 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set ROOT=%~dp0
-set BACKEND=%ROOT%backend
-set FRONTEND=%ROOT%frontend
-set BACKEND_ENV=%BACKEND%\.env
-set BACKEND_ENV_EXAMPLE=%BACKEND%\.env.example
-set DEFAULT_DB_CONNECTION=mongodb://localhost:27017/hailnow
-set DEFAULT_BACKEND_PORT=5000
-set BACKEND_PORT=%DEFAULT_BACKEND_PORT%
-set FRONTEND_PORT=3000
-set FRONTEND_URL=http://127.0.0.1:3000
+set "ROOT=%~dp0"
+set "BACKEND=%ROOT%backend"
+set "FRONTEND=%ROOT%frontend"
+set "PID_DIR=%ROOT%.pids"
+set "BACKEND_PID_FILE=%PID_DIR%\backend.pid"
+set "FRONTEND_PID_FILE=%PID_DIR%\frontend.pid"
+set "BACKEND_ENV=%BACKEND%\.env"
+set "BACKEND_ENV_EXAMPLE=%BACKEND%\.env.example"
+set "DEFAULT_DB_CONNECTION=mongodb://localhost:27017/hailnow"
+set "DEFAULT_BACKEND_PORT=5000"
+set "BACKEND_PORT=%DEFAULT_BACKEND_PORT%"
+set "FRONTEND_PORT=3000"
+set "FRONTEND_URL=http://127.0.0.1:3000"
 
 echo ============================================
 echo          CarPool App - Starting Up
@@ -66,8 +69,10 @@ for /f "usebackq tokens=1,* delims==" %%A in (`findstr /R /C:"^PORT=[0-9][0-9]*$
 
 echo.
 echo Closing existing CarPool app processes if any...
-call :StopWindow "CarPool Backend"
-call :StopWindow "CarPool Frontend"
+call :StopPidFile "%BACKEND_PID_FILE%" "backend" "CarPool Backend"
+call :StopPidFile "%FRONTEND_PID_FILE%" "frontend" "CarPool Frontend"
+call :StopCmdWindow "CarPool Backend"
+call :StopCmdWindow "CarPool Frontend"
 call :StopPort "%BACKEND_PORT%" "backend"
 call :StopPort "%FRONTEND_PORT%" "frontend"
 
@@ -99,9 +104,12 @@ echo.
 echo Starting Backend and Frontend...
 echo.
 
-:: Use /d parameter of start to set working directory (avoids nested quotes)
-start "CarPool Backend"  /d "%BACKEND%"  cmd /k "npm run dev"
-start "CarPool Frontend" /d "%FRONTEND%" cmd /k "npm start"
+call :StartServices
+if errorlevel 1 (
+    echo ERROR: failed to start app windows.
+    pause
+    exit /b 1
+)
 
 echo Opening %FRONTEND_URL%...
 timeout /t 5 /nobreak >nul
@@ -110,24 +118,50 @@ start "" "%FRONTEND_URL%"
 endlocal
 exit /b 0
 
-:StopWindow
-set "WINDOW_TITLE=%~1"
-for /f "skip=1 tokens=2 delims=," %%P in ('tasklist /V /FO CSV /FI "WINDOWTITLE eq %WINDOW_TITLE%" 2^>nul') do (
-    set "WINDOW_PID=%%~P"
-    if defined WINDOW_PID (
-        echo Closing existing %WINDOW_TITLE% window, PID !WINDOW_PID!...
-        taskkill /PID !WINDOW_PID! /T /F >nul 2>&1
-    )
+:StopPidFile
+set "PID_FILE=%~1"
+set "SERVICE_NAME=%~2"
+set "WINDOW_TITLE=%~3"
+if not exist "%PID_FILE%" exit /b 0
+
+set "TARGET_PID="
+set /p TARGET_PID=<"%PID_FILE%"
+del /q "%PID_FILE%" >nul 2>&1
+
+if not defined TARGET_PID exit /b 0
+echo(%TARGET_PID%| findstr /R "^[0-9][0-9]*$" >nul
+if errorlevel 1 exit /b 0
+
+tasklist /V /FO CSV /FI "PID eq %TARGET_PID%" 2>nul | findstr /I /C:"%WINDOW_TITLE%" >nul
+if not errorlevel 1 (
+    echo Closing previous %SERVICE_NAME% window, PID %TARGET_PID%...
+    taskkill /PID %TARGET_PID% /T /F >nul 2>&1
 )
+exit /b 0
+
+:StopCmdWindow
+set "WINDOW_TITLE=%~1"
+taskkill /F /T /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq %WINDOW_TITLE%*" >nul 2>&1
+exit /b 0
+
+:StartServices
+if not exist "%PID_DIR%" mkdir "%PID_DIR%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $services=@(@{Name='Backend';Title='CarPool Backend';WorkDir=$env:BACKEND;PidFile=$env:BACKEND_PID_FILE;Command='npm run dev'},@{Name='Frontend';Title='CarPool Frontend';WorkDir=$env:FRONTEND;PidFile=$env:FRONTEND_PID_FILE;Command='npm start'}); New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; foreach($service in $services){$process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k',('title ' + $service.Title + ' && ' + $service.Command) -WorkingDirectory $service.WorkDir -PassThru; Set-Content -Path $service.PidFile -Value $process.Id -Encoding Ascii; Write-Output ('Started ' + $service.Name + ', PID ' + $process.Id)}"
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :StopPort
 set "TARGET_PORT=%~1"
 set "SERVICE_NAME=%~2"
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":%TARGET_PORT% .*LISTENING"') do (
+set "CLOSED_PIDS= "
+for /f "tokens=5" %%P in ('netstat -ano -p tcp ^| findstr /R /C:":%TARGET_PORT% .*LISTENING"') do (
     if not "%%P"=="0" (
-        echo Closing existing %SERVICE_NAME% process on port %TARGET_PORT%, PID %%P...
-        taskkill /PID %%P /T /F >nul 2>&1
+        echo !CLOSED_PIDS!| findstr /C:" %%P " >nul
+        if errorlevel 1 (
+            set "CLOSED_PIDS=!CLOSED_PIDS!%%P "
+            echo Closing existing %SERVICE_NAME% process on port %TARGET_PORT%, PID %%P...
+            taskkill /PID %%P /T /F >nul 2>&1
+        )
     )
 )
 exit /b 0
