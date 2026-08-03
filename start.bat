@@ -14,6 +14,7 @@ set "DEFAULT_BACKEND_PORT=5000"
 set "BACKEND_PORT=%DEFAULT_BACKEND_PORT%"
 set "FRONTEND_PORT=3000"
 set "FRONTEND_URL=http://127.0.0.1:3000"
+set "SERVICE_START_TIMEOUT_SECONDS=60"
 
 echo ============================================
 echo          CarPool App - Starting Up
@@ -101,18 +102,44 @@ if not exist "%FRONTEND%\node_modules" (
 )
 
 echo.
-echo Starting Backend and Frontend...
+echo Starting Backend...
 echo.
 
-call :StartServices
+call :StartBackend
 if errorlevel 1 (
-    echo ERROR: failed to start app windows.
+    echo ERROR: failed to start backend window.
+    pause
+    exit /b 1
+)
+
+echo Waiting for backend on http://127.0.0.1:%BACKEND_PORT%/...
+call :WaitForHttp "http://127.0.0.1:%BACKEND_PORT%/" "%SERVICE_START_TIMEOUT_SECONDS%" "backend"
+if errorlevel 1 (
+    echo ERROR: backend did not become ready on port %BACKEND_PORT%.
+    pause
+    exit /b 1
+)
+
+echo.
+echo Starting Frontend...
+echo.
+
+call :StartFrontend
+if errorlevel 1 (
+    echo ERROR: failed to start frontend window.
+    pause
+    exit /b 1
+)
+
+echo Waiting for frontend on %FRONTEND_URL%...
+call :WaitForHttp "%FRONTEND_URL%" "%SERVICE_START_TIMEOUT_SECONDS%" "frontend"
+if errorlevel 1 (
+    echo ERROR: frontend did not become ready on port %FRONTEND_PORT%.
     pause
     exit /b 1
 )
 
 echo Opening %FRONTEND_URL%...
-timeout /t 5 /nobreak >nul
 start "" "%FRONTEND_URL%"
 
 endlocal
@@ -144,9 +171,23 @@ set "WINDOW_TITLE=%~1"
 taskkill /F /T /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq %WINDOW_TITLE%*" >nul 2>&1
 exit /b 0
 
-:StartServices
+:StartBackend
 if not exist "%PID_DIR%" mkdir "%PID_DIR%" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $services=@(@{Name='Backend';Title='CarPool Backend';WorkDir=$env:BACKEND;PidFile=$env:BACKEND_PID_FILE;Command='npm run dev'},@{Name='Frontend';Title='CarPool Frontend';WorkDir=$env:FRONTEND;PidFile=$env:FRONTEND_PID_FILE;Command='npm start'}); New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; foreach($service in $services){$process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k',('title ' + $service.Title + ' && ' + $service.Command) -WorkingDirectory $service.WorkDir -PassThru; Set-Content -Path $service.PidFile -Value $process.Id -Encoding Ascii; Write-Output ('Started ' + $service.Name + ', PID ' + $process.Id)}"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; $process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k','title CarPool Backend && npm run dev' -WorkingDirectory $env:BACKEND -PassThru; Set-Content -Path $env:BACKEND_PID_FILE -Value $process.Id -Encoding Ascii; Write-Output ('Started Backend, PID ' + $process.Id)"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:StartFrontend
+if not exist "%PID_DIR%" mkdir "%PID_DIR%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; $process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k','title CarPool Frontend && npm start' -WorkingDirectory $env:FRONTEND -PassThru; Set-Content -Path $env:FRONTEND_PID_FILE -Value $process.Id -Encoding Ascii; Write-Output ('Started Frontend, PID ' + $process.Id)"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:WaitForHttp
+set "WAIT_URL=%~1"
+set "WAIT_SECONDS=%~2"
+set "WAIT_SERVICE=%~3"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$deadline=(Get-Date).AddSeconds([int]$env:WAIT_SECONDS); do { try { $res=Invoke-WebRequest -UseBasicParsing -Uri $env:WAIT_URL -TimeoutSec 2; if ($res.StatusCode -ge 200 -and $res.StatusCode -lt 500) { exit 0 } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); Write-Error ($env:WAIT_SERVICE + ' is not ready at ' + $env:WAIT_URL); exit 1"
 if errorlevel 1 exit /b 1
 exit /b 0
 

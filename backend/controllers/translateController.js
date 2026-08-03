@@ -1,12 +1,20 @@
 // controllers/translateController.js
 
 const axios = require("axios");
+const SUPPORTED_TARGET_LANG = "he";
+
+function rejectUnsupportedTargetLang(targetLang, res) {
+    if (!targetLang || targetLang === SUPPORTED_TARGET_LANG) return false;
+    res.status(400).json({ error: "Only Hebrew translation is supported" });
+    return true;
+}
 
 // POST /api/translate
 async function translate(req, res) {
     try {
-        const { text, targetLang = "he", sourceLang = "auto" } = req.body;
+        const { text, targetLang = SUPPORTED_TARGET_LANG, sourceLang = "auto" } = req.body;
         if (!text) return res.status(400).json({ error: "text is required" });
+        if (rejectUnsupportedTargetLang(targetLang, res)) return;
 
         const key = process.env.GOOGLE_MAPS_API_KEY; // same key works for Translate API
         if (!key || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
@@ -19,7 +27,7 @@ async function translate(req, res) {
             {
                 params: {
                     q: text,
-                    target: targetLang,
+                    target: SUPPORTED_TARGET_LANG,
                     source: sourceLang !== "auto" ? sourceLang : undefined,
                     key
                 }
@@ -36,8 +44,9 @@ async function translate(req, res) {
 // POST /api/translate/batch
 async function translateBatch(req, res) {
     try {
-        const { texts, targetLang = "he" } = req.body;
+        const { texts, targetLang = SUPPORTED_TARGET_LANG } = req.body;
         if (!texts || !Array.isArray(texts)) return res.status(400).json({ error: "texts array is required" });
+        if (rejectUnsupportedTargetLang(targetLang, res)) return;
 
         const key = process.env.GOOGLE_MAPS_API_KEY;
         if (!key || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
@@ -47,7 +56,7 @@ async function translateBatch(req, res) {
         const { data } = await axios.post(
             `https://translation.googleapis.com/language/translate/v2`,
             null,
-            { params: { q: texts, target: targetLang, key } }
+            { params: { q: texts, target: SUPPORTED_TARGET_LANG, key } }
         );
 
         const results = data?.data?.translations?.map((t, i) => ({
