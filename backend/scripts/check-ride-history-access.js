@@ -7,6 +7,7 @@ const { getAllRides } = require("../controllers/rideController");
 
 const originals = {
     rideFind: Ride.find,
+    rideCountDocuments: Ride.countDocuments,
     passengerFindOne: PassengerProfile.findOne,
     driverFindOne: DriverProfile.findOne
 };
@@ -35,6 +36,14 @@ function makeRideFind(capture) {
             },
             sort(sortSpec) {
                 capture.sort = sortSpec;
+                return this;
+            },
+            skip(skipValue) {
+                capture.skip = skipValue;
+                return this;
+            },
+            limit(limitValue) {
+                capture.limit = limitValue;
                 return Promise.resolve([]);
             }
         };
@@ -45,6 +54,10 @@ async function exercise({ user, query = {}, passenger = null, driver = null }) {
     const capture = { filter: null, sort: null };
 
     Ride.find = makeRideFind(capture);
+    Ride.countDocuments = async (filter) => {
+        capture.countFilter = filter;
+        return 0;
+    };
     PassengerProfile.findOne = async ({ userId }) => userId === user.userId ? passenger : null;
     DriverProfile.findOne = async ({ userId }) => userId === user.userId ? driver : null;
 
@@ -91,7 +104,15 @@ function assertOwnFilter(filter, expected) {
         const unrelated = await exercise({
             user: { userId: "unrelated-user", role: "passenger" }
         });
-        assert.deepStrictEqual(unrelated.res.body, [], "users without ride profiles should receive an empty history");
+        assert.deepStrictEqual(unrelated.res.body.items, [], "users without ride profiles should receive an empty history page");
+        assert.deepStrictEqual(unrelated.res.body.pagination, {
+            page: 1,
+            limit: 50,
+            total: 0,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false
+        });
         assert.strictEqual(unrelated.capture.filter, null, "users without profiles must not hit the all-rides query");
 
         const forgedPassengerId = await exercise({
@@ -116,6 +137,7 @@ function assertOwnFilter(filter, expected) {
         console.log("Ride history access check passed: history is limited to involved users, while admins can see all rides.");
     } finally {
         Ride.find = originals.rideFind;
+        Ride.countDocuments = originals.rideCountDocuments;
         PassengerProfile.findOne = originals.passengerFindOne;
         DriverProfile.findOne = originals.driverFindOne;
     }

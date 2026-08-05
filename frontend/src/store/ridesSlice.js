@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../api/axios";
+import { extractItems, extractPagination } from "../api/pagination";
 
 export const fetchRides = createAsyncThunk("rides/fetchRides", async (params = {}) => {
     const { data } = await api.get("/rides", { params });
@@ -33,6 +34,7 @@ const ridesSlice = createSlice({
     name: "rides",
     initialState: {
         items: [],
+        pagination: null,
         currentRide: null,
         loading: false,
         error: null
@@ -44,7 +46,11 @@ const ridesSlice = createSlice({
     extraReducers: (builder) => {
         builder
             .addCase(fetchRides.pending, (state) => { state.loading = true; state.error = null; })
-            .addCase(fetchRides.fulfilled, (state, action) => { state.loading = false; state.items = action.payload; })
+            .addCase(fetchRides.fulfilled, (state, action) => {
+                state.loading = false;
+                state.items = extractItems(action.payload);
+                state.pagination = extractPagination(action.payload);
+            })
             .addCase(fetchRides.rejected, (state, action) => { state.loading = false; state.error = action.error.message; })
             .addCase(fetchRideById.fulfilled, (state, action) => { state.currentRide = action.payload; })
             .addCase(createRide.pending, (state) => { state.loading = true; state.error = null; })

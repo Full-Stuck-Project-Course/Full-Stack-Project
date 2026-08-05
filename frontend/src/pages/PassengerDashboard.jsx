@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
+import { extractItems } from "../api/pagination";
 import { AddressInput } from "../components/MapComponent";
 
 const s = {
@@ -39,7 +40,7 @@ export default function PassengerDashboard() {
                 const p = passRes.data.find(p => p.userId === userId || p.userId?._id === userId);
                 setPassenger(p);
 
-                const allRides = ridesRes.data || [];
+                const allRides = extractItems(ridesRes.data);
                 const now = new Date();
                 setUpcoming(allRides.filter(r =>
                     ["searching", "accepted", "driver_arriving", "in_progress"].includes(r.status) ||

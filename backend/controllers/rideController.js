@@ -16,6 +16,8 @@ const {
 } = require("../utils/authz");
 
 const DISPATCH_WINDOW_MS = 15 * 60 * 1000;
+const DEFAULT_RIDES_LIMIT = 50;
+const MAX_RIDES_LIMIT = 100;
 const ADMIN_RIDE_STATUSES = new Set([
     "searching",
     "accepted",
@@ -152,10 +154,37 @@ async function createRide(req, res) {
     }
 }
 
+function parsePagination(query = {}) {
+    const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+    const requestedLimit = Number.parseInt(query.limit, 10);
+    const limit = Math.min(MAX_RIDES_LIMIT, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : DEFAULT_RIDES_LIMIT));
+    return {
+        page,
+        limit,
+        skip: (page - 1) * limit
+    };
+}
+
+function paginatedRides(items, pagination, total) {
+    const totalPages = Math.max(1, Math.ceil(total / pagination.limit));
+    return {
+        items,
+        pagination: {
+            page: pagination.page,
+            limit: pagination.limit,
+            total,
+            totalPages,
+            hasNextPage: pagination.page < totalPages,
+            hasPreviousPage: pagination.page > 1
+        }
+    };
+}
+
 // GET /rides
 async function getAllRides(req, res) {
     try {
         const { status, rideType, driverId, passengerId } = req.query;
+        const pagination = parsePagination(req.query);
         const filter = {};
         if (status)   filter.status = status;
         if (rideType) filter.rideType = rideType;
@@ -176,26 +205,31 @@ async function getAllRides(req, res) {
                 if (!passenger || !sameId(passenger._id, passengerId)) return forbidden(res);
                 filter.passengerId = passenger._id;
             } else if (status === "searching") {
-                if (!driver || !driver.isVerified) return res.status(200).json([]);
-                if (!driver.acceptsCarpoolRides && rideType === "carpool") return res.status(200).json([]);
+                if (!driver || !driver.isVerified) return res.status(200).json(paginatedRides([], pagination, 0));
+                if (!driver.acceptsCarpoolRides && rideType === "carpool") return res.status(200).json(paginatedRides([], pagination, 0));
                 if (!driver.acceptsCarpoolRides && !rideType) filter.rideType = { $ne: "carpool" };
                 Object.assign(filter, readyForDispatchFilter());
             } else {
                 const ownFilters = [];
                 if (passenger) ownFilters.push({ passengerId: passenger._id });
                 if (driver) ownFilters.push({ driverId: driver._id });
-                if (ownFilters.length === 0) return res.status(200).json([]);
+                if (ownFilters.length === 0) return res.status(200).json(paginatedRides([], pagination, 0));
                 filter.$or = ownFilters;
             }
         }
 
-        const rides = await Ride.find(filter)
-            .populate("passengerId")
-            .populate("driverId")
-            .populate("vehicleId")
-            .sort({ createdAt: -1 });
+        const [rides, total] = await Promise.all([
+            Ride.find(filter)
+                .populate("passengerId")
+                .populate("driverId")
+                .populate("vehicleId")
+                .sort({ createdAt: -1 })
+                .skip(pagination.skip)
+                .limit(pagination.limit),
+            Ride.countDocuments(filter)
+        ]);
 
-        res.status(200).json(rides);
+        res.status(200).json(paginatedRides(rides, pagination, total));
     } catch (error) {
         res.status(400).json({ error: error.message });
     }

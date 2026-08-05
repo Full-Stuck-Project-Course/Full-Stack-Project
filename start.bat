@@ -17,7 +17,7 @@ set "FRONTEND_URL=http://127.0.0.1:3000"
 set "SERVICE_START_TIMEOUT_SECONDS=60"
 
 echo ============================================
-echo          CarPool App - Starting Up
+echo          HailNow - Starting Up
 echo ============================================
 echo.
 
@@ -69,11 +69,11 @@ for /f "usebackq tokens=1,* delims==" %%A in (`findstr /R /C:"^PORT=[0-9][0-9]*$
 )
 
 echo.
-echo Closing existing CarPool app processes if any...
-call :StopPidFile "%BACKEND_PID_FILE%" "backend" "CarPool Backend"
-call :StopPidFile "%FRONTEND_PID_FILE%" "frontend" "CarPool Frontend"
-call :StopCmdWindow "CarPool Backend"
-call :StopCmdWindow "CarPool Frontend"
+echo Closing existing HailNow processes if any...
+call :StopPidFile "%BACKEND_PID_FILE%" "backend" "HailNow Backend"
+call :StopPidFile "%FRONTEND_PID_FILE%" "frontend" "HailNow Frontend"
+call :StopCmdWindow "HailNow Backend"
+call :StopCmdWindow "HailNow Frontend"
 call :StopPort "%BACKEND_PORT%" "backend"
 call :StopPort "%FRONTEND_PORT%" "frontend"
 
@@ -173,13 +173,13 @@ exit /b 0
 
 :StartBackend
 if not exist "%PID_DIR%" mkdir "%PID_DIR%" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; $process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k','title CarPool Backend && npm run dev' -WorkingDirectory $env:BACKEND -PassThru; Set-Content -Path $env:BACKEND_PID_FILE -Value $process.Id -Encoding Ascii; Write-Output ('Started Backend, PID ' + $process.Id)"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; $process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k','title HailNow Backend && npm run dev' -WorkingDirectory $env:BACKEND -PassThru; Set-Content -Path $env:BACKEND_PID_FILE -Value $process.Id -Encoding Ascii; Write-Output ('Started Backend, PID ' + $process.Id)"
 if errorlevel 1 exit /b 1
 exit /b 0
 
 :StartFrontend
 if not exist "%PID_DIR%" mkdir "%PID_DIR%" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; $process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k','title CarPool Frontend && npm start' -WorkingDirectory $env:FRONTEND -PassThru; Set-Content -Path $env:FRONTEND_PID_FILE -Value $process.Id -Encoding Ascii; Write-Output ('Started Frontend, PID ' + $process.Id)"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; $process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k','title HailNow Frontend && npm start' -WorkingDirectory $env:FRONTEND -PassThru; Set-Content -Path $env:FRONTEND_PID_FILE -Value $process.Id -Encoding Ascii; Write-Output ('Started Frontend, PID ' + $process.Id)"
 if errorlevel 1 exit /b 1
 exit /b 0
 

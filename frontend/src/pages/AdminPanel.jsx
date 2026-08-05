@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
+import { extractItems } from "../api/pagination";
 import { assetUrl, secureUploadPath } from "../api/assets";
 import { createSocket } from "../api/socket";
 import { useNavigate, useSearchParams } from "../routing";
@@ -178,7 +179,7 @@ export default function AdminPanel() {
                 passengers: passengers.data || [],
                 drivers: drivers.data || [],
                 vehicles: vehicles.data || [],
-                rides: rides.data || [],
+                rides: extractItems(rides.data),
                 payments: payments.data || [],
                 pendingIds: pending.data?.pendingIds || [],
                 pendingLicenses: pending.data?.pendingLicenses || [],

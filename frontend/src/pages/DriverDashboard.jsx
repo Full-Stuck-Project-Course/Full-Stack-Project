@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "../routing";
 import api from "../api/axios";
+import { extractItems } from "../api/pagination";
 import MapComponent from "../components/MapComponent";
 import { createSocket } from "../api/socket";
 
@@ -64,7 +65,7 @@ export default function DriverDashboard() {
             ]);
             const found = availRes.data.find(d => d.userId?._id === userId || d.userId === userId);
             setDriver(found || null);
-            setOpenRides(ridesRes.data || []);
+            setOpenRides(extractItems(ridesRes.data));
 
             if (found) {
                 api.get(`/vehicles/driver/${found._id}`).then(r => {

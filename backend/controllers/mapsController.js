@@ -1,7 +1,6 @@
 // controllers/mapsController.js
 
 const axios = require("axios");
-const DriverProfile = require("../db/models/DriverProfile");
 const Ride = require("../db/models/Ride");
 const {
     calcSurge,
@@ -12,6 +11,7 @@ const {
     estimateDurationMinutes
 } = require("../utils/pricing");
 const { forbidden, getDriverProfileForUser, getPassengerProfileForUser, isAdmin } = require("../utils/authz");
+const { clampNearbyDriverLimit, findNearbyAvailableDrivers } = require("../utils/driverDiscovery");
 
 function parseLatLng(value) {
     const [lat, lng] = String(value || "").split(",").map(Number);
@@ -117,35 +117,32 @@ async function getNearbyDrivers(req, res) {
             const passenger = await getPassengerProfileForUser(req.user.userId);
             if (!passenger) return forbidden(res, "Passenger access required");
         }
-        const { lat, lng, radius = 10 } = req.query;
+        const { lat, lng, radius = 10, limit } = req.query;
         if (!hasValidCoordinates(lat, lng)) {
             return res.status(400).json({ error: "Valid lat/lng are required" });
         }
 
         const origin = { lat: Number(lat), lng: Number(lng) };
         const maxRadius = clampRadius(radius);
-        const drivers = await DriverProfile.find({ status: "available", isVerified: true })
-            .populate("userId", "fullName");
+        const nearbyDrivers = await findNearbyAvailableDrivers({
+            location: origin,
+            radiusKm: maxRadius,
+            limit: clampNearbyDriverLimit(limit),
+            populateUser: true
+        });
 
-        const nearby = drivers
-            .filter(d => hasValidCoordinates(d.currentLocation?.lat, d.currentLocation?.lng))
-            .map(d => {
-                const distanceKm = haversineKm(origin, d.currentLocation);
-                return {
-                    _id: d._id,
-                    userId: d.userId,
-                    ratingAverage: d.ratingAverage,
-                    totalRides: d.totalRides,
-                    currentLocation: {
-                        lat: roundCoordinate(d.currentLocation.lat),
-                        lng: roundCoordinate(d.currentLocation.lng),
-                        updatedAt: d.currentLocation.updatedAt
-                    },
-                    distanceKm: Math.round(distanceKm * 10) / 10
-                };
-            })
-            .filter(d => d.distanceKm <= maxRadius)
-            .sort((a, b) => a.distanceKm - b.distanceKm);
+        const nearby = nearbyDrivers.map(({ driver, distanceKm }) => ({
+            _id: driver._id,
+            userId: driver.userId,
+            ratingAverage: driver.ratingAverage,
+            totalRides: driver.totalRides,
+            currentLocation: {
+                lat: roundCoordinate(driver.currentLocation.lat),
+                lng: roundCoordinate(driver.currentLocation.lng),
+                updatedAt: driver.currentLocation.updatedAt
+            },
+            distanceKm
+        }));
 
         res.json(nearby);
     } catch (error) {

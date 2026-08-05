@@ -12,8 +12,15 @@ const Ride = require("./db/models/Ride");
 const PassengerProfile = require("./db/models/PassengerProfile");
 const DriverProfile = require("./db/models/DriverProfile");
 const { sameId } = require("./utils/authz");
-const { hasValidCoordinates, haversineKm } = require("./utils/pricing");
+const { hasValidCoordinates } = require("./utils/pricing");
 const { configuredOrigins, isAllowedOrigin } = require("./utils/corsOrigins");
+const { findNearbyAvailableDrivers } = require("./utils/driverDiscovery");
+const { configureSocketIoAdapter } = require("./utils/socketScaling");
+const {
+    createInstanceId,
+    shouldRunScheduledTasks,
+    startClusterSafeInterval
+} = require("./utils/distributedLease");
 
 validateJwtSecretForStartup();
 
@@ -247,9 +254,6 @@ async function autoCancelStaleRides() {
 // Notify nearby drivers about new ride requests
 async function notifyNearbyDrivers() {
     try {
-        const Ride = require("./db/models/Ride");
-        const DriverProfile = require("./db/models/DriverProfile");
-
         const recentRides = await Ride.find({
             status: "searching",
             createdAt: { $gte: new Date(Date.now() - 20 * 1000) },
@@ -261,26 +265,25 @@ async function notifyNearbyDrivers() {
 
         if (recentRides.length === 0) return;
 
-        const availableDrivers = await DriverProfile.find({ status: "available", isVerified: true });
-
         for (const ride of recentRides) {
             if (!hasValidCoordinates(ride.pickupLocation?.lat, ride.pickupLocation?.lng)) continue;
-            for (const driver of availableDrivers) {
-                if (ride.rideType === "carpool" && !driver.acceptsCarpoolRides) continue;
-                if (!hasValidCoordinates(driver.currentLocation?.lat, driver.currentLocation?.lng)) continue;
-                const distKm = haversineKm(driver.currentLocation, ride.pickupLocation);
+            const nearbyDrivers = await findNearbyAvailableDrivers({
+                location: ride.pickupLocation,
+                radiusKm: 5,
+                carpoolOnly: ride.rideType === "carpool",
+                limit: process.env.NEARBY_DRIVER_NOTIFY_LIMIT || 100
+            });
 
-                if (distKm <= 5) {
-                    io.to(`driver:${driver._id}`).emit("nearby-ride-request", {
-                        rideId: ride._id,
-                        pickup: ride.pickupLocation,
-                        destination: ride.destinationLocation,
-                        rideType: ride.rideType,
-                        passengerCount: ride.passengerCount,
-                        distanceFromDriver: Math.round(distKm * 10) / 10,
-                        finalPrice: ride.finalPrice
-                    });
-                }
+            for (const { driver, distanceKm } of nearbyDrivers) {
+                io.to(`driver:${driver._id}`).emit("nearby-ride-request", {
+                    rideId: ride._id,
+                    pickup: ride.pickupLocation,
+                    destination: ride.destinationLocation,
+                    rideType: ride.rideType,
+                    passengerCount: ride.passengerCount,
+                    distanceFromDriver: distanceKm,
+                    finalPrice: ride.finalPrice
+                });
             }
         }
     } catch (err) {
@@ -288,14 +291,55 @@ async function notifyNearbyDrivers() {
     }
 }
 
-connectMongo().then(() => {
+function startScheduledTasks() {
+    if (!shouldRunScheduledTasks(process.env)) {
+        console.log("Scheduled background tasks disabled by ENABLE_SCHEDULED_TASKS=false");
+        return [];
+    }
+
+    const ownerId = createInstanceId(process.env);
+    return [
+        startClusterSafeInterval({
+            lockName: "auto-cancel-stale-rides",
+            intervalMs: 5 * 60 * 1000,
+            leaseTtlMs: 15 * 60 * 1000,
+            task: autoCancelStaleRides,
+            ownerId
+        }),
+        startClusterSafeInterval({
+            lockName: "notify-nearby-drivers",
+            intervalMs: 20 * 1000,
+            leaseTtlMs: 60 * 1000,
+            task: notifyNearbyDrivers,
+            ownerId
+        })
+    ];
+}
+
+async function startServer() {
+    await connectMongo();
+    await configureSocketIoAdapter(io, { env: process.env, logger: console });
+
     server.listen(PORT, () => {
         console.log(`HailNow server running on port ${PORT}`);
         console.log(`Allowed origins: ${configuredOrigins().join(", ")}`);
     });
 
-    // Run auto-cancel every 5 minutes
-    setInterval(autoCancelStaleRides, 5 * 60 * 1000);
-    // Check for new rides to notify drivers every 20 seconds
-    setInterval(notifyNearbyDrivers, 20 * 1000);
-});
+    startScheduledTasks();
+}
+
+if (require.main === module) {
+    startServer().catch(error => {
+        console.error("Server startup failed:", error.message);
+        process.exit(1);
+    });
+}
+
+module.exports = {
+    autoCancelStaleRides,
+    io,
+    notifyNearbyDrivers,
+    server,
+    startScheduledTasks,
+    startServer
+};

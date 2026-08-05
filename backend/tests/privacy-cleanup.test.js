@@ -112,11 +112,14 @@ test("deleteUser removes identity files, clears verification paths, and drops ow
     assert.deepEqual(driverUpdate, {
         id: driver._id,
         update: {
-            licenseImagePath: null,
-            verificationStatus: "not_submitted",
-            isVerified: false,
-            status: "offline",
-            currentLocation: { lat: null, lng: null, updatedAt: null }
+            $set: {
+                licenseImagePath: null,
+                verificationStatus: "not_submitted",
+                isVerified: false,
+                status: "offline",
+                currentLocation: { lat: null, lng: null, updatedAt: null }
+            },
+            $unset: { geoLocation: "" }
         }
     });
     assert.deepEqual(vehicleUpdate, {
@@ -159,7 +162,10 @@ test("GPS retention scrub removes stale precise coordinates from terminal record
     assert.equal(summary.cutoff.toISOString(), cutoff.toISOString());
     assert.deepEqual(calls.driver, {
         filter: { "currentLocation.updatedAt": { $lt: cutoff } },
-        update: { currentLocation: { lat: null, lng: null, updatedAt: null } }
+        update: {
+            $set: { currentLocation: { lat: null, lng: null, updatedAt: null } },
+            $unset: { geoLocation: "" }
+        }
     });
     assert.deepEqual(calls.ride.filter.status, { $in: ["completed", "cancelled"] });
     assert.deepEqual(calls.ride.update.$unset, {

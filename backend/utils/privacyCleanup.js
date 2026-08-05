@@ -94,11 +94,14 @@ async function cleanupDeletedUserPrivacy(userId) {
 
     if (driver) {
         await DriverProfile.findByIdAndUpdate(driver._id, {
-            licenseImagePath: null,
-            verificationStatus: "not_submitted",
-            isVerified: false,
-            status: "offline",
-            currentLocation: { lat: null, lng: null, updatedAt: null }
+            $set: {
+                licenseImagePath: null,
+                verificationStatus: "not_submitted",
+                isVerified: false,
+                status: "offline",
+                currentLocation: { lat: null, lng: null, updatedAt: null }
+            },
+            $unset: { geoLocation: "" }
         });
 
         await Vehicle.updateMany({ driverId: driver._id }, {
@@ -140,7 +143,10 @@ async function scrubExpiredGpsData({ now = new Date(), retentionDays = getGpsRet
     const [driverLocations, rides, rideStops, carpoolRequests] = await Promise.all([
         DriverProfile.updateMany(
             { "currentLocation.updatedAt": { $lt: cutoff } },
-            { currentLocation: { lat: null, lng: null, updatedAt: null } }
+            {
+                $set: { currentLocation: { lat: null, lng: null, updatedAt: null } },
+                $unset: { geoLocation: "" }
+            }
         ),
         Ride.updateMany(
             terminalRideGpsFilter(cutoff),

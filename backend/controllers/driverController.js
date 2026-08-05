@@ -7,6 +7,7 @@ const User = require("../db/models/User");
 const Vehicle = require("../db/models/Vehicle");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 const { hasValidCoordinates } = require("../utils/pricing");
+const { toGeoPoint } = require("../utils/geoLocation");
 const { deleteStoredUploads } = require("../utils/privacyCleanup");
 
 const VALID_DRIVER_GENDERS = new Set(["male", "female"]);
@@ -193,7 +194,12 @@ async function updateLocation(req, res) {
         }
         const driver = await DriverProfile.findByIdAndUpdate(
             req.params.id,
-            { currentLocation: { lat: Number(lat), lng: Number(lng), updatedAt: new Date() } },
+            {
+                $set: {
+                    currentLocation: { lat: Number(lat), lng: Number(lng), updatedAt: new Date() },
+                    geoLocation: toGeoPoint(lat, lng)
+                }
+            },
             { new: true }
         );
         if (!driver) return res.status(404).json({ error: "Driver not found" });

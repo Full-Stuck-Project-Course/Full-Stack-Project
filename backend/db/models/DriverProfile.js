@@ -1,6 +1,7 @@
 // db/models/DriverProfile.js
 
 const mongoose = require("mongoose");
+const { toGeoPoint } = require("../../utils/geoLocation");
 
 const driverProfileSchema = new mongoose.Schema({
 
@@ -73,6 +74,18 @@ const driverProfileSchema = new mongoose.Schema({
         updatedAt: { type: Date, default: null }
     },
 
+    geoLocation: {
+        type: {
+            type: String,
+            enum: ["Point"],
+            default: undefined
+        },
+        coordinates: {
+            type: [Number],
+            default: undefined
+        }
+    },
+
     preferredMusic: {
         type: String,
         default: ""
@@ -106,5 +119,13 @@ const driverProfileSchema = new mongoose.Schema({
 }, {
     timestamps: true
 });
+
+driverProfileSchema.pre("validate", function syncGeoLocation(next) {
+    const point = toGeoPoint(this.currentLocation?.lat, this.currentLocation?.lng);
+    if (point) this.geoLocation = point;
+    next();
+});
+
+driverProfileSchema.index({ status: 1, isVerified: 1, geoLocation: "2dsphere" });
 
 module.exports = mongoose.model("DriverProfile", driverProfileSchema);
