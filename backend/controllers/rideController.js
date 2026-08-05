@@ -1,5 +1,6 @@
 // controllers/rideController.js
 
+const mongoose = require("mongoose");
 const Ride = require("../db/models/Ride");
 const DriverProfile = require("../db/models/DriverProfile");
 const PassengerProfile = require("../db/models/PassengerProfile");
@@ -65,9 +66,6 @@ async function getPopulatedRide(id) {
 
 // POST /rides
 async function createRide(req, res) {
-    let redeemedPoints = 0;
-    let redeemedUserId = null;
-    let createdRideId = null;
     try {
         let passengerId = req.body.passengerId;
         let passengerProfile = null;
@@ -103,24 +101,12 @@ async function createRide(req, res) {
         });
 
         const pointsToRedeem = Number(req.body.pointsToRedeem || 0);
-        let finalPrice = fare.finalPrice;
+        const originalFinalPrice = fare.finalPrice;
+        let finalPrice = originalFinalPrice;
         let remainingPoints = undefined;
+        let ride = null;
 
-        if (pointsToRedeem > 0) {
-            const maxUsablePoints = Math.min(pointsToRedeem, Math.ceil(finalPrice * 10));
-            const updatedUser = await User.findOneAndUpdate(
-                { _id: passengerProfile.userId, loyaltyPoints: { $gte: maxUsablePoints } },
-                { $inc: { loyaltyPoints: -maxUsablePoints } },
-                { new: true }
-            );
-            if (!updatedUser) return res.status(400).json({ error: "Not enough points" });
-            redeemedPoints = maxUsablePoints;
-            redeemedUserId = passengerProfile.userId;
-            remainingPoints = updatedUser.loyaltyPoints;
-            finalPrice = Math.max(0, Math.round((finalPrice - redeemedPoints * 0.1) * 10) / 10);
-        }
-
-        const ride = await Ride.create({
+        const ridePayload = {
             passengerId,
             pickupLocation: req.body.pickupLocation,
             destinationLocation: req.body.destinationLocation,
@@ -135,22 +121,40 @@ async function createRide(req, res) {
             driverId: null,
             vehicleId: null,
             status: "searching"
-        });
-        createdRideId = ride._id;
+        };
+
+        const maxUsablePoints = Math.min(pointsToRedeem, Math.ceil(originalFinalPrice * 10));
+        if (maxUsablePoints > 0) {
+            const session = await mongoose.startSession();
+            try {
+                await session.withTransaction(async () => {
+                    const updatedUser = await User.findOneAndUpdate(
+                        { _id: passengerProfile.userId, loyaltyPoints: { $gte: maxUsablePoints } },
+                        { $inc: { loyaltyPoints: -maxUsablePoints } },
+                        { new: true, session }
+                    );
+                    if (!updatedUser) {
+                        const error = new Error("Not enough points");
+                        error.statusCode = 400;
+                        throw error;
+                    }
+
+                    remainingPoints = updatedUser.loyaltyPoints;
+                    const discountedFinalPrice = Math.max(0, Math.round((originalFinalPrice - maxUsablePoints * 0.1) * 10) / 10);
+                    finalPrice = discountedFinalPrice;
+                    const [createdRide] = await Ride.create([{ ...ridePayload, finalPrice: discountedFinalPrice }], { session });
+                    ride = createdRide;
+                });
+            } finally {
+                await session.endSession();
+            }
+        } else {
+            ride = await Ride.create(ridePayload);
+        }
 
         res.status(201).json({ message: "Ride created successfully", ride, remainingPoints });
     } catch (error) {
-        if (createdRideId) {
-            await Ride.findByIdAndDelete(createdRideId).catch(() => {});
-        }
-        if (redeemedPoints > 0 && redeemedUserId) {
-            await User.findByIdAndUpdate(
-                redeemedUserId,
-                { $inc: { loyaltyPoints: redeemedPoints } },
-                { new: true }
-            ).catch(() => null);
-        }
-        res.status(400).json({ error: error.message });
+        res.status(error.statusCode || 400).json({ error: error.message });
     }
 }
 

@@ -12,6 +12,7 @@ const tabs = [
     { key: "drivers", label: "נהגים" },
     { key: "vehicles", label: "רכבים" },
     { key: "rides", label: "נסיעות" },
+    { key: "carpool", label: "קרפול" },
     { key: "payments", label: "תשלומים" },
     { key: "verifications", label: "אימותים" }
 ];
@@ -127,6 +128,7 @@ export default function AdminPanel() {
         drivers: [],
         vehicles: [],
         rides: [],
+        carpoolRequests: [],
         payments: [],
         pendingIds: [],
         pendingLicenses: [],
@@ -163,6 +165,7 @@ export default function AdminPanel() {
                 drivers,
                 vehicles,
                 rides,
+                carpoolRequests,
                 payments,
                 pending
             ] = await Promise.all([
@@ -171,6 +174,7 @@ export default function AdminPanel() {
                 api.get("/drivers"),
                 api.get("/vehicles"),
                 api.get("/rides"),
+                api.get("/carpool"),
                 api.get("/payments"),
                 api.get("/uploads/pending")
             ]);
@@ -180,6 +184,7 @@ export default function AdminPanel() {
                 drivers: drivers.data || [],
                 vehicles: vehicles.data || [],
                 rides: extractItems(rides.data),
+                carpoolRequests: carpoolRequests.data || [],
                 payments: payments.data || [],
                 pendingIds: pending.data?.pendingIds || [],
                 pendingLicenses: pending.data?.pendingLicenses || [],
@@ -221,6 +226,13 @@ export default function AdminPanel() {
         driverId: vehicle.driverId?._id || vehicle.driverId,
         label: `${vehicle.company || ""} ${vehicle.model || ""} ${vehicle.licensePlate || ""}`.trim() || vehicle._id
     })), [data.vehicles]);
+
+    const carpoolRideOptions = useMemo(() => data.rides
+        .filter(ride => ride.rideType === "carpool" && !["completed", "cancelled"].includes(ride.status))
+        .map(ride => ({
+            id: ride._id,
+            label: `${ride.pickupLocation?.address || "איסוף"} → ${ride.destinationLocation?.address || "יעד"} (${ride.status || "searching"})`
+        })), [data.rides]);
 
     const setDraft = (type, id, key, value) => {
         setDrafts(prev => ({
@@ -305,6 +317,14 @@ export default function AdminPanel() {
             lng: Number(createRideDraft.destinationLng)
         }
     }));
+
+    const matchCarpoolRequest = (request, rideId) => {
+        if (!rideId) {
+            setMsg({ text: "בחר נסיעת קרפול להתאמה", error: true });
+            return undefined;
+        }
+        return runAction("בקשת הקרפול הותאמה ואושרה", () => api.put(`/carpool/${request._id}/match`, { rideId }));
+    };
 
     if (loading) return <div className="spinner" aria-label="טוען" />;
 
@@ -539,6 +559,45 @@ export default function AdminPanel() {
                                     </div>
                                     <div style={s.actions}>
                                         <button style={s.primaryBtn} disabled={saving} onClick={() => runAction("התשלום עודכן", () => api.put(`/payments/${payment._id}/status`, current))}>עדכן תשלום</button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </section>
+                )}
+
+                {tab === "carpool" && (
+                    <section style={s.grid}>
+                        <div style={s.toolbar}><strong>בקשות קרפול ({data.carpoolRequests.length})</strong><span style={s.meta}>התאמת בקשות לנסיעות קרפול וביטול בקשות פתוחות</span></div>
+                        {data.carpoolRequests.length === 0 ? <Empty text="אין בקשות קרפול להצגה" /> : data.carpoolRequests.map(request => {
+                            const current = draft("carpool", request._id, {
+                                rideId: request.rideId?._id || request.rideId || ""
+                            });
+                            const canMatch = request.status === "pending";
+                            const canCancel = ["pending", "matched"].includes(request.status);
+                            const passengerName = request.passengerId?.userId?.fullName || "נוסע";
+                            const requestedTime = request.requestedTime ? new Date(request.requestedTime).toLocaleString("he-IL") : "-";
+                            return (
+                                <div key={request._id} style={s.row}>
+                                    <div style={s.rowHead}>
+                                        <div>
+                                            <div style={s.rowTitle}>{request.pickupLocation?.address || "איסוף"} → {request.destinationLocation?.address || "יעד"}</div>
+                                            <div style={s.meta}>{passengerName} · {request.status || "pending"} · {request.seatsNeeded || 1} מושבים · {formatMoney(request.pricePerSeat)}</div>
+                                            <div style={s.meta}>זמן מבוקש: {requestedTime} · סטייה מקסימלית: {request.maxDetourMinutes ?? 10} דקות</div>
+                                        </div>
+                                    </div>
+                                    <div style={s.fields}>
+                                        <Field label="נסיעת קרפול להתאמה">
+                                            <select value={current.rideId} disabled={!canMatch} onChange={e => setDraft("carpool", request._id, "rideId", e.target.value)}>
+                                                <option value="">בחר נסיעה</option>
+                                                {carpoolRideOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+                                            </select>
+                                        </Field>
+                                        <Field label="Ride ID"><input readOnly value={request.rideId?._id || request.rideId || ""} /></Field>
+                                    </div>
+                                    <div style={s.actions}>
+                                        <button style={s.primaryBtn} disabled={saving || !canMatch || !current.rideId} onClick={() => matchCarpoolRequest(request, current.rideId)}>התאם ואשר קרפול</button>
+                                        <button style={s.dangerBtn} disabled={saving || !canCancel} onClick={() => runAction("בקשת הקרפול בוטלה", () => api.put(`/carpool/${request._id}/cancel`))}>בטל בקשה</button>
                                     </div>
                                 </div>
                             );

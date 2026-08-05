@@ -28,6 +28,12 @@ assert(
     !/PassengerProfile\.findByIdAndUpdate\([^)]*loyaltyPoints/s.test(rideController),
     "Ride redemption must not write loyaltyPoints to PassengerProfile."
 );
+assert(
+    /mongoose\.startSession\(\)/.test(rideController) &&
+        /withTransaction\s*\(/.test(rideController) &&
+        /User\.findOneAndUpdate\([\s\S]*session[\s\S]*Ride\.create\(\[\{[\s\S]*\}\],\s*\{\s*session\s*\}/.test(rideController),
+    "Ride redemption must update User.loyaltyPoints and create the ride in one MongoDB transaction."
+);
 
 const ratingController = read("controllers/ratingController.js");
 assert(

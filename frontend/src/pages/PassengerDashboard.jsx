@@ -19,6 +19,13 @@ const s = {
     badgePoints: { background: "linear-gradient(135deg, #fef3c7, #fde68a)", border: "1px solid #f59e0b", borderRadius: 20, padding: "8px 18px", fontWeight: 700, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 }
 };
 
+const carpoolStatusText = {
+    pending: "ממתין להתאמה",
+    matched: "הותאם לנסיעה",
+    confirmed: "אושר",
+    completed: "הושלם"
+};
+
 export default function PassengerDashboard() {
     const { user }       = useAuth();
     const userId         = user?.userId;
@@ -26,6 +33,7 @@ export default function PassengerDashboard() {
     const [passenger,    setPassenger]    = useState(null);
     const [upcoming,     setUpcoming]     = useState([]);
     const [pastRides,    setPastRides]    = useState([]);
+    const [carpoolRequests, setCarpoolRequests] = useState([]);
     const [loading,      setLoading]      = useState(true);
     const [savedName,    setSavedName]    = useState("home");
     const [savedLocation, setSavedLocation] = useState({ address: "", lat: null, lng: null });
@@ -33,9 +41,10 @@ export default function PassengerDashboard() {
     useEffect(() => {
         (async () => {
             try {
-                const [passRes, ridesRes] = await Promise.all([
+                const [passRes, ridesRes, carpoolRes] = await Promise.all([
                     api.get("/passengers"),
-                    api.get("/rides")
+                    api.get("/rides"),
+                    api.get("/carpool")
                 ]);
                 const p = passRes.data.find(p => p.userId === userId || p.userId?._id === userId);
                 setPassenger(p);
@@ -47,6 +56,10 @@ export default function PassengerDashboard() {
                     (r.scheduledTime && new Date(r.scheduledTime) > now)
                 ).slice(0, 5));
                 setPastRides(allRides.filter(r => r.status === "completed").slice(0, 8));
+                setCarpoolRequests((carpoolRes.data || [])
+                    .filter(request => (request.passengerId?._id || request.passengerId) === p?._id)
+                    .filter(request => ["pending", "matched", "confirmed"].includes(request.status))
+                    .slice(0, 5));
             } finally { setLoading(false); }
         })();
     }, [userId]);
@@ -55,6 +68,12 @@ export default function PassengerDashboard() {
         if (!window.confirm("לבטל את הנסיעה?")) return;
         await api.put(`/rides/${rideId}/cancel`, { cancelledBy: "passenger" });
         setUpcoming(u => u.filter(r => r._id !== rideId));
+    };
+
+    const cancelCarpoolRequest = async (requestId) => {
+        if (!window.confirm("לבטל את בקשת הקרפול?")) return;
+        await api.put(`/carpool/${requestId}/cancel`);
+        setCarpoolRequests(requests => requests.filter(request => request._id !== requestId));
     };
 
     if (loading) return <div className="spinner" />;
@@ -129,6 +148,43 @@ export default function PassengerDashboard() {
                     </div>
                 ))}
             </div>
+
+            {/* Carpool requests */}
+            {carpoolRequests.length > 0 && (
+                <div style={s.card}>
+                    <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>🤝 {"בקשות קרפול"}</div>
+                    {carpoolRequests.map(request => {
+                        const rideId = request.rideId?._id || request.rideId || "";
+                        return (
+                            <div key={request._id} style={s.rideRow}>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 14 }}>
+                                        📍 {request.pickupLocation?.address} → {request.destinationLocation?.address}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
+                                        {carpoolStatusText[request.status] || request.status} · {request.seatsNeeded || 1} מושבים
+                                        {request.requestedTime && ` · ${new Date(request.requestedTime).toLocaleString("he-IL")}`}
+                                    </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                    {rideId && (
+                                        <button onClick={() => navigate(`/ride/${rideId}`)}
+                                            style={{ background: "var(--primary)", color: "#fff", padding: "7px 14px", borderRadius: 8, fontSize: 13 }}>
+                                            פרטים
+                                        </button>
+                                    )}
+                                    {["pending", "matched"].includes(request.status) && (
+                                        <button onClick={() => cancelCarpoolRequest(request._id)}
+                                            style={{ background: "#fee2e2", color: "var(--danger)", padding: "7px 10px", borderRadius: 8, fontSize: 13 }}>
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
 
             {/* Past rides */}
             {pastRides.length > 0 && (

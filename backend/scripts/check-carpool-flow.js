@@ -1,6 +1,7 @@
 const assert = require("assert");
 
 const Ride = require("../db/models/Ride");
+const Vehicle = require("../db/models/Vehicle");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const CarpoolRequest = require("../db/models/CarpoolRequest");
 const { createRide } = require("../controllers/rideController");
@@ -12,6 +13,8 @@ const originals = {
     passengerFindOne: PassengerProfile.findOne,
     carpoolCreate: CarpoolRequest.create,
     carpoolFindById: CarpoolRequest.findById,
+    carpoolFind: CarpoolRequest.find,
+    vehicleFindById: Vehicle.findById,
     carpoolFindOneAndUpdate: CarpoolRequest.findOneAndUpdate
 };
 
@@ -147,19 +150,61 @@ async function assertOnlyPendingRequestsCanBeMatched() {
     assert.strictEqual(updatePayload.update.status, "matched", "matching should move requests from pending to matched");
 }
 
+async function assertMatchedRequestsReserveVehicleSeats() {
+    let matchedFilter = null;
+    let updateCalled = false;
+
+    Ride.findById = async () => ({
+        _id: "ride-id",
+        rideType: "carpool",
+        status: "searching",
+        vehicleId: "vehicle-id",
+        passengerCount: 1
+    });
+    Vehicle.findById = async () => ({ _id: "vehicle-id", seats: 4 });
+    CarpoolRequest.findById = async () => ({
+        _id: "request-id",
+        status: "pending",
+        expiresAt: null,
+        seatsNeeded: 2
+    });
+    CarpoolRequest.find = async (filter) => {
+        matchedFilter = filter;
+        return [{ _id: "matched-request", seatsNeeded: 2 }];
+    };
+    CarpoolRequest.findOneAndUpdate = async () => {
+        updateCalled = true;
+        return { _id: "request-id", status: "matched", rideId: "ride-id" };
+    };
+
+    const res = makeRes();
+    await matchCarpoolRequest(
+        { user: { userId: "admin-user", role: "admin" }, params: { id: "request-id" }, body: { rideId: "ride-id" } },
+        res
+    );
+
+    assert.strictEqual(res.statusCode, 400, "carpool matching must reject requests that exceed vehicle seats");
+    assert.strictEqual(updateCalled, false, "over-capacity matches must not update the request");
+    assert.strictEqual(matchedFilter.rideId, "ride-id", "capacity checks must include existing matches for the target ride");
+    assert.deepStrictEqual(matchedFilter.status.$in, ["matched", "confirmed"], "capacity checks must count matched and confirmed requests");
+}
+
 (async () => {
     try {
         await assertCarpoolPostCreatesPendingRequest();
         await assertCarpoolRideCreationDoesNotBypassQueue();
         await assertOnlyPendingRequestsCanBeMatched();
+        await assertMatchedRequestsReserveVehicleSeats();
 
         console.log("Carpool flow check passed: booking enters /carpool as pending and matching only consumes pending requests.");
     } finally {
         Ride.create = originals.rideCreate;
         Ride.findById = originals.rideFindById;
+        Vehicle.findById = originals.vehicleFindById;
         PassengerProfile.findOne = originals.passengerFindOne;
         CarpoolRequest.create = originals.carpoolCreate;
         CarpoolRequest.findById = originals.carpoolFindById;
+        CarpoolRequest.find = originals.carpoolFind;
         CarpoolRequest.findOneAndUpdate = originals.carpoolFindOneAndUpdate;
     }
 })().catch((error) => {
