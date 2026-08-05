@@ -113,9 +113,14 @@ export default function DriverDashboard() {
             setPopup(data);
             setTimeout(() => setPopup(null), 15000);
         });
+        socket.on("sos-alert", ({ rideId }) => {
+            if (rideId && window.confirm("🚨 התקבלה התראת SOS בנסיעה פעילה. לפתוח את פרטי הנסיעה?")) {
+                navigate(`/ride/${rideId}`);
+            }
+        });
 
         return () => socket.disconnect();
-    }, [driverId]);
+    }, [driverId, navigate]);
 
     const setStatus = async (status) => {
         if (!driver) return;

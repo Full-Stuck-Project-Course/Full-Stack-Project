@@ -96,6 +96,14 @@ function safeSocketHandler(socket, handler) {
 }
 
 io.on("connection", (socket) => {
+    socket.data.userId = String(socket.user.userId);
+    socket.data.role = socket.user.role;
+    socket.join(`user:${socket.data.userId}`);
+
+    if (socket.user.role === "admin") {
+        socket.join("admins");
+    }
+
     socket.on("join-ride", safeSocketHandler(socket, async (rideId) => {
         if (!isValidObjectId(rideId)) return socketError(socket, "Invalid ride ID");
         const { allowed } = await canAccessRide(socket, rideId);
@@ -136,13 +144,50 @@ io.on("connection", (socket) => {
         socket.join(`driver:${driverId}`);
     }));
 
-    socket.on("sos", safeSocketHandler(socket, async ({ rideId, lat, lng }) => {
-        if (!isValidObjectId(rideId)) return socketError(socket, "Invalid ride ID");
-        if (!hasValidCoordinates(lat, lng)) return socketError(socket, "Invalid SOS location");
-        const { allowed } = await canAccessRide(socket, rideId);
-        if (!allowed) return socketError(socket, "Access denied");
-        io.emit("sos-alert", { rideId, lat: Number(lat), lng: Number(lng), userId: socket.user.userId, timestamp: new Date() });
-        console.warn("SOS ALERT from ride:", rideId, "at", lat, lng);
+    socket.on("sos", safeSocketHandler(socket, async (payload = {}, acknowledge) => {
+        const ack = typeof acknowledge === "function" ? acknowledge : null;
+        const reject = (message) => {
+            if (ack) ack({ ok: false, error: message });
+            return socketError(socket, message);
+        };
+        const { rideId, lat, lng } = payload;
+
+        if (!isValidObjectId(rideId)) return reject("Invalid ride ID");
+        if (!hasValidCoordinates(lat, lng)) return reject("Invalid SOS location");
+        const { allowed, ride } = await canAccessRide(socket, rideId);
+        if (!allowed) return reject("Access denied");
+
+        const senderUserId = socket.data.userId;
+        const [passengerProfile, driverProfile] = await Promise.all([
+            PassengerProfile.findById(ride.passengerId).select("userId"),
+            ride.driverId ? DriverProfile.findById(ride.driverId).select("userId") : null
+        ]);
+
+        const alert = {
+            rideId,
+            lat: Number(lat),
+            lng: Number(lng),
+            userId: senderUserId,
+            timestamp: new Date()
+        };
+        const targetRooms = new Set([`ride:${rideId}`, "admins"]);
+        if (ride.driverId) targetRooms.add(`driver:${ride.driverId}`);
+        if (passengerProfile?.userId) targetRooms.add(`user:${passengerProfile.userId}`);
+        if (driverProfile?.userId) targetRooms.add(`user:${driverProfile.userId}`);
+
+        let targetQuery = io;
+        for (const room of targetRooms) {
+            targetQuery = targetQuery.to(room);
+        }
+        const recipients = (await targetQuery.fetchSockets())
+            .filter(targetSocket => (
+                targetSocket.id !== socket.id &&
+                String(targetSocket.data?.userId || "") !== senderUserId
+            ));
+
+        recipients.forEach(targetSocket => targetSocket.emit("sos-alert", alert));
+        if (ack) ack({ ok: true, recipientCount: recipients.length });
+        console.warn("SOS ALERT from ride:", rideId, "at", lat, lng, "recipients:", recipients.length);
     }));
 
     socket.on("disconnect", () => {});

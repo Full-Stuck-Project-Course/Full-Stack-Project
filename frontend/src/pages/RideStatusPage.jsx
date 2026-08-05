@@ -129,9 +129,14 @@ export default function RideStatusPage() {
                 fetchRide();
             }
         });
+        socket.on("sos-alert", ({ userId }) => {
+            if (String(userId || "") !== String(user?.userId || "")) {
+                alert("🚨 התקבלה התראת SOS בנסיעה זו.");
+            }
+        });
 
         return () => { clearInterval(poll); socket.disconnect(); };
-    }, [id, fetchRide]);
+    }, [id, fetchRide, user?.userId]);
 
     const cancelRide = async () => {
         if (!window.confirm("האם לבטל את הנסיעה?")) return;
@@ -140,16 +145,46 @@ export default function RideStatusPage() {
     };
 
     const handleSOS = () => {
-        setSosClicked(true);
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(pos => {
-                socketRef.current?.emit("sos", {
-                    rideId: id,
-                    lat: pos.coords.latitude, lng: pos.coords.longitude
-                });
-            });
+        if (!navigator.geolocation) {
+            alert("לא ניתן לשלוח SOS ללא מיקום מהמכשיר.");
+            return;
         }
-        alert("🚨 בקשת חירום נשלחה! עזרה בדרך.");
+
+        setSosClicked(true);
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const socket = socketRef.current;
+                if (!socket) {
+                    setSosClicked(false);
+                    alert("לא ניתן לשלוח בקשת חירום כרגע.");
+                    return;
+                }
+
+                socket.timeout(5000).emit("sos", {
+                    rideId: id,
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude
+                }, (error, response) => {
+                    if (error) {
+                        setSosClicked(false);
+                        alert("לא התקבל אישור לשליחת SOS. נסה שוב.");
+                        return;
+                    }
+
+                    if (response?.ok) {
+                        console.info("SOS sent", response);
+                        alert("🚨 בקשת חירום נשלחה! עזרה בדרך.");
+                    } else {
+                        setSosClicked(false);
+                        alert(response?.error || "לא ניתן לשלוח בקשת חירום כרגע.");
+                    }
+                });
+            },
+            () => {
+                setSosClicked(false);
+                alert("לא ניתן לשלוח SOS ללא מיקום מהמכשיר.");
+            }
+        );
     };
 
     const sendMessage = () => {

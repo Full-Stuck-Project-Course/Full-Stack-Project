@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import api from "../api/axios";
 import { secureUploadPath } from "../api/assets";
+import { createSocket } from "../api/socket";
+import { useNavigate } from "../routing";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 860, margin: "0 auto" },
@@ -46,6 +48,7 @@ export default function AdminPanel() {
     const [data,   setData]   = useState({ pendingIds: [], pendingLicenses: [], pendingVehicles: [] });
     const [loading, setLoading] = useState(true);
     const [msg,    setMsg]    = useState("");
+    const navigate = useNavigate();
 
     const load = async () => {
         setLoading(true);
@@ -56,6 +59,16 @@ export default function AdminPanel() {
     };
 
     useEffect(() => { load(); }, []);
+
+    useEffect(() => {
+        const socket = createSocket();
+        socket.on("sos-alert", ({ rideId }) => {
+            if (rideId && window.confirm("🚨 התקבלה התראת SOS. לפתוח את פרטי הנסיעה?")) {
+                navigate(`/ride/${rideId}`);
+            }
+        });
+        return () => socket.disconnect();
+    }, [navigate]);
 
     const verifyId = async (userId, status) => {
         await api.put(`/uploads/verify-id/${userId}`, { status });
