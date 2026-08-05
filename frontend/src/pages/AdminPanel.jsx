@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import api from "../api/axios";
 import { secureUploadPath } from "../api/assets";
 import { createSocket } from "../api/socket";
-import { useNavigate } from "../routing";
+import { useNavigate, useSearchParams } from "../routing";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 860, margin: "0 auto" },
@@ -44,11 +44,25 @@ function SecureImage({ path, alt, style }) {
 }
 
 export default function AdminPanel() {
-    const [tab,    setTab]    = useState("ids");
+    const [searchParams, setSearchParams] = useSearchParams();
+    const requestedTab = searchParams.get("tab");
+    const initialTab = ["ids", "licenses", "vehicles"].includes(requestedTab) ? requestedTab : "ids";
+    const [tab,    setTab]    = useState(initialTab);
     const [data,   setData]   = useState({ pendingIds: [], pendingLicenses: [], pendingVehicles: [] });
     const [loading, setLoading] = useState(true);
     const [msg,    setMsg]    = useState("");
     const navigate = useNavigate();
+
+    useEffect(() => {
+        if (["ids", "licenses", "vehicles"].includes(requestedTab) && requestedTab !== tab) {
+            setTab(requestedTab);
+        }
+    }, [requestedTab, tab]);
+
+    const selectTab = (nextTab) => {
+        setTab(nextTab);
+        setSearchParams({ tab: nextTab }, { replace: true });
+    };
 
     const load = async () => {
         setLoading(true);
@@ -104,13 +118,13 @@ export default function AdminPanel() {
             )}
 
             <div style={s.tabs}>
-                <button style={s.tab(tab === "ids")}      onClick={() => setTab("ids")}>
+                <button style={s.tab(tab === "ids")}      onClick={() => selectTab("ids")}>
                     🪪 תעודות זהות ({data.pendingIds.length})
                 </button>
-                <button style={s.tab(tab === "licenses")} onClick={() => setTab("licenses")}>
+                <button style={s.tab(tab === "licenses")} onClick={() => selectTab("licenses")}>
                     🚗 רישיונות נהיגה ({data.pendingLicenses.length})
                 </button>
-                <button style={s.tab(tab === "vehicles")} onClick={() => setTab("vehicles")}>
+                <button style={s.tab(tab === "vehicles")} onClick={() => selectTab("vehicles")}>
                     🧾 מסמכי רכב ({data.pendingVehicles?.length || 0})
                 </button>
             </div>

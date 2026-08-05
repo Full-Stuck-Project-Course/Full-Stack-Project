@@ -151,6 +151,21 @@ function NotificationsBtn({ userId, t }) {
     );
 }
 
+function AdminLink({ pathname }) {
+    return (
+        <Link
+            to="/admin"
+            style={{
+                ...C.iconBtn,
+                background: pathname === "/admin" ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.15)",
+                textDecoration: "none"
+            }}
+            aria-label="פאנל ניהול">
+            🛡️ ניהול
+        </Link>
+    );
+}
+
 function Navbar() {
     const { user, logout } = useAuth();
     const { t } = useLang();
@@ -163,8 +178,9 @@ function Navbar() {
         ? { ...C.link, ...C.activeLink }
         : C.link;
 
-    const isDriver    = user?.role === "driver" || user?.role === "both";
-    const isPassenger = user?.role === "passenger" || user?.role === "both";
+    const isAdmin     = user?.role === "admin";
+    const isDriver    = isAdmin || user?.role === "driver" || user?.role === "both";
+    const isPassenger = isAdmin || user?.role === "passenger" || user?.role === "both";
 
     return (
         <nav style={C.nav} role="navigation" aria-label="תפריט ראשי">
@@ -179,6 +195,7 @@ function Navbar() {
                 {isDriver    && <Link to="/driver"    style={lk("/driver")}>{t("לוח נהג")}</Link>}
                 {isPassenger && <Link to="/passenger" style={lk("/passenger")}>{t("לוח נוסע")}</Link>}
                 <Link to="/profile"  style={lk("/profile")}>{t("פרופיל")}</Link>
+                {isAdmin && <AdminLink pathname={pathname} />}
 
                 <NotificationsBtn userId={user?.userId} t={t} />
 

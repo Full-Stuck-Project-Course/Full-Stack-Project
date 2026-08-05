@@ -67,11 +67,16 @@ async function createRide(req, res) {
             passengerProfile = await getPassengerProfileForUser(req.user.userId);
             if (!passengerProfile) return res.status(400).json({ error: "Passenger profile not found" });
             passengerId = passengerProfile._id;
-        } else if (!passengerId) {
-            return res.status(400).json({ error: "passengerId is required for admin ride creation" });
-        } else {
+        } else if (passengerId) {
             passengerProfile = await PassengerProfile.findById(passengerId);
             if (!passengerProfile) return res.status(404).json({ error: "Passenger profile not found" });
+        } else {
+            passengerProfile = await PassengerProfile.findOneAndUpdate(
+                { userId: req.user.userId },
+                { $setOnInsert: { userId: req.user.userId } },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+            passengerId = passengerProfile._id;
         }
 
         const passengerCount = Number(req.body.passengerCount || 1);

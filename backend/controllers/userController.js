@@ -31,9 +31,19 @@ function isPasswordResetDeliveryConfigured() {
     return Boolean(process.env.RESET_EMAIL_WEBHOOK_URL || isSmtpConfigured());
 }
 
+async function ensurePassengerProfileForUser(user) {
+    return PassengerProfile.findOneAndUpdate(
+        { userId: user._id },
+        { $setOnInsert: { userId: user._id } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+}
+
 async function buildUserResponse(user) {
-    const passengerProfile = await PassengerProfile.findOne({ userId: user._id });
-    const driverProfile = await DriverProfile.findOne({ userId: user._id });
+    const [passengerProfile, driverProfile] = await Promise.all([
+        ensurePassengerProfileForUser(user),
+        DriverProfile.findOne({ userId: user._id })
+    ]);
 
     return {
         userId: user._id,
@@ -81,10 +91,7 @@ async function register(req, res) {
             await User.findByIdAndUpdate(referredBy, { $inc: { loyaltyPoints: 100 } });
         }
 
-        // Auto-create PassengerProfile for every new user
-        if (role !== "admin") {
-            await PassengerProfile.create({ userId: user._id });
-        }
+        await ensurePassengerProfileForUser(user);
 
         const token = jwt.sign(
             { userId: user._id, role: user.role },
@@ -302,6 +309,7 @@ async function updateUser(req, res) {
         }).select(SAFE_USER_SELECT);
 
         if (!user) return res.status(404).json({ error: "User not found" });
+        await ensurePassengerProfileForUser(user);
         res.status(200).json({ message: "User updated successfully", user });
     } catch (error) {
         res.status(400).json({ error: error.message });

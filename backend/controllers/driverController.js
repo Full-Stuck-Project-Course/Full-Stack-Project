@@ -53,7 +53,12 @@ async function registerDriver(req, res) {
         });
 
         const existingUser = await User.findById(userId);
-        const newRole = (existingUser?.role === "passenger" || existingUser?.role === "both") ? "both" : "driver";
+        let newRole = "driver";
+        if (existingUser?.role === "admin") {
+            newRole = "admin";
+        } else if (existingUser?.role === "passenger" || existingUser?.role === "both") {
+            newRole = "both";
+        }
         await User.findByIdAndUpdate(userId, { role: newRole });
 
         res.status(201).json({ message: "Driver registered successfully", driver });
