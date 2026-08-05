@@ -3,13 +3,17 @@
 const User             = require("../db/models/User");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const bcrypt           = require("bcryptjs");
-const jwt              = require("jsonwebtoken");
 const crypto           = require("crypto");
 const axios            = require("axios");
 const { OAuth2Client } = require("google-auth-library");
 const DriverProfile    = require("../db/models/DriverProfile");
 const { sameId, isAdmin } = require("../utils/authz");
+const { signAuthToken } = require("../utils/jwtConfig");
 const { sendPasswordResetEmail, isSmtpConfigured } = require("../utils/email");
+const {
+    cleanupDeletedUserPrivacy,
+    deleteStoredUploads
+} = require("../utils/privacyCleanup");
 
 const googleClient = new OAuth2Client();
 const RESET_EXPIRES_MINUTES = 60;
@@ -39,6 +43,42 @@ async function ensurePassengerProfileForUser(user) {
     );
 }
 
+function createPasswordResetSecrets(user) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const resetCode = crypto.randomInt(100000, 1000000).toString();
+    user.resetPasswordToken = hashResetSecret(token);
+    user.resetPasswordCodeHash = hashResetSecret(resetCode);
+    user.resetPasswordExpires = new Date(Date.now() + RESET_EXPIRES_MINUTES * 60 * 1000);
+    user.resetPasswordCodeAttempts = 0;
+    return { token, resetCode };
+}
+
+async function deliverPasswordReset(user, token, resetCode) {
+    const clientBase = process.env.CLIENT_BASE_URL || "http://localhost:3000";
+    const resetLink = `${clientBase}/reset-password?token=${token}`;
+
+    if (process.env.RESET_EMAIL_WEBHOOK_URL) {
+        await axios.post(process.env.RESET_EMAIL_WEBHOOK_URL, {
+            email: user.email,
+            fullName: user.fullName,
+            resetLink,
+            resetCode,
+            expiresMinutes: RESET_EXPIRES_MINUTES
+        });
+        return { resetLink, sent: true };
+    }
+
+    const delivery = await sendPasswordResetEmail({
+        to: user.email,
+        fullName: user.fullName,
+        resetLink,
+        resetCode,
+        expiresMinutes: RESET_EXPIRES_MINUTES
+    });
+
+    return { resetLink, sent: delivery.sent };
+}
+
 async function buildUserResponse(user) {
     const [passengerProfile, driverProfile] = await Promise.all([
         ensurePassengerProfileForUser(user),
@@ -66,11 +106,11 @@ async function buildUserResponse(user) {
 async function register(req, res) {
     try {
         const { fullName, email, password, phone, preferredLanguage, role, referralCode } = req.body;
+        const normalizedEmail = email.toLowerCase();
 
-        const existing = await User.findOne({ $or: [{ email }, { phone }] });
+        const existing = await User.findOne({ $or: [{ email: normalizedEmail }, { phone }] });
         if (existing) {
-            if (existing.email === email.toLowerCase()) return res.status(409).json({ error: "Email already in use" });
-            return res.status(409).json({ error: "Phone already in use" });
+            return res.status(409).json({ error: "Registration details already in use" });
         }
 
         const passwordHash = await bcrypt.hash(password, 10);
@@ -82,7 +122,7 @@ async function register(req, res) {
         }
 
         const user = await User.create({
-            fullName, email, passwordHash, phone,
+            fullName, email: normalizedEmail, passwordHash, phone,
             preferredLanguage, role, referredBy
         });
 
@@ -93,11 +133,7 @@ async function register(req, res) {
 
         await ensurePassengerProfileForUser(user);
 
-        const token = jwt.sign(
-            { userId: user._id, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: "7d" }
-        );
+        const token = signAuthToken(user);
         const userData = await buildUserResponse(user);
 
         res.status(201).json({
@@ -106,6 +142,9 @@ async function register(req, res) {
             ...userData
         });
     } catch (error) {
+        if (error?.code === 11000) {
+            return res.status(409).json({ error: "Registration details already in use" });
+        }
         res.status(400).json({ error: error.message });
     }
 }
@@ -122,11 +161,7 @@ async function login(req, res) {
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
-        const token = jwt.sign(
-            { userId: user._id, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: "7d" }
-        );
+        const token = signAuthToken(user);
 
         user.lastLoginAt = new Date();
         await user.save();
@@ -158,36 +193,15 @@ async function forgotPassword(req, res) {
             });
         }
 
-        const token = crypto.randomBytes(32).toString("hex");
-        const resetCode = crypto.randomInt(100000, 1000000).toString();
-        user.resetPasswordToken = hashResetSecret(token);
-        user.resetPasswordCodeHash = hashResetSecret(resetCode);
-        user.resetPasswordExpires = new Date(Date.now() + RESET_EXPIRES_MINUTES * 60 * 1000);
-        user.resetPasswordCodeAttempts = 0;
+        const { token, resetCode } = createPasswordResetSecrets(user);
         await user.save();
 
-        const clientBase = process.env.CLIENT_BASE_URL || "http://localhost:3000";
-        const resetLink = `${clientBase}/reset-password?token=${token}`;
+        let resetLink = "";
         try {
-            if (process.env.RESET_EMAIL_WEBHOOK_URL) {
-                await axios.post(process.env.RESET_EMAIL_WEBHOOK_URL, {
-                    email: user.email,
-                    fullName: user.fullName,
-                    resetLink,
-                    resetCode,
-                    expiresMinutes: RESET_EXPIRES_MINUTES
-                });
-            } else {
-                const delivery = await sendPasswordResetEmail({
-                    to: user.email,
-                    fullName: user.fullName,
-                    resetLink,
-                    resetCode,
-                    expiresMinutes: RESET_EXPIRES_MINUTES
-                });
-                if (!delivery.sent && process.env.NODE_ENV === "production") {
-                    return res.status(503).json({ error: "Password reset email delivery is not configured" });
-                }
+            const delivery = await deliverPasswordReset(user, token, resetCode);
+            resetLink = delivery.resetLink;
+            if (!delivery.sent && process.env.NODE_ENV === "production") {
+                return res.status(503).json({ error: "Password reset email delivery is not configured" });
             }
         } catch (deliveryError) {
             if (process.env.NODE_ENV === "production") {
@@ -298,11 +312,22 @@ async function updateUser(req, res) {
         }
 
         const ALLOWED_FIELDS = ["fullName", "phone", "preferredLanguage", "profileImage"];
+        const ADMIN_FIELDS = ["role", "isActive"];
         const update = {};
         for (const key of ALLOWED_FIELDS) {
             if (req.body[key] !== undefined) update[key] = req.body[key];
         }
-        if (req.user.role === "admin" && req.body.role) update.role = req.body.role;
+        if (req.user.role === "admin") {
+            for (const key of ADMIN_FIELDS) {
+                if (req.body[key] !== undefined) update[key] = req.body[key];
+            }
+        }
+        if (update.profileImage === "") update.profileImage = null;
+
+        if (update.profileImage === null) {
+            const existing = await User.findById(req.params.id).select("profileImage");
+            await deleteStoredUploads([existing?.profileImage]);
+        }
 
         const user = await User.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true
@@ -344,17 +369,91 @@ async function changePassword(req, res) {
 // DELETE /users/:id
 async function deleteUser(req, res) {
     try {
-        const user = await User.findByIdAndUpdate(req.params.id, {
-            isActive: false,
-            email: `deleted-${req.params.id}@deleted.local`,
-            phone: null,
-            resetPasswordToken: null,
-            resetPasswordCodeHash: null,
-            resetPasswordExpires: null,
-            resetPasswordCodeAttempts: 0
-        }, { new: true });
+        const cleanup = await cleanupDeletedUserPrivacy(req.params.id);
+        if (!cleanup.user) return res.status(404).json({ error: "User not found" });
+
+        const deletedUploadCount = cleanup.deletedUploads.filter(result => result.deleted).length;
+        res.status(200).json({
+            message: "User disabled and personal data cleaned up",
+            deletedUploadCount
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+// DELETE /users/:id/hard
+async function hardDeleteUser(req, res) {
+    try {
+        const [passenger, driver] = await Promise.all([
+            PassengerProfile.findOne({ userId: req.params.id }),
+            DriverProfile.findOne({ userId: req.params.id })
+        ]);
+
+        const activeRideFilter = {
+            status: { $in: ["searching", "accepted", "driver_arriving", "in_progress"] },
+            $or: []
+        };
+        if (passenger) activeRideFilter.$or.push({ passengerId: passenger._id });
+        if (driver) activeRideFilter.$or.push({ driverId: driver._id });
+
+        if (activeRideFilter.$or.length > 0) {
+            const activeRide = await require("../db/models/Ride").findOne(activeRideFilter);
+            if (activeRide) return res.status(409).json({ error: "Cannot hard-delete a user with active rides" });
+        }
+
+        const cleanup = await cleanupDeletedUserPrivacy(req.params.id);
+        if (!cleanup.user) return res.status(404).json({ error: "User not found" });
+
+        if (driver) await require("../db/models/Vehicle").deleteMany({ driverId: driver._id });
+        if (driver) await DriverProfile.findByIdAndDelete(driver._id);
+        if (passenger) await PassengerProfile.findByIdAndDelete(passenger._id);
+        await User.findByIdAndDelete(req.params.id);
+
+        res.status(200).json({ message: "User hard-deleted successfully" });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+// POST /users/:id/password-reset
+async function adminSendPasswordReset(req, res) {
+    try {
+        if (!isAdmin(req)) return res.status(403).json({ error: "Admin access required" });
+        const user = await User.findById(req.params.id);
         if (!user) return res.status(404).json({ error: "User not found" });
-        res.status(200).json({ message: "User disabled successfully" });
+        if (!user.email || user.email.startsWith("deleted-")) {
+            return res.status(400).json({ error: "User does not have a deliverable email" });
+        }
+
+        const { token, resetCode } = createPasswordResetSecrets(user);
+        await user.save();
+
+        let delivery = { resetLink: "", sent: false };
+        try {
+            delivery = await deliverPasswordReset(user, token, resetCode);
+            if (!delivery.sent && process.env.NODE_ENV === "production") {
+                return res.status(503).json({ error: "Password reset email delivery is not configured" });
+            }
+        } catch (deliveryError) {
+            if (process.env.NODE_ENV === "production") {
+                return res.status(503).json({ error: "Could not send password reset email" });
+            }
+            console.warn("Admin password reset delivery failed:", deliveryError.message);
+        }
+
+        const response = {
+            message: "Password reset instructions sent",
+            email: user.email,
+            deliveryConfigured: isPasswordResetDeliveryConfigured(),
+            sent: delivery.sent
+        };
+        if (process.env.NODE_ENV !== "production" && process.env.RETURN_RESET_TOKEN === "true") {
+            response.resetLink = delivery.resetLink;
+            response.resetToken = token;
+            response.resetCode = resetCode;
+        }
+        res.status(200).json(response);
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -395,11 +494,7 @@ async function googleLogin(req, res) {
         }
         if (!user.isActive) return res.status(403).json({ error: "Account is disabled" });
 
-        const token = jwt.sign(
-            { userId: user._id, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: "7d" }
-        );
+        const token = signAuthToken(user);
 
         user.lastLoginAt = new Date();
         await user.save();
@@ -416,4 +511,17 @@ async function googleLogin(req, res) {
     }
 }
 
-module.exports = { register, login, googleLogin, forgotPassword, resetPassword, getAllUsers, getUserById, updateUser, changePassword, deleteUser };
+module.exports = {
+    register,
+    login,
+    googleLogin,
+    forgotPassword,
+    resetPassword,
+    getAllUsers,
+    getUserById,
+    updateUser,
+    changePassword,
+    deleteUser,
+    hardDeleteUser,
+    adminSendPasswordReset
+};

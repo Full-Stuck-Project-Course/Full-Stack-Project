@@ -77,6 +77,7 @@ export default function BookRidePage() {
     const [scheduledTime,  setSched]      = useState("");
     const [loading,      setLoading]      = useState(false);
     const [error,        setError]        = useState("");
+    const [success,      setSuccess]      = useState("");
     const [priceData,    setPriceData]    = useState(null);
     const [priceLoading, setPriceLoading] = useState(false);
     const [nearbyDrivers, setNearbyDrivers] = useState([]);
@@ -144,6 +145,13 @@ export default function BookRidePage() {
         if (rideType === "carpool" && passengerCount > 4) setPassCount(4);
     }, [rideType, passengerCount]);
 
+    useEffect(() => {
+        if (rideType !== "carpool") return;
+        setRedeemPoints(false);
+        setPointsToUse(0);
+        if (stops.length > 0) setStops([]);
+    }, [rideType, stops.length]);
+
     const addStop = () => setStops(s => [...s, { address: "", lat: null, lng: null }]);
     const removeStop = (i) => setStops(s => s.filter((_, idx) => idx !== i));
     const updateStop = (i, val) => setStops(s => s.map((st, idx) => idx === i ? { ...st, ...val } : st));
@@ -157,6 +165,7 @@ export default function BookRidePage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
+        setSuccess("");
         if (!pickup.address) return setError("נא להזין כתובת איסוף");
         if (!dest.address)   return setError("נא להזין כתובת יעד");
 
@@ -168,6 +177,20 @@ export default function BookRidePage() {
 
         setLoading(true);
         try {
+            if (rideType === "carpool") {
+                const pricePerSeat = Number(priceData?.pricePerPerson ?? Math.ceil((priceData?.price || 0) / passengerCount));
+                await api.post("/carpool", {
+                    pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
+                    destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
+                    requestedTime: scheduledTime || new Date().toISOString(),
+                    seatsNeeded: passengerCount,
+                    maxDetourMinutes: 10,
+                    pricePerSeat: Number.isFinite(pricePerSeat) ? pricePerSeat : 0
+                });
+                setSuccess("בקשת הקרפול נשלחה ותמתין להתאמה עם נוסעים נוספים.");
+                return;
+            }
+
             const { data } = await api.post("/rides", {
                 rideType,
                 vehicleType,
@@ -268,8 +291,10 @@ export default function BookRidePage() {
                                 style={{ background: "#fee2e2", color: "var(--danger)", padding: "8px 12px", borderRadius: 8, flexShrink: 0 }}>✕</button>
                         </div>
                     ))}
-                    <button type="button" onClick={addStop}
-                        style={{ background: "var(--border)", color: "var(--text-muted)", padding: "7px 14px", fontSize: 13, marginBottom: 12 }}>+ {"הוסף עצירה"}</button>
+                    {rideType !== "carpool" && (
+                        <button type="button" onClick={addStop}
+                            style={{ background: "var(--border)", color: "var(--text-muted)", padding: "7px 14px", fontSize: 13, marginBottom: 12 }}>+ {"הוסף עצירה"}</button>
+                    )}
 
                     {/* Destination */}
                     <div style={s.group}>
@@ -334,7 +359,7 @@ export default function BookRidePage() {
                                 </div>
 
                                 {/* Points redemption */}
-                                {userPoints > 0 && (
+                                {userPoints > 0 && rideType !== "carpool" && (
                                     <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
                                         <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14, marginBottom: 8 }}>
                                             <input type="checkbox" checked={redeemPoints} onChange={e => {
@@ -365,8 +390,9 @@ export default function BookRidePage() {
                 </div>
 
                 {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
+                {success && <p role="status" style={{ color: "var(--success)", fontWeight: 700, marginTop: 8 }}>{success}</p>}
                 <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: 8 }}>
-                    {loading ? "מחפש נהג..." : `${"הזמן עכשיו"} 🚕`}
+                    {loading ? (rideType === "carpool" ? "שולח בקשה..." : "מחפש נהג...") : (rideType === "carpool" ? "שלח בקשת קרפול 🤝" : `${"הזמן עכשיו"} 🚕`)}
                 </button>
             </form>
 

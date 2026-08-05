@@ -3,8 +3,9 @@
 require("dotenv").config();
 const http   = require("http");
 const { Server } = require("socket.io");
-const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
+const { getSessionUserFromToken } = require("./utils/authSession");
+const { validateJwtSecretForStartup } = require("./utils/jwtConfig");
 const app    = require("./app");
 const connectMongo = require("./db/mongo");
 const Ride = require("./db/models/Ride");
@@ -13,6 +14,8 @@ const DriverProfile = require("./db/models/DriverProfile");
 const { sameId } = require("./utils/authz");
 const { hasValidCoordinates, haversineKm } = require("./utils/pricing");
 const { configuredOrigins, isAllowedOrigin } = require("./utils/corsOrigins");
+
+validateJwtSecretForStartup();
 
 const PORT = process.env.PORT || 5000;
 
@@ -34,16 +37,16 @@ const SOCKET_RATE_LIMIT = {
     max: Number(process.env.SOCKET_RATE_MAX_EVENTS || 80)
 };
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
     try {
         const authHeader = socket.handshake.headers?.authorization || "";
         const token = socket.handshake.auth?.token ||
             (authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null);
         if (!token) return next(new Error("Authentication required"));
-        socket.user = jwt.verify(token, process.env.JWT_SECRET);
+        socket.user = await getSessionUserFromToken(token);
         next();
-    } catch {
-        next(new Error("Invalid or expired token"));
+    } catch (error) {
+        next(new Error(error.statusCode === 403 ? error.message : "Invalid or expired token"));
     }
 });
 

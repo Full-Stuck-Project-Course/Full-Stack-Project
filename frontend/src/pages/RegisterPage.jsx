@@ -144,9 +144,7 @@ export default function RegisterPage() {
     const [showPw, setShowPw]   = useState(false);
     const [verification, setVerification] = useState(null);
 
-    const emailTimer = useRef(null);
     const phoneCheckSeq = useRef(0);
-    const [emailChecking, setEmailChecking] = useState(false);
     const [phoneChecking, setPhoneChecking] = useState(false);
     const [phoneInUse, setPhoneInUse] = useState(false);
     const [phoneChecked, setPhoneChecked] = useState(false);
@@ -206,16 +204,7 @@ export default function RegisterPage() {
                 setErrors(er => ({ ...er, confirmPassword: "הסיסמאות אינן תואמות" }));
         }
         if (k === "email") {
-            clearTimeout(emailTimer.current);
-            if (v.match(/^\S+@\S+\.\S+$/)) {
-                setEmailChecking(true);
-                emailTimer.current = setTimeout(async () => {
-                    try {
-                        const { data } = await api.post("/users/check-email", { email: v }, { skipAuthRedirect: true });
-                        if (data.exists) setErrors(er => ({ ...er, email: "כתובת אימייל זו כבר רשומה במערכת" }));
-                    } catch {} finally { setEmailChecking(false); }
-                }, 500);
-            } else if (v.length > 0) {
+            if (v.length > 0 && !v.match(/^\S+@\S+\.\S+$/)) {
                 setErrors(er => ({ ...er, email: "כתובת אימייל לא תקינה" }));
             }
         }
@@ -223,7 +212,6 @@ export default function RegisterPage() {
 
     useEffect(() => {
         return () => {
-            clearTimeout(emailTimer.current);
             phoneCheckSeq.current += 1;
         };
     }, []);
@@ -403,7 +391,7 @@ export default function RegisterPage() {
                                     style={{ borderColor: errors.email ? "var(--danger)" : undefined, paddingLeft: 36 }}
                                 />
                                 <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14 }}>
-                                    {emailChecking ? "⏳" : errors.email ? "❌" : form.email.match(/^\S+@\S+\.\S+$/) ? "✅" : ""}
+                                    {errors.email ? "❌" : form.email.match(/^\S+@\S+\.\S+$/) ? "✅" : ""}
                                 </span>
                             </div>
                             <FieldErr msg={errors.email} />

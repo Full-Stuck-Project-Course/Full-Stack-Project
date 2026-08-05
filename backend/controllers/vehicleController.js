@@ -4,6 +4,7 @@ const Vehicle = require("../db/models/Vehicle");
 const DriverProfile = require("../db/models/DriverProfile");
 const Ride = require("../db/models/Ride");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
+const { deleteStoredUploads } = require("../utils/privacyCleanup");
 
 const VEHICLE_WRITE_FIELDS = [
     "driverId",
@@ -14,7 +15,8 @@ const VEHICLE_WRITE_FIELDS = [
     "licensePlate",
     "vehicleType",
     "seats",
-    "allowPets"
+    "allowPets",
+    "isActive"
 ];
 
 const VEHICLE_VERIFICATION_FIELDS = ["company", "model", "year", "licensePlate", "vehicleType", "seats"];
@@ -142,6 +144,7 @@ async function deleteVehicle(req, res) {
         if (activeRide) {
             return res.status(409).json({ error: "Cannot delete a vehicle assigned to an active ride" });
         }
+        await deleteStoredUploads([existing.testImagePath, existing.insuranceImagePath]);
         const vehicle = await Vehicle.findByIdAndDelete(req.params.id);
         if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
         res.status(200).json({ message: "Vehicle deleted successfully" });

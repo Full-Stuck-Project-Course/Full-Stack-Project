@@ -10,6 +10,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-redux": "^9.3.0",
+    "react-router-dom": "^6.30.1",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
@@ -24,7 +25,7 @@
   "scripts": {
     "start": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "node scripts/check-rating-a11y.js && node scripts/check-production-config.js && node scripts/check-admin-navigation.js",
+    "test": "node scripts/check-rating-a11y.js && node scripts/check-production-config.js && node scripts/check-tracked-artifacts.js && node scripts/check-admin-navigation.js && node scripts/check-router-adapter.js && node scripts/check-carpool-booking.js",
     "lint": "echo \"No frontend lint configured.\""
   },
   "browserslist": {

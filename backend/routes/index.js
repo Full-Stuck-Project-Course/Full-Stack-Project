@@ -43,15 +43,12 @@ router.post("/users/google-login", authLimiter, validate(googleLoginSchema), use
 router.post("/users/forgot-password", authLimiter, validate(forgotPasswordSchema), userController.forgotPassword);
 router.post("/users/reset-password", authLimiter, validate(resetPasswordSchema), userController.resetPassword);
 
-// Public registration helper.
-router.post("/users/check-email", authLimiter, async (req, res) => {
-    try {
-        const User = require("../db/models/User");
-        const exists = await User.findOne({ email: req.body.email?.toLowerCase() });
-        res.json({ exists: !!exists });
-    } catch {
-        res.status(500).json({ error: "Could not check email availability" });
-    }
+// Public registration helper. Do not reveal whether an email exists.
+router.post("/users/check-email", authLimiter, (req, res) => {
+    const email = String(req.body.email || "").trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "Invalid email" });
+
+    res.json({ ok: true });
 });
 
 router.post("/users/check-phone", authLimiter, async (req, res) => {
@@ -75,6 +72,8 @@ router.get("/users", auth, adminOnly, userController.getAllUsers);
 router.get("/users/:id", userController.getUserById);
 router.put("/users/:id", validate(updateUserSchema), userController.updateUser);
 router.put("/users/:id/password", validate(changePasswordSchema), userController.changePassword);
+router.post("/users/:id/password-reset", adminOnly, userController.adminSendPasswordReset);
+router.delete("/users/:id/hard", adminOnly, userController.hardDeleteUser);
 router.delete("/users/:id", auth, adminOnly, userController.deleteUser);
 
 // Maps and pricing.
@@ -108,6 +107,10 @@ router.get("/uploads/pending", adminOnly, uploadController.getPendingVerificatio
 router.put("/uploads/verify-id/:userId", adminOnly, uploadController.verifyId);
 router.put("/uploads/verify-driver/:driverProfileId", adminOnly, uploadController.verifyDriverLicense);
 router.put("/uploads/verify-vehicle/:vehicleId", adminOnly, uploadController.verifyVehicleDocuments);
+router.delete("/uploads/profile/:userId", adminOnly, uploadController.deleteProfileImage);
+router.delete("/uploads/id-photo/:userId", adminOnly, uploadController.deleteIdPhoto);
+router.delete("/uploads/license/:driverProfileId", adminOnly, uploadController.deleteDriverLicensePhoto);
+router.delete("/uploads/vehicle-docs/:vehicleId", adminOnly, uploadController.deleteVehicleDocuments);
 
 // Translation.
 router.post("/translate", translateController.translate);
@@ -127,6 +130,7 @@ router.put("/rides/:id/driver-arriving", rideController.driverArriving);
 router.put("/rides/:id/start", rideController.startRide);
 router.put("/rides/:id/complete", rideController.completeRide);
 router.put("/rides/:id/cancel", validate(cancelRideSchema), rideController.cancelRide);
+router.put("/rides/:id/admin", adminOnly, rideController.adminUpdateRide);
 
 // Drivers.
 router.post("/drivers", driverController.registerDriver);
@@ -137,6 +141,7 @@ router.put("/drivers/:id", driverController.updateDriver);
 router.put("/drivers/:id/status", driverController.updateDriverStatus);
 router.put("/drivers/:id/location", driverController.updateLocation);
 router.put("/drivers/:id/verify", adminOnly, driverController.verifyDriver);
+router.delete("/drivers/:id", adminOnly, driverController.deleteDriver);
 
 // Passengers.
 router.post("/passengers", passengerController.registerPassenger);

@@ -6,6 +6,7 @@ const DriverProfile = require("../db/models/DriverProfile");
 const Vehicle = require("../db/models/Vehicle");
 const upload = require("../middleware/upload");
 const { sameId, isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
+const { deleteStoredUploads } = require("../utils/privacyCleanup");
 
 function invalidUploadedImage(req, res) {
     upload.cleanupFile(req.file);
@@ -218,7 +219,7 @@ async function getPendingVerifications(req, res) {
 async function verifyId(req, res) {
     try {
         const { status } = req.body;
-        if (!["approved", "rejected"].includes(status)) return res.status(400).json({ error: "Invalid status" });
+        if (!["approved", "rejected", "not_submitted"].includes(status)) return res.status(400).json({ error: "Invalid status" });
         const existing = await User.findById(req.params.userId);
         if (!existing) return res.status(404).json({ error: "User not found" });
         if (status === "approved" && !existing.idPhotoPath) {
@@ -236,7 +237,7 @@ async function verifyId(req, res) {
 async function verifyDriverLicense(req, res) {
     try {
         const { status } = req.body;
-        if (!["approved", "rejected"].includes(status)) return res.status(400).json({ error: "Invalid status" });
+        if (!["approved", "rejected", "not_submitted"].includes(status)) return res.status(400).json({ error: "Invalid status" });
         const existing = await DriverProfile.findById(req.params.driverProfileId);
         if (!existing) return res.status(404).json({ error: "Driver not found" });
         if (status === "approved" && !existing.licenseImagePath) {
@@ -244,7 +245,7 @@ async function verifyDriverLicense(req, res) {
         }
         const update = { verificationStatus: status };
         if (status === "approved") update.isVerified = true;
-        if (status === "rejected") { update.isVerified = false; update.status = "offline"; }
+        if (status === "rejected" || status === "not_submitted") { update.isVerified = false; update.status = "offline"; }
         const driver = await DriverProfile.findByIdAndUpdate(req.params.driverProfileId, update);
         if (!driver) return res.status(404).json({ error: "Driver not found" });
         res.json({ message: "Driver verification updated" });
@@ -257,7 +258,7 @@ async function verifyDriverLicense(req, res) {
 async function verifyVehicleDocuments(req, res) {
     try {
         const { status } = req.body;
-        if (!["approved", "rejected"].includes(status)) return res.status(400).json({ error: "Invalid status" });
+        if (!["approved", "rejected", "not_submitted"].includes(status)) return res.status(400).json({ error: "Invalid status" });
         const existing = await Vehicle.findById(req.params.vehicleId);
         if (!existing) return res.status(404).json({ error: "Vehicle not found" });
         if (status === "approved" && (!existing.testImagePath || !existing.insuranceImagePath)) {
@@ -268,13 +269,78 @@ async function verifyVehicleDocuments(req, res) {
             update.testApproval = true;
             update.insuranceApproval = true;
         }
-        if (status === "rejected") {
+        if (status === "rejected" || status === "not_submitted") {
             update.testApproval = false;
             update.insuranceApproval = false;
         }
         const vehicle = await Vehicle.findByIdAndUpdate(req.params.vehicleId, update);
         if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
         res.json({ message: "Vehicle verification updated" });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+// DELETE /api/uploads/profile/:userId
+async function deleteProfileImage(req, res) {
+    try {
+        if (!isAdmin(req) && !sameId(req.user.userId, req.params.userId)) return forbidden(res);
+        const user = await User.findById(req.params.userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        await deleteStoredUploads([user.profileImage]);
+        user.profileImage = null;
+        await user.save();
+        res.json({ message: "Profile image deleted" });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+// DELETE /api/uploads/id-photo/:userId
+async function deleteIdPhoto(req, res) {
+    try {
+        const user = await User.findById(req.params.userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        await deleteStoredUploads([user.idPhotoPath]);
+        user.idPhotoPath = null;
+        user.idVerificationStatus = "not_submitted";
+        await user.save();
+        res.json({ message: "ID photo deleted" });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+// DELETE /api/uploads/license/:driverProfileId
+async function deleteDriverLicensePhoto(req, res) {
+    try {
+        const driver = await DriverProfile.findById(req.params.driverProfileId);
+        if (!driver) return res.status(404).json({ error: "Driver not found" });
+        await deleteStoredUploads([driver.licenseImagePath]);
+        driver.licenseImagePath = null;
+        driver.verificationStatus = "not_submitted";
+        driver.isVerified = false;
+        driver.status = "offline";
+        await driver.save();
+        res.json({ message: "Driver license photo deleted" });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+// DELETE /api/uploads/vehicle-docs/:vehicleId
+async function deleteVehicleDocuments(req, res) {
+    try {
+        const vehicle = await Vehicle.findById(req.params.vehicleId);
+        if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
+        await deleteStoredUploads([vehicle.testImagePath, vehicle.insuranceImagePath]);
+        vehicle.testImagePath = null;
+        vehicle.insuranceImagePath = null;
+        vehicle.testApproval = false;
+        vehicle.insuranceApproval = false;
+        vehicle.documentsVerificationStatus = "not_submitted";
+        await vehicle.save();
+        res.json({ message: "Vehicle documents deleted" });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -290,5 +356,9 @@ module.exports = {
     getPendingVerifications,
     verifyId,
     verifyDriverLicense,
-    verifyVehicleDocuments
+    verifyVehicleDocuments,
+    deleteProfileImage,
+    deleteIdPhoto,
+    deleteDriverLicensePhoto,
+    deleteVehicleDocuments
 };

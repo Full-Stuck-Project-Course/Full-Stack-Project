@@ -6,7 +6,6 @@ const PassengerProfile = require("../db/models/PassengerProfile");
 const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
-const CarpoolRequest = require("../db/models/CarpoolRequest");
 const { calculateFare } = require("../utils/pricing");
 const {
     sameId,
@@ -17,6 +16,14 @@ const {
 } = require("../utils/authz");
 
 const DISPATCH_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_RIDE_STATUSES = new Set([
+    "searching",
+    "accepted",
+    "driver_arriving",
+    "in_progress",
+    "completed",
+    "cancelled"
+]);
 
 function readyForDispatchFilter(date = new Date()) {
     return {
@@ -128,19 +135,6 @@ async function createRide(req, res) {
             status: "searching"
         });
         createdRideId = ride._id;
-
-        if (ride.rideType === "carpool") {
-            await CarpoolRequest.create({
-                passengerId,
-                rideId: ride._id,
-                pickupLocation: ride.pickupLocation,
-                destinationLocation: ride.destinationLocation,
-                requestedTime: ride.scheduledTime || new Date(),
-                seatsNeeded: ride.passengerCount,
-                status: "confirmed",
-                pricePerSeat: fare.pricePerPerson
-            });
-        }
 
         res.status(201).json({ message: "Ride created successfully", ride, remainingPoints });
     } catch (error) {
@@ -445,7 +439,55 @@ async function driverArriving(req, res) {
     }
 }
 
+// PUT /rides/:id/admin
+async function adminUpdateRide(req, res) {
+    try {
+        if (!isAdmin(req)) return forbidden(res, "Admin access required");
+
+        const existing = await Ride.findById(req.params.id);
+        if (!existing) return res.status(404).json({ error: "Ride not found" });
+
+        const update = {};
+        if (req.body.status !== undefined) {
+            if (!ADMIN_RIDE_STATUSES.has(req.body.status)) {
+                return res.status(400).json({ error: "Invalid ride status" });
+            }
+            update.status = req.body.status;
+            if (req.body.status === "completed" && !existing.completedAt) update.completedAt = new Date();
+            if (req.body.status === "cancelled" && !existing.cancelledAt) {
+                update.cancelledAt = new Date();
+                update.cancelledBy = req.body.cancelledBy || "system";
+            }
+        }
+        if (req.body.driverId !== undefined) update.driverId = req.body.driverId || null;
+        if (req.body.vehicleId !== undefined) update.vehicleId = req.body.vehicleId || null;
+        if (req.body.finalPrice !== undefined && Number(req.body.finalPrice) >= 0) update.finalPrice = Number(req.body.finalPrice);
+        if (req.body.distanceKm !== undefined && Number(req.body.distanceKm) >= 0) update.distanceKm = Number(req.body.distanceKm);
+        if (req.body.durationMinutes !== undefined && Number(req.body.durationMinutes) >= 0) {
+            update.estimatedDurationMinutes = Number(req.body.durationMinutes);
+        }
+        if (req.body.cancellationReason !== undefined) update.cancellationReason = String(req.body.cancellationReason || "");
+
+        const ride = await Ride.findByIdAndUpdate(req.params.id, update, {
+            new: true,
+            runValidators: true
+        });
+        if (!ride) return res.status(404).json({ error: "Ride not found" });
+
+        if (update.driverId && ["accepted", "driver_arriving", "in_progress"].includes(ride.status)) {
+            await DriverProfile.findByIdAndUpdate(update.driverId, { status: "busy" });
+        }
+        if (existing.driverId && ["completed", "cancelled", "searching"].includes(ride.status)) {
+            await DriverProfile.findByIdAndUpdate(existing.driverId, { status: "available" });
+        }
+
+        res.status(200).json({ message: "Ride updated by admin", ride });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
 module.exports = {
     createRide, getAllRides, getRideById,
-    acceptRide, startRide, completeRide, cancelRide, driverArriving
+    acceptRide, startRide, completeRide, cancelRide, driverArriving, adminUpdateRide
 };

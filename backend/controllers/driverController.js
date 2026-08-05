@@ -1,9 +1,13 @@
 // controllers/driverController.js
 
 const DriverProfile = require("../db/models/DriverProfile");
+const PassengerProfile = require("../db/models/PassengerProfile");
+const Ride = require("../db/models/Ride");
 const User = require("../db/models/User");
+const Vehicle = require("../db/models/Vehicle");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 const { hasValidCoordinates } = require("../utils/pricing");
+const { deleteStoredUploads } = require("../utils/privacyCleanup");
 
 const VALID_DRIVER_GENDERS = new Set(["male", "female"]);
 
@@ -212,7 +216,52 @@ async function verifyDriver(req, res) {
     }
 }
 
+// DELETE /drivers/:id
+async function deleteDriver(req, res) {
+    try {
+        if (!isAdmin(req)) return forbidden(res, "Admin access required");
+
+        const driver = await DriverProfile.findById(req.params.id);
+        if (!driver) return res.status(404).json({ error: "Driver not found" });
+
+        const activeRide = await Ride.findOne({
+            driverId: driver._id,
+            status: { $in: ["accepted", "driver_arriving", "in_progress"] }
+        });
+        if (activeRide) {
+            return res.status(409).json({ error: "Cannot delete a driver assigned to an active ride" });
+        }
+
+        const vehicles = await Vehicle.find({ driverId: driver._id });
+        await deleteStoredUploads([
+            driver.licenseImagePath,
+            ...vehicles.flatMap(vehicle => [vehicle.testImagePath, vehicle.insuranceImagePath])
+        ]);
+
+        await Vehicle.deleteMany({ driverId: driver._id });
+        await DriverProfile.findByIdAndDelete(driver._id);
+
+        const user = await User.findById(driver.userId);
+        if (user) {
+            await PassengerProfile.findOneAndUpdate(
+                { userId: user._id },
+                { $setOnInsert: { userId: user._id } },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+
+            let nextRole = user.role;
+            if (user.role === "driver" || user.role === "both") nextRole = "passenger";
+            if (user.role === "admin") nextRole = "admin";
+            await User.findByIdAndUpdate(user._id, { role: nextRole });
+        }
+
+        res.status(200).json({ message: "Driver profile and vehicles deleted; user remains active" });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
 module.exports = {
     registerDriver, getAllDrivers, getAvailableDrivers,
-    getDriverById, updateDriver, updateDriverStatus, updateLocation, verifyDriver
+    getDriverById, updateDriver, updateDriverStatus, updateLocation, verifyDriver, deleteDriver
 };
