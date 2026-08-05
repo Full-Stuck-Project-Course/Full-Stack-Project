@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "../routing";
-import { useLang } from "../context/LanguageContext";
 import api from "../api/axios";
+
+function getStarAriaLabel(n) {
+    return n === 1 ? "כוכב אחד" : `${n} כוכבים`;
+}
 
 export default function RatingPage() {
     const { id }       = useParams();
     const navigate     = useNavigate();
-    const { t }        = useLang();
     const TAGS = ["נסיעה נעימה", "נהיגה בטוחה", "ניקיון", "שיחה נעימה", "זמן הגעה", "מוזיקה טובה"];
     const [ride,       setRide]     = useState(null);
     const [stars,      setStars]    = useState(0);
@@ -27,6 +29,13 @@ export default function RatingPage() {
     }, [id, navigate]);
 
     const toggleTag = (tag) => setTags(prev => prev.includes(tag) ? prev.filter(x => x !== tag) : [...prev, tag]);
+
+    const handleStarKeyDown = (event, n) => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setStars(n);
+        }
+    };
 
     const submit = async () => {
         if (stars === 0) return setError("נא לתת דירוג");
@@ -90,7 +99,7 @@ export default function RatingPage() {
             <div style={{ background: "var(--surface)", borderRadius: 14, padding: 24, boxShadow: "var(--shadow)", marginBottom: 14 }}>
                 <div style={{ textAlign: "center", marginBottom: 16 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-muted)", marginBottom: 12 }}>{"דירוג כוכבים"}</div>
-                    <div style={{ display: "flex", justifyContent: "center", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "center", gap: 6 }} role="radiogroup" aria-label="דירוג כוכבים">
                         {[1, 2, 3, 4, 5].map(n => (
                             <span key={n} className="star"
                                 style={{ color: n <= (hovered || stars) ? "#f59e0b" : "#e2e8f0", fontSize: 36 }}
@@ -99,8 +108,8 @@ export default function RatingPage() {
                                 onClick={() => setStars(n)}
                                 role="radio" aria-checked={stars === n}
                                 tabIndex={0}
-                                onKeyDown={e => e.key === "Enter" && setStars(n)}
-                                aria-label={t("starsLabel", { n })}>
+                                onKeyDown={e => handleStarKeyDown(e, n)}
+                                aria-label={getStarAriaLabel(n)}>
                                 ★
                             </span>
                         ))}

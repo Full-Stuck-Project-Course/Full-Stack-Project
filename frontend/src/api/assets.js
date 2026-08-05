@@ -1,4 +1,4 @@
-const ASSET_ORIGIN = import.meta.env.VITE_ASSET_ORIGIN || "http://localhost:5000";
+import { ASSET_ORIGIN } from "./config";
 
 export function assetUrl(path) {
     if (!path) return "";

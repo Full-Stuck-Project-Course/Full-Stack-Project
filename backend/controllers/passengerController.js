@@ -6,6 +6,14 @@ const { hasValidCoordinates } = require("../utils/pricing");
 
 const PASSENGER_UPDATE_FIELDS = ["preferredDriverGender", "preferredMatching"];
 
+function withUserLoyaltyPoints(passenger) {
+    const data = passenger?.toObject ? passenger.toObject() : passenger;
+    if (!data) return data;
+    const user = data.userId;
+    data.loyaltyPoints = user && typeof user === "object" ? user.loyaltyPoints || 0 : 0;
+    return data;
+}
+
 // POST /passengers
 async function registerPassenger(req, res) {
     try {
@@ -18,8 +26,9 @@ async function registerPassenger(req, res) {
         const passenger = await PassengerProfile.create({
             userId, preferredDriverGender, preferredMatching
         });
+        await passenger.populate("userId", "-passwordHash");
 
-        res.status(201).json({ message: "Passenger registered successfully", passenger });
+        res.status(201).json({ message: "Passenger registered successfully", passenger: withUserLoyaltyPoints(passenger) });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -32,7 +41,7 @@ async function getAllPassengers(req, res) {
         if (!isAdmin(req)) filter.userId = req.user.userId;
 
         const passengers = await PassengerProfile.find(filter).populate("userId", "-passwordHash");
-        res.status(200).json(passengers);
+        res.status(200).json(passengers.map(withUserLoyaltyPoints));
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -46,7 +55,7 @@ async function getPassengerById(req, res) {
         }
         const passenger = await PassengerProfile.findById(req.params.id).populate("userId", "-passwordHash");
         if (!passenger) return res.status(404).json({ error: "Passenger not found" });
-        res.status(200).json(passenger);
+        res.status(200).json(withUserLoyaltyPoints(passenger));
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -64,9 +73,9 @@ async function updatePassenger(req, res) {
         }
         const passenger = await PassengerProfile.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true
-        });
+        }).populate("userId", "-passwordHash");
         if (!passenger) return res.status(404).json({ error: "Passenger not found" });
-        res.status(200).json({ message: "Passenger updated", passenger });
+        res.status(200).json({ message: "Passenger updated", passenger: withUserLoyaltyPoints(passenger) });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }

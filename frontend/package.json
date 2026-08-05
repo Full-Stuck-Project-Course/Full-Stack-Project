@@ -24,7 +24,7 @@
   "scripts": {
     "start": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "echo \"No frontend tests configured.\"",
+    "test": "node scripts/check-rating-a11y.js && node scripts/check-production-config.js",
     "lint": "echo \"No frontend lint configured.\""
   },
   "browserslist": {

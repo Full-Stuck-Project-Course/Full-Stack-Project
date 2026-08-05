@@ -58,7 +58,6 @@ async function getPopulatedRide(id) {
 async function createRide(req, res) {
     let redeemedPoints = 0;
     let redeemedUserId = null;
-    let redeemedPassengerProfileId = null;
     let createdRideId = null;
     try {
         let passengerId = req.body.passengerId;
@@ -103,7 +102,6 @@ async function createRide(req, res) {
             if (!updatedUser) return res.status(400).json({ error: "Not enough points" });
             redeemedPoints = maxUsablePoints;
             redeemedUserId = passengerProfile.userId;
-            redeemedPassengerProfileId = passengerId;
             remainingPoints = updatedUser.loyaltyPoints;
             finalPrice = Math.max(0, Math.round((finalPrice - redeemedPoints * 0.1) * 10) / 10);
         }
@@ -126,10 +124,6 @@ async function createRide(req, res) {
         });
         createdRideId = ride._id;
 
-        if (redeemedPoints > 0) {
-            await PassengerProfile.findByIdAndUpdate(passengerId, { loyaltyPoints: remainingPoints });
-        }
-
         if (ride.rideType === "carpool") {
             await CarpoolRequest.create({
                 passengerId,
@@ -149,17 +143,11 @@ async function createRide(req, res) {
             await Ride.findByIdAndDelete(createdRideId).catch(() => {});
         }
         if (redeemedPoints > 0 && redeemedUserId) {
-            const refundedUser = await User.findByIdAndUpdate(
+            await User.findByIdAndUpdate(
                 redeemedUserId,
                 { $inc: { loyaltyPoints: redeemedPoints } },
                 { new: true }
             ).catch(() => null);
-            if (refundedUser && redeemedPassengerProfileId) {
-                await PassengerProfile.findByIdAndUpdate(
-                    redeemedPassengerProfileId,
-                    { loyaltyPoints: refundedUser.loyaltyPoints }
-                ).catch(() => {});
-            }
         }
         res.status(400).json({ error: error.message });
     }

@@ -73,16 +73,13 @@ async function createRating(req, res) {
         await DriverProfile.findByIdAndUpdate(driverId, { ratingAverage: Math.round(avg * 10) / 10 });
 
         // Award loyalty points to passenger
-        const passengerProfile = await PassengerProfile.findById(passengerId);
+        const passengerProfile = await PassengerProfile.findById(passengerId).select("userId");
         if (passengerProfile) {
-            const updatedUser = await User.findByIdAndUpdate(
+            await User.findByIdAndUpdate(
                 passengerProfile.userId,
                 { $inc: { loyaltyPoints: 10 } },
                 { new: true }
             );
-            await PassengerProfile.findByIdAndUpdate(passengerId, {
-                loyaltyPoints: updatedUser?.loyaltyPoints || passengerProfile.loyaltyPoints + 10
-            });
         }
 
         res.status(201).json({ message: "Rating submitted", rating: newRating });

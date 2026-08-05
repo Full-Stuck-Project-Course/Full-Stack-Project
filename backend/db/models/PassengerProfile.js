@@ -42,11 +42,6 @@ const passengerProfileSchema = new mongoose.Schema({
         lng:     { type: Number }
     }],
 
-    loyaltyPoints: {
-        type: Number,
-        default: 0
-    },
-
     totalSpent: {
         type: Number,
         default: 0

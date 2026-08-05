@@ -6,12 +6,19 @@
   <component name="ChangeListManager">
     <list default="true" id="64b1c922-fb76-4943-83b4-f78cb120b1ef" name="Changes" comment="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/server.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/AdminPanel.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/AdminPanel.jsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/DriverDashboard.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/DriverDashboard.jsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/RideStatusPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/RideStatusPage.jsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/auto-verification-ui-demo.html" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/סקירת_פיצרים_בפרויקט_HailNow.docx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/passengerController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/passengerController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/ratingController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/ratingController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/controllers/rideController.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/controllers/rideController.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/db/models/PassengerProfile.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/db/models/PassengerProfile.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/backend/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/.env.example" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/api/assets.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/api/assets.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/api/axios.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/api/axios.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/api/socket.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/api/socket.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/pages/RatingPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/RatingPage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/vite.config.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/vite.config.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/reports/דוח_סטטוס_באגים_HailNow_2026-08-04.docx" beforeDir="false" afterPath="$PROJECT_DIR$/reports/דוח_סטטוס_באגים_HailNow_2026-08-04.docx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -115,7 +122,7 @@
       <workItem from="1785772766729" duration="1261000" />
       <workItem from="1785776163958" duration="2096000" />
       <workItem from="1785778713246" duration="31000" />
-      <workItem from="1785919856512" duration="3226000" />
+      <workItem from="1785919856512" duration="5975000" />
     </task>
     <task id="LOCAL‎-00001" summary="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
       <option name="closed" value="true" />
@@ -197,7 +204,15 @@
       <option name="project" value="LOCAL‎" />
       <updated>1785778724102</updated>
     </task>
-    <option name="localTasksCounter" value="11" />
+    <task id="LOCAL‎-00011" summary="Merge remote-tracking branch 'origin/main'&#10;&#10;# Conflicts:&#10;#&#9;package-lock.json">
+      <option name="closed" value="true" />
+      <created>1785923885008</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL‎-00011" />
+      <option name="project" value="LOCAL‎" />
+      <updated>1785923885008</updated>
+    </task>
+    <option name="localTasksCounter" value="12" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
