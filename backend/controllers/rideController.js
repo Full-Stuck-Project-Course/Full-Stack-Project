@@ -19,6 +19,7 @@ const {
 const DISPATCH_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_RIDES_LIMIT = 50;
 const MAX_RIDES_LIMIT = 100;
+const LOYALTY_POINT_VALUE_ILS = 0.1;
 const ADMIN_RIDE_STATUSES = new Set([
     "searching",
     "accepted",
@@ -64,6 +65,74 @@ async function getPopulatedRide(id) {
         .populate("vehicleId");
 }
 
+function positiveNumber(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function getMaxRedeemableLoyaltyPoints(requestedPoints, ridePrice) {
+    const requested = Math.floor(positiveNumber(requestedPoints));
+    const priceCap = Math.ceil(positiveNumber(ridePrice) / LOYALTY_POINT_VALUE_ILS);
+    return Math.min(requested, priceCap);
+}
+
+function maybeWithSession(queryOrValue, session) {
+    if (session && queryOrValue && typeof queryOrValue.session === "function") {
+        return queryOrValue.session(session);
+    }
+    return queryOrValue;
+}
+
+async function getPassengerUserId(passengerId, session) {
+    const passenger = await maybeWithSession(PassengerProfile.findById(passengerId), session);
+    return passenger?.userId || null;
+}
+
+async function refundRedeemedLoyaltyPoints(ride, session) {
+    const pointsToRefund = positiveNumber(ride.loyaltyPointsRedeemed);
+    if (pointsToRefund === 0 || ride.loyaltyPointsRefunded) {
+        return { ride, remainingPoints: undefined };
+    }
+
+    const userId = ride.loyaltyRedemptionUserId || await getPassengerUserId(ride.passengerId, session);
+    if (!userId) {
+        const error = new Error("Cannot refund loyalty points without passenger user");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const refundedAt = new Date();
+    const markedRide = await Ride.findOneAndUpdate(
+        {
+            _id: ride._id,
+            loyaltyPointsRedeemed: { $gt: 0 },
+            loyaltyPointsRefunded: { $ne: true }
+        },
+        {
+            $set: {
+                loyaltyPointsRefunded: true,
+                loyaltyPointsRefundedAt: refundedAt,
+                loyaltyRedemptionUserId: userId
+            }
+        },
+        { new: true, runValidators: true, session }
+    );
+    if (!markedRide) return { ride, remainingPoints: undefined };
+
+    const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        { $inc: { loyaltyPoints: positiveNumber(markedRide.loyaltyPointsRedeemed) } },
+        { new: true, session }
+    );
+    if (!updatedUser) {
+        const error = new Error("Cannot refund loyalty points without user");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return { ride: markedRide, remainingPoints: updatedUser.loyaltyPoints };
+}
+
 // POST /rides
 async function createRide(req, res) {
     try {
@@ -100,11 +169,12 @@ async function createRide(req, res) {
             passengerCount
         });
 
-        const pointsToRedeem = Number(req.body.pointsToRedeem || 0);
+        const pointsToRedeem = Math.floor(positiveNumber(req.body.pointsToRedeem));
         const originalFinalPrice = fare.finalPrice;
         let finalPrice = originalFinalPrice;
         let remainingPoints = undefined;
         let ride = null;
+        const maxUsablePoints = getMaxRedeemableLoyaltyPoints(pointsToRedeem, originalFinalPrice);
 
         const ridePayload = {
             passengerId,
@@ -118,12 +188,15 @@ async function createRide(req, res) {
             basePrice: fare.basePrice,
             surgeMultiplier: fare.surgeMultiplier,
             finalPrice,
+            loyaltyPointsRedeemed: maxUsablePoints,
+            loyaltyRedemptionUserId: maxUsablePoints > 0 ? passengerProfile.userId : null,
+            loyaltyPointsRefunded: false,
+            loyaltyPointsRefundedAt: null,
             driverId: null,
             vehicleId: null,
             status: "searching"
         };
 
-        const maxUsablePoints = Math.min(pointsToRedeem, Math.ceil(originalFinalPrice * 10));
         if (maxUsablePoints > 0) {
             const session = await mongoose.startSession();
             try {
@@ -140,7 +213,7 @@ async function createRide(req, res) {
                     }
 
                     remainingPoints = updatedUser.loyaltyPoints;
-                    const discountedFinalPrice = Math.max(0, Math.round((originalFinalPrice - maxUsablePoints * 0.1) * 10) / 10);
+                    const discountedFinalPrice = Math.max(0, Math.round((originalFinalPrice - maxUsablePoints * LOYALTY_POINT_VALUE_ILS) * 10) / 10);
                     finalPrice = discountedFinalPrice;
                     const [createdRide] = await Ride.create([{ ...ridePayload, finalPrice: discountedFinalPrice }], { session });
                     ride = createdRide;
@@ -318,7 +391,7 @@ async function acceptRide(req, res) {
                 $set: {
                     driverId,
                     vehicleId,
-                    status: "accepted"
+                    status: "driver_arriving"
                 }
             },
             { new: true, runValidators: true }
@@ -332,7 +405,7 @@ async function acceptRide(req, res) {
             return res.status(400).json({ error: "Scheduled ride is not open for drivers yet" });
         }
 
-        res.status(200).json({ message: "Ride accepted", ride });
+        res.status(200).json({ message: "Ride accepted; driver is arriving", ride });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -365,7 +438,7 @@ async function startRide(req, res) {
 // PUT /rides/:id/complete
 async function completeRide(req, res) {
     try {
-        const { finalPrice, distanceKm, durationMinutes, paymentMethod = "cash" } = req.body;
+        const { finalPrice, distanceKm, durationMinutes } = req.body;
 
         const ride = await Ride.findById(req.params.id);
         if (!ride) return res.status(404).json({ error: "Ride not found" });
@@ -396,8 +469,6 @@ async function completeRide(req, res) {
             $inc: { totalRides: 1, totalSpent: ride.finalPrice || 0 }
         });
 
-        const allowedPaymentMethods = ["credit_card", "paypal", "apple_pay", "google_pay", "cash"];
-        const safePaymentMethod = allowedPaymentMethods.includes(paymentMethod) ? paymentMethod : "cash";
         await Payment.findOneAndUpdate(
             { rideId: ride._id },
             {
@@ -407,9 +478,9 @@ async function completeRide(req, res) {
                     driverId: ride.driverId,
                     amount: ride.finalPrice || 0,
                     currency: "ILS",
-                    paymentMethod: safePaymentMethod,
-                    paymentStatus: safePaymentMethod === "cash" ? "paid" : "pending",
-                    paidAt: safePaymentMethod === "cash" ? new Date() : null
+                    paymentMethod: "credit_card",
+                    paymentStatus: "pending",
+                    paidAt: null
                 }
             },
             { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
@@ -440,19 +511,57 @@ async function cancelRide(req, res) {
             if (driver && sameId(driver._id, ride.driverId)) cancelledBy = "driver";
         }
 
-        ride.status = "cancelled";
-        ride.cancelledAt = new Date();
-        ride.cancelledBy = cancelledBy;
-        ride.cancellationReason = cancellationReason || "";
-        await ride.save();
+        let cancelledRide = ride;
+        let remainingPoints = undefined;
+        const cancellationUpdate = {
+            status: "cancelled",
+            cancelledAt: new Date(),
+            cancelledBy,
+            cancellationReason: cancellationReason || ""
+        };
+        const shouldRefundLoyalty = positiveNumber(ride.loyaltyPointsRedeemed) > 0 && !ride.loyaltyPointsRefunded;
 
-        if (ride.driverId) {
-            await DriverProfile.findByIdAndUpdate(ride.driverId, { status: "available" });
+        if (shouldRefundLoyalty) {
+            const session = await mongoose.startSession();
+            try {
+                await session.withTransaction(async () => {
+                    cancelledRide = await Ride.findOneAndUpdate(
+                        { _id: req.params.id, status: { $nin: ["completed", "cancelled"] } },
+                        { $set: cancellationUpdate },
+                        { new: true, runValidators: true, session }
+                    );
+                    if (!cancelledRide) {
+                        const error = new Error("Ride is no longer cancellable");
+                        error.statusCode = 409;
+                        throw error;
+                    }
+
+                    const refund = await refundRedeemedLoyaltyPoints(cancelledRide, session);
+                    cancelledRide = refund.ride;
+                    remainingPoints = refund.remainingPoints;
+
+                    if (cancelledRide.driverId) {
+                        await DriverProfile.findByIdAndUpdate(cancelledRide.driverId, { status: "available" }, { session });
+                    }
+                });
+            } finally {
+                await session.endSession();
+            }
+        } else {
+            ride.status = cancellationUpdate.status;
+            ride.cancelledAt = cancellationUpdate.cancelledAt;
+            ride.cancelledBy = cancellationUpdate.cancelledBy;
+            ride.cancellationReason = cancellationUpdate.cancellationReason;
+            await ride.save();
+
+            if (ride.driverId) {
+                await DriverProfile.findByIdAndUpdate(ride.driverId, { status: "available" });
+            }
         }
 
-        res.status(200).json({ message: "Ride cancelled", ride });
+        res.status(200).json({ message: "Ride cancelled", ride: cancelledRide, remainingPoints });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        res.status(error.statusCode || 400).json({ error: error.message });
     }
 }
 
@@ -506,7 +615,46 @@ async function adminUpdateRide(req, res) {
         }
         if (req.body.cancellationReason !== undefined) update.cancellationReason = String(req.body.cancellationReason || "");
 
-        const ride = await Ride.findByIdAndUpdate(req.params.id, update, {
+        let ride;
+        let remainingPoints = undefined;
+        const shouldRefundLoyalty = update.status === "cancelled" &&
+            positiveNumber(existing.loyaltyPointsRedeemed) > 0 &&
+            !existing.loyaltyPointsRefunded;
+
+        if (shouldRefundLoyalty) {
+            const session = await mongoose.startSession();
+            try {
+                await session.withTransaction(async () => {
+                    ride = await Ride.findByIdAndUpdate(req.params.id, update, {
+                        new: true,
+                        runValidators: true,
+                        session
+                    });
+                    if (!ride) {
+                        const error = new Error("Ride not found");
+                        error.statusCode = 404;
+                        throw error;
+                    }
+
+                    const refund = await refundRedeemedLoyaltyPoints(ride, session);
+                    ride = refund.ride;
+                    remainingPoints = refund.remainingPoints;
+
+                    if (update.driverId && ["accepted", "driver_arriving", "in_progress"].includes(ride.status)) {
+                        await DriverProfile.findByIdAndUpdate(update.driverId, { status: "busy" }, { session });
+                    }
+                    if (existing.driverId && ["completed", "cancelled", "searching"].includes(ride.status)) {
+                        await DriverProfile.findByIdAndUpdate(existing.driverId, { status: "available" }, { session });
+                    }
+                });
+            } finally {
+                await session.endSession();
+            }
+
+            return res.status(200).json({ message: "Ride updated by admin", ride, remainingPoints });
+        }
+
+        ride = await Ride.findByIdAndUpdate(req.params.id, update, {
             new: true,
             runValidators: true
         });
@@ -519,9 +667,9 @@ async function adminUpdateRide(req, res) {
             await DriverProfile.findByIdAndUpdate(existing.driverId, { status: "available" });
         }
 
-        res.status(200).json({ message: "Ride updated by admin", ride });
+        res.status(200).json({ message: "Ride updated by admin", ride, remainingPoints });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        res.status(error.statusCode || 400).json({ error: error.message });
     }
 }
 

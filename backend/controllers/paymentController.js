@@ -22,6 +22,41 @@ async function canAccessPayment(req, payment) {
     );
 }
 
+function digitsOnly(value) {
+    return String(value || "").replace(/\D/g, "");
+}
+
+function isValidFutureExpiry(expiry) {
+    if (!/^\d{4}-\d{2}$/.test(expiry)) return false;
+    const [year, month] = expiry.split("-").map(Number);
+    if (month < 1 || month > 12) return false;
+
+    const now = new Date();
+    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const expiryMonth = new Date(year, month - 1, 1);
+    return expiryMonth >= currentMonth;
+}
+
+function validateSimulatedCard(body) {
+    const cardholderName = String(body.cardholderName || "").trim();
+    const cardNumber = digitsOnly(body.cardNumber);
+    const cvv = digitsOnly(body.cvv);
+    const expiry = String(body.expiry || "").trim();
+
+    if (!cardholderName) return { error: "Cardholder name is required" };
+    if (cardNumber.length < 12 || cardNumber.length > 19) {
+        return { error: "Card number must contain 12 to 19 digits" };
+    }
+    if (!isValidFutureExpiry(expiry)) return { error: "Expiry month must be current or future" };
+    if (!/^\d{3,4}$/.test(cvv)) return { error: "CVV must contain 3 or 4 digits" };
+
+    return {
+        cardLast4: cardNumber.slice(-4),
+        cardholderName,
+        expiry
+    };
+}
+
 // POST /payments
 async function createPayment(req, res) {
     try {
@@ -120,6 +155,62 @@ async function getPaymentByRide(req, res) {
     }
 }
 
+// POST /payments/ride/:rideId/simulate
+async function simulatePayment(req, res) {
+    try {
+        const ride = await Ride.findById(req.params.rideId);
+        if (!ride) return res.status(404).json({ error: "Ride not found" });
+        if (ride.status !== "completed") {
+            return res.status(400).json({ error: "Payment can be approved only after the ride is completed" });
+        }
+        if (!ride.driverId) return res.status(400).json({ error: "Ride has no assigned driver" });
+
+        const passenger = await getPassengerProfileForUser(req.user.userId);
+        if (!passenger || !sameId(passenger._id, ride.passengerId)) {
+            return forbidden(res, "Only the ride passenger can approve payment");
+        }
+
+        const card = validateSimulatedCard(req.body);
+        if (card.error) return res.status(400).json({ error: card.error });
+
+        const existing = await Payment.findOne({ rideId: ride._id });
+        if (existing?.paymentStatus === "paid") {
+            return res.status(200).json({ message: "Payment already approved", payment: existing });
+        }
+        if (existing?.paymentStatus === "refunded") {
+            return res.status(400).json({ error: "Refunded payments cannot be re-approved" });
+        }
+
+        const paidAt = new Date();
+        const transactionId = `sim_${ride._id}_${paidAt.getTime()}`;
+        const payment = await Payment.findOneAndUpdate(
+            { rideId: ride._id },
+            {
+                $set: {
+                    passengerId: ride.passengerId,
+                    driverId: ride.driverId,
+                    amount: ride.finalPrice || 0,
+                    currency: "ILS",
+                    paymentMethod: "credit_card",
+                    paymentStatus: "paid",
+                    paymentProvider: "simulated",
+                    cardLast4: card.cardLast4,
+                    transactionId,
+                    paidAt
+                },
+                $setOnInsert: {
+                    rideId: ride._id
+                }
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
+        );
+
+        res.status(200).json({ message: "Simulated payment approved", payment });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
 // PUT /payments/:id/status
 async function updatePaymentStatus(req, res) {
     try {
@@ -173,5 +264,6 @@ async function refundPayment(req, res) {
 
 module.exports = {
     createPayment, getAllPayments, getPaymentById,
-    getPaymentByRide, updatePaymentStatus, refundPayment
+    getPaymentByRide, updatePaymentStatus, refundPayment,
+    simulatePayment
 };

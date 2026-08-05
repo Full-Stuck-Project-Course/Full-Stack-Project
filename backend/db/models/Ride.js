@@ -65,6 +65,10 @@ const rideSchema = new mongoose.Schema({
     finalPrice:               { type: Number, default: 0 },
     passengerCount:           { type: Number, default: 1, min: 1 },
     cancellationFee:          { type: Number, default: 0 },
+    loyaltyPointsRedeemed:    { type: Number, default: 0, min: 0 },
+    loyaltyRedemptionUserId:  { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    loyaltyPointsRefunded:    { type: Boolean, default: false },
+    loyaltyPointsRefundedAt:  { type: Date, default: null },
 
     cancellationReason: { type: String, default: "" },
 

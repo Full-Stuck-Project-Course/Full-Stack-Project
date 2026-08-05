@@ -66,6 +66,20 @@ const paymentSchema = new mongoose.Schema({
         default: null
     },
 
+    paymentProvider: {
+        type: String,
+        enum: [
+            "manual",
+            "simulated"
+        ],
+        default: "manual"
+    },
+
+    cardLast4: {
+        type: String,
+        default: ""
+    },
+
     refundAmount: {
         type: Number,
         default: 0

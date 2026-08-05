@@ -9,6 +9,7 @@ const {
     createPayment,
     getAllPayments,
     refundPayment,
+    simulatePayment,
     updatePaymentStatus
 } = require("../controllers/paymentController");
 const {
@@ -160,4 +161,113 @@ test("admins create payments from the assigned ride and cannot refund more than 
             refundReason: "partial refund"
         }
     });
+});
+
+test("ride passenger can approve a completed ride with simulated card details", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 72.5
+    };
+    let paymentUpsert;
+
+    patchMethod(patches, Ride, "findById", async (id) => id === ride._id ? ride : null);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        return userId === "passenger-user" ? { _id: ride.passengerId } : null;
+    });
+    patchMethod(patches, Payment, "findOne", async () => null);
+    patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update, options) => {
+        paymentUpsert = { filter, update, options };
+        return { _id: "payment-1", ...update.$setOnInsert, ...update.$set };
+    });
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Test Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.payment.paymentStatus, "paid");
+    assert.equal(paymentUpsert.filter.rideId, ride._id);
+    assert.equal(paymentUpsert.update.$set.paymentMethod, "credit_card");
+    assert.equal(paymentUpsert.update.$set.paymentProvider, "simulated");
+    assert.equal(paymentUpsert.update.$set.cardLast4, "1111");
+    assert.match(paymentUpsert.update.$set.transactionId, /^sim_ride-1_/);
+    assert.ok(paymentUpsert.update.$set.paidAt instanceof Date);
+    assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cardNumber"), false);
+    assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cvv"), false);
+});
+
+test("simulated payment can only be approved by the ride passenger", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 40
+    };
+    let paymentMutated = false;
+
+    patchMethod(patches, Ride, "findById", async () => ride);
+    patchMethod(patches, PassengerProfile, "findOne", async () => ({ _id: "other-passenger" }));
+    patchMethod(patches, Payment, "findOneAndUpdate", async () => {
+        paymentMutated = true;
+        return null;
+    });
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "other-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Other Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 403);
+    assert.equal(paymentMutated, false);
+});
+
+test("simulated payment cannot run before the ride is completed", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "in_progress",
+        finalPrice: 40
+    };
+    let passengerLookupCount = 0;
+
+    patchMethod(patches, Ride, "findById", async () => ride);
+    patchMethod(patches, PassengerProfile, "findOne", async () => {
+        passengerLookupCount += 1;
+        return { _id: ride.passengerId };
+    });
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Test Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(passengerLookupCount, 0);
 });

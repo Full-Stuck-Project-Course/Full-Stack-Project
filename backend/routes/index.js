@@ -31,7 +31,6 @@ const notificationController = require("../controllers/notificationController");
 const carpoolController = require("../controllers/carpoolController");
 const mapsController = require("../controllers/mapsController");
 const uploadController = require("../controllers/uploadController");
-const translateController = require("../controllers/translateController");
 
 const authLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 20 });
 const uploadLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30 });
@@ -112,10 +111,6 @@ router.delete("/uploads/id-photo/:userId", adminOnly, uploadController.deleteIdP
 router.delete("/uploads/license/:driverProfileId", adminOnly, uploadController.deleteDriverLicensePhoto);
 router.delete("/uploads/vehicle-docs/:vehicleId", adminOnly, uploadController.deleteVehicleDocuments);
 
-// Translation.
-router.post("/translate", translateController.translate);
-router.post("/translate/batch", translateController.translateBatch);
-
 // Direct redemption was removed because points must be committed atomically with ride creation.
 router.post("/points/redeem", (req, res) => {
     res.status(410).json({ error: "Redeem points through ride creation using pointsToRedeem" });
@@ -163,6 +158,7 @@ router.delete("/vehicles/:id", vehicleController.deleteVehicle);
 router.post("/payments", paymentController.createPayment);
 router.get("/payments", paymentController.getAllPayments);
 router.get("/payments/ride/:rideId", paymentController.getPaymentByRide);
+router.post("/payments/ride/:rideId/simulate", paymentController.simulatePayment);
 router.get("/payments/:id", paymentController.getPaymentById);
 router.put("/payments/:id/status", paymentController.updatePaymentStatus);
 router.put("/payments/:id/refund", paymentController.refundPayment);

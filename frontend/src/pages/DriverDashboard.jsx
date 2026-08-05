@@ -45,6 +45,7 @@ export default function DriverDashboard() {
     const navigate      = useNavigate();
     const [driver,      setDriver]      = useState(null);
     const [openRides,   setOpenRides]   = useState([]);
+    const [completedRides, setCompletedRides] = useState([]);
     const [alerts,      setAlerts]      = useState([]);
     const [ratings,     setRatings]     = useState([]);
     const [demand,      setDemand]      = useState(null);
@@ -71,12 +72,14 @@ export default function DriverDashboard() {
                 api.get(`/vehicles/driver/${found._id}`).then(r => {
                     if (r.data?.length > 0) setVehicle(r.data[0]);
                 }).catch(() => {});
-                const [alertRes, ratingRes] = await Promise.all([
+                const [alertRes, ratingRes, completedRes] = await Promise.all([
                     api.get(`/driver-alerts/driver/${found._id}`).catch(() => ({ data: [] })),
-                    api.get(`/ratings/driver/${found._id}`).catch(() => ({ data: [] }))
+                    api.get(`/ratings/driver/${found._id}`).catch(() => ({ data: [] })),
+                    api.get("/rides", { params: { driverId: found._id, status: "completed", limit: 5 } }).catch(() => ({ data: { items: [] } }))
                 ]);
                 setAlerts(alertRes.data || []);
                 setRatings(ratingRes.data?.slice(0, 5) || []);
+                setCompletedRides(extractItems(completedRes.data).slice(0, 5));
             }
 
             api.get("/maps/demand").then(r => setDemand(r.data)).catch(() => {});
@@ -337,6 +340,30 @@ export default function DriverDashboard() {
                     </div>
                 )}
             </div>
+
+            {/* Completed rides */}
+            {completedRides.length > 0 && (
+                <div style={s.card}>
+                    <div style={{ fontWeight: 700, marginBottom: 12 }}>נסיעות שהושלמו</div>
+                    {completedRides.map((ride, i) => (
+                        <div key={ride._id || i} style={{ padding: "10px 0", borderBottom: i < completedRides.length - 1 ? "1px solid var(--border)" : "none", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 14, color: "var(--text-muted)" }}>
+                                    {ride.pickupLocation?.address} → {ride.destinationLocation?.address}
+                                </div>
+                                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                                    {new Date(ride.completedAt || ride.updatedAt).toLocaleDateString("he-IL")}
+                                    {ride.finalPrice > 0 && ` · ₪${ride.finalPrice}`}
+                                </div>
+                            </div>
+                            <button type="button" onClick={() => navigate(`/rate/${ride._id}?direction=driver_to_passenger`)}
+                                style={{ background: "#fef3c7", color: "#92400e", padding: "7px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                                דרג נוסע
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Recent ratings */}
             {ratings.length > 0 && (

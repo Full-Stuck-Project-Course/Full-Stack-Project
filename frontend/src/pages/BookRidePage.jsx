@@ -62,6 +62,14 @@ function hasCoordinates(loc) {
     return loc?.lat != null && loc?.lng != null && !(Number(loc.lat) === 0 && Number(loc.lng) === 0);
 }
 
+const LOYALTY_POINT_VALUE_ILS = 0.1;
+
+export function getMaxRedeemablePoints(availablePoints, ridePrice) {
+    const points = Math.max(0, Math.floor(Number(availablePoints) || 0));
+    const priceCap = Math.max(0, Math.ceil((Number(ridePrice) || 0) / LOYALTY_POINT_VALUE_ILS));
+    return Math.min(points, priceCap);
+}
+
 export default function BookRidePage() {
     const { user, updateUser } = useAuth();
     const userId       = user?.userId;
@@ -89,7 +97,10 @@ export default function BookRidePage() {
     const [userPoints,    setUserPoints]    = useState(user?.loyaltyPoints || 0);
     const [redeemPoints,  setRedeemPoints]  = useState(false);
     const [pointsToUse,   setPointsToUse]   = useState(0);
-    const pointsValue = pointsToUse * 0.1;
+    const ridePrice = Number(priceData?.price || 0);
+    const maxRedeemablePoints = getMaxRedeemablePoints(userPoints, ridePrice);
+    const activePointsToUse = redeemPoints ? Math.min(pointsToUse, maxRedeemablePoints) : 0;
+    const pointsValue = activePointsToUse * LOYALTY_POINT_VALUE_ILS;
 
     // Saved addresses
     const [savedAddresses, setSavedAddresses] = useState([]);
@@ -140,6 +151,14 @@ export default function BookRidePage() {
         const timer = setTimeout(calcPrice, 600);
         return () => clearTimeout(timer);
     }, [calcPrice]);
+
+    useEffect(() => {
+        if (!redeemPoints) {
+            if (pointsToUse !== 0) setPointsToUse(0);
+            return;
+        }
+        if (pointsToUse > maxRedeemablePoints) setPointsToUse(maxRedeemablePoints);
+    }, [redeemPoints, pointsToUse, maxRedeemablePoints]);
 
     useEffect(() => {
         if (rideType === "carpool" && passengerCount > 4) setPassCount(4);
@@ -198,7 +217,7 @@ export default function BookRidePage() {
                 destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                 passengerCount,
                 scheduledTime: scheduledTime || null,
-                pointsToRedeem: redeemPoints ? pointsToUse : 0
+                pointsToRedeem: redeemPoints ? activePointsToUse : 0
             });
             if (data.remainingPoints !== undefined) {
                 setUserPoints(data.remainingPoints);
@@ -338,7 +357,7 @@ export default function BookRidePage() {
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                                     <span style={{ color: "var(--text-muted)", fontSize: 14 }}>{"מחיר משוער"}</span>
                                     <div style={{ textAlign: "left" }}>
-                                        {redeemPoints && pointsToUse > 0 && (
+                                        {redeemPoints && activePointsToUse > 0 && (
                                             <span style={{ fontSize: 14, color: "var(--text-muted)", textDecoration: "line-through", marginLeft: 8 }}>₪{priceData.price}</span>
                                         )}
                                         <span style={{ fontWeight: 800, fontSize: 24, color: "var(--primary)" }}>
@@ -365,19 +384,28 @@ export default function BookRidePage() {
                                             <input type="checkbox" checked={redeemPoints} onChange={e => {
                                                 setRedeemPoints(e.target.checked);
                                                 if (!e.target.checked) setPointsToUse(0);
-                                                else setPointsToUse(Math.min(userPoints, priceData.price * 10));
+                                                else setPointsToUse(maxRedeemablePoints);
                                             }} />
-                                            ✨ פדה נקודות נאמנות ({userPoints} נקודות = ₪{(userPoints * 0.1).toFixed(1)})
+                                            ✨ פדה נקודות נאמנות (עד {maxRedeemablePoints} נקודות = ₪{(maxRedeemablePoints * LOYALTY_POINT_VALUE_ILS).toFixed(1)})
                                         </label>
                                         {redeemPoints && (
-                                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                                <input type="range" min={0} max={Math.min(userPoints, Math.ceil(priceData.price * 10))}
-                                                    value={pointsToUse}
-                                                    onChange={e => setPointsToUse(Number(e.target.value))}
-                                                    style={{ flex: 1 }} />
-                                                <span style={{ fontSize: 14, fontWeight: 700, color: "var(--success)", minWidth: 60, textAlign: "left" }}>
-                                                    -₪{(pointsToUse * 0.1).toFixed(1)}
-                                                </span>
+                                            <div style={{ display: "grid", gap: 8 }}>
+                                                <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={maxRedeemablePoints}
+                                                    step={1}
+                                                    value={activePointsToUse}
+                                                    onChange={e => setPointsToUse(Math.min(Number(e.target.value), maxRedeemablePoints))}
+                                                    aria-label="בחר כמה נקודות נאמנות לפדות"
+                                                    style={{ width: "100%" }}
+                                                />
+                                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "var(--text-muted)" }}>
+                                                    <span>{activePointsToUse} מתוך {maxRedeemablePoints} נקודות</span>
+                                                    <span style={{ fontWeight: 700, color: "var(--success)", textAlign: "left" }}>
+                                                        -₪{(activePointsToUse * LOYALTY_POINT_VALUE_ILS).toFixed(1)}
+                                                    </span>
+                                                </div>
                                             </div>
                                         )}
                                     </div>

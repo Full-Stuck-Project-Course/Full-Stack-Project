@@ -22,6 +22,7 @@ const PassengerDashboard = lazy(() => import("./pages/PassengerDashboard"));
 const DriverSetupPage    = lazy(() => import("./pages/DriverSetupPage"));
 const ProfilePage        = lazy(() => import("./pages/ProfilePage"));
 const RatingPage         = lazy(() => import("./pages/RatingPage"));
+const PaymentSimulationPage = lazy(() => import("./pages/PaymentSimulationPage"));
 const AdminPanel         = lazy(() => import("./pages/AdminPanel"));
 
 function PrivateRoute({ children }) {
@@ -55,6 +56,7 @@ function AppRoutes() {
                     <Route path="/book"          element={<PrivateRoute><BookRidePage /></PrivateRoute>} />
                     <Route path="/ride/:id"       element={<PrivateRoute><RideStatusPage /></PrivateRoute>} />
                     <Route path="/rate/:id"       element={<PrivateRoute><RatingPage /></PrivateRoute>} />
+                    <Route path="/payment/:id"    element={<PrivateRoute><PaymentSimulationPage /></PrivateRoute>} />
                     <Route path="/history"        element={<PrivateRoute><RideHistoryPage /></PrivateRoute>} />
                     <Route path="/driver"         element={<PrivateRoute><DriverDashboard /></PrivateRoute>} />
                     <Route path="/passenger"      element={<PrivateRoute><PassengerDashboard /></PrivateRoute>} />

@@ -38,6 +38,55 @@ const STATUS_LABELS = {
     cancelled:       { label: "בוטלה",     icon: "❌", cls: "status-cancelled" }
 };
 
+function isAssignedDriverUser(ride, user) {
+    return Boolean(ride?.driverId && (
+        ride.driverId?._id === user?.driverId ||
+        ride.driverId?.userId?._id === user?.userId
+    ));
+}
+
+function getChatPeerInfo(ride, user) {
+    const driverView = isAssignedDriverUser(ride, user);
+    const peerRole = driverView ? "הנוסע" : "הנהג";
+    const peerName = driverView
+        ? ride?.passengerId?.userId?.fullName
+        : ride?.driverId?.userId?.fullName;
+
+    return {
+        title: `צ'אט עם ${peerRole}${peerName ? ` - ${peerName}` : ""}`,
+        senderFallback: driverView ? "נהג" : "נוסע"
+    };
+}
+
+function getRideParticipantInfo(ride) {
+    return [
+        {
+            key: "passenger",
+            title: "פרטי הנוסע",
+            icon: "👤",
+            name: ride?.passengerId?.userId?.fullName || "הנוסע",
+            meta: ride?.passengerId
+                ? `⭐ ${ride.passengerId.ratingAverage || 5} · ${ride.passengerId.totalRides || 0} נסיעות`
+                : "פרטי הנוסע יופיעו כאן",
+            muted: !ride?.passengerId
+        },
+        {
+            key: "driver",
+            title: "פרטי הנהג",
+            icon: "🧑‍✈️",
+            name: ride?.driverId?.userId?.fullName || "טרם שובץ נהג",
+            meta: ride?.driverId
+                ? `⭐ ${ride.driverId.ratingAverage || 5} · ${ride.driverId.totalRides || 0} נסיעות`
+                : "נעדכן כשהנהג יקבל את הנסיעה",
+            extra: [
+                ride?.driverId?.preferredMusic ? `🎵 ${ride.driverId.preferredMusic}` : "",
+                ride?.driverId?.hobbies?.length > 0 ? `🎯 ${ride.driverId.hobbies.join(", ")}` : ""
+            ].filter(Boolean),
+            muted: !ride?.driverId
+        }
+    ];
+}
+
 export default function RideStatusPage() {
     const { id }       = useParams();
     const navigate     = useNavigate();
@@ -191,7 +240,7 @@ export default function RideStatusPage() {
         if (!chatText.trim()) return;
         socketRef.current?.emit("chat-message", {
             rideId: id, message: chatText,
-            sender: user?.userId, senderName: user?.fullName || "נוסע"
+            sender: user?.userId, senderName: user?.fullName || getChatPeerInfo(ride, user).senderFallback
         });
         setChatText("");
     };
@@ -222,6 +271,8 @@ export default function RideStatusPage() {
         ride.driverId?.userId?._id === user?.userId ||
         user?.role === "admin"
     );
+    const chatPeer = getChatPeerInfo(ride, user);
+    const participantInfo = getRideParticipantInfo(ride);
 
     // Map markers: nearby drivers for passenger
     const driverMarkers = ride.status === "searching"
@@ -272,21 +323,32 @@ export default function RideStatusPage() {
                 ))}
             </div>
 
-            {/* Driver info */}
-            {ride.driverId && (
-                <div style={s.card}>
-                    <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>🧑‍✈️ {"פרטי הנהג"}</div>
-                    <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                        <div style={{ width: 52, height: 52, borderRadius: "50%", background: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 22 }}>🧑</div>
-                        <div>
-                            <div style={{ fontWeight: 700 }}>{ride.driverId.userId?.fullName || "הנהג שלך"}</div>
-                            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>⭐ {ride.driverId.ratingAverage} · {ride.driverId.totalRides} נסיעות</div>
-                            {ride.driverId.preferredMusic && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>🎵 {ride.driverId.preferredMusic}</div>}
-                            {ride.driverId.hobbies?.length > 0 && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>🎯 {ride.driverId.hobbies.join(", ")}</div>}
+            {/* Participants */}
+            <div style={s.card}>
+                <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>👥 פרטי המשתתפים</div>
+                <div style={{ display: "grid", gap: 10 }}>
+                    {participantInfo.map(participant => (
+                        <div key={participant.key}
+                            style={{
+                                display: "flex", gap: 14, alignItems: "center",
+                                padding: 12, borderRadius: 10, border: "1px solid var(--border)",
+                                background: participant.muted ? "#f8fafc" : "var(--surface)"
+                            }}>
+                            <div style={{ width: 52, height: 52, borderRadius: "50%", background: participant.muted ? "#94a3b8" : "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 22 }}>
+                                {participant.icon}
+                            </div>
+                            <div>
+                                <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 2 }}>{participant.title}</div>
+                                <div style={{ fontWeight: 700, color: participant.muted ? "var(--text-muted)" : "var(--text)" }}>{participant.name}</div>
+                                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{participant.meta}</div>
+                                {participant.extra?.map(item => (
+                                    <div key={item} style={{ fontSize: 12, color: "var(--text-muted)" }}>{item}</div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    ))}
                 </div>
-            )}
+            </div>
 
             {/* Map — shows driver location + nearby drivers (when searching) + passenger */}
             <div style={{ marginBottom: 14 }}>
@@ -317,7 +379,7 @@ export default function RideStatusPage() {
                 <div style={s.card}>
                     <button type="button" onClick={() => setChatOpen(o => !o)}
                         style={{ background: "none", padding: 0, color: "var(--primary)", fontWeight: 700, fontSize: 14, marginBottom: chatOpen ? 12 : 0 }}>
-                        💬 {"צ'אט עם הנהג"} {chatOpen ? "▲" : "▼"}
+                        💬 {chatPeer.title} {chatOpen ? "▲" : "▼"}
                     </button>
                     {chatOpen && (
                         <>
@@ -346,11 +408,6 @@ export default function RideStatusPage() {
             )}
 
             {/* Actions */}
-            {isAssignedDriver && ride.status === "accepted" && (
-                <button className="btn-primary" onClick={() => updateRideStep("driver-arriving")} style={{ marginBottom: 10 }}>
-                    הנהג בדרך
-                </button>
-            )}
             {isAssignedDriver && ["accepted", "driver_arriving"].includes(ride.status) && (
                 <button className="btn-primary" onClick={() => updateRideStep("start")} style={{ marginBottom: 10 }}>
                     התחל נסיעה
@@ -368,7 +425,9 @@ export default function RideStatusPage() {
                 </button>
             )}
             {ride.status === "completed" && (
-                <button className="btn-primary" onClick={() => navigate(`/rate/${id}`)}>⭐ {"דרג נסיעה"} →</button>
+                <button className="btn-primary" onClick={() => navigate(isAssignedDriver ? `/rate/${id}?direction=driver_to_passenger` : `/payment/${id}`)}>
+                    ⭐ {isAssignedDriver ? "דרג נוסע" : "המשך לתשלום"} →
+                </button>
             )}
             {inRide && (
                 <button type="button" onClick={reportComplaint}

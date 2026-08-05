@@ -25,7 +25,7 @@
   "scripts": {
     "start": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "node scripts/check-rating-a11y.js && node scripts/check-production-config.js && node scripts/check-tracked-artifacts.js && node scripts/check-admin-navigation.js && node scripts/check-router-adapter.js && node scripts/check-carpool-booking.js && node scripts/check-carpool-admin-workflow.js",
+    "test": "node scripts/check-rating-a11y.js && node scripts/check-production-config.js && node scripts/check-tracked-artifacts.js && node scripts/check-admin-navigation.js && node scripts/check-router-adapter.js && node scripts/check-carpool-booking.js && node scripts/check-carpool-admin-workflow.js && node scripts/check-ride-chat-role-labels.js && node scripts/check-driver-arriving-flow.js && node scripts/check-driver-passenger-rating-flow.js && node scripts/check-ride-participants-display.js && node scripts/check-payment-simulation-flow.js && node scripts/check-loyalty-redemption-slider.js",
     "lint": "echo \"No frontend lint configured.\""
   },
   "browserslist": {

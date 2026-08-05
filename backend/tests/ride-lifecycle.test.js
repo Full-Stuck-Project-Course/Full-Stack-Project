@@ -11,10 +11,10 @@ const User = require("../db/models/User");
 const {
     createRide,
     acceptRide,
-    driverArriving,
     startRide,
     completeRide,
-    cancelRide
+    cancelRide,
+    adminUpdateRide
 } = require("../controllers/rideController");
 const {
     makeRes,
@@ -88,7 +88,52 @@ test("point redemption and ride creation are committed in one Mongo transaction"
     assert.equal(Array.isArray(rideCreate.docs), true);
     assert.equal(rideCreate.docs[0].passengerId, "passenger-1");
     assert.equal(rideCreate.docs[0].status, "searching");
+    assert.equal(rideCreate.docs[0].loyaltyPointsRedeemed, 15);
+    assert.equal(rideCreate.docs[0].loyaltyRedemptionUserId, "user-1");
+    assert.equal(rideCreate.docs[0].loyaltyPointsRefunded, false);
     assert.deepEqual(userUpdate.update, { $inc: { loyaltyPoints: -15 } });
+    assert.deepEqual(events, ["transaction-start", "transaction-commit", "session-end"]);
+});
+
+test("loyalty redemption is capped at the ride price value in points before user points are charged", async () => {
+    const events = [];
+    const session = makeSession(events);
+    let userUpdate;
+    let rideCreate;
+
+    patchMethod(patches, mongoose, "startSession", async () => session);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        assert.equal(userId, "passenger-user");
+        return { _id: "passenger-1", userId: "user-1" };
+    });
+    patchMethod(patches, User, "findOneAndUpdate", async (filter, update, options) => {
+        userUpdate = { filter, update, options };
+        return { _id: "user-1", loyaltyPoints: 9000 - filter.loyaltyPoints.$gte };
+    });
+    patchMethod(patches, Ride, "create", async (docs, options) => {
+        rideCreate = { docs, options };
+        return [{ _id: "ride-1", ...docs[0] }];
+    });
+
+    const res = makeRes();
+    await createRide({
+        user: { userId: "passenger-user", role: "passenger" },
+        body: {
+            pickupLocation,
+            destinationLocation,
+            passengerCount: 1,
+            pointsToRedeem: 9999
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 201);
+    const redeemed = rideCreate.docs[0].loyaltyPointsRedeemed;
+    const inferredOriginalPrice = Math.round((rideCreate.docs[0].finalPrice + redeemed * 0.1) * 10) / 10;
+    assert.equal(redeemed, Math.ceil(inferredOriginalPrice / 0.1));
+    assert.ok(redeemed < 9999);
+    assert.equal(userUpdate.filter.loyaltyPoints.$gte, redeemed);
+    assert.deepEqual(userUpdate.update, { $inc: { loyaltyPoints: -redeemed } });
+    assert.equal(rideCreate.docs[0].loyaltyRedemptionUserId, "user-1");
     assert.deepEqual(events, ["transaction-start", "transaction-commit", "session-end"]);
 });
 
@@ -247,21 +292,11 @@ test("verified driver can claim, start, and complete a ride while payment/profil
     }, acceptRes);
 
     assert.equal(acceptRes.statusCode, 200);
-    assert.equal(ride.status, "accepted");
+    assert.equal(ride.status, "driver_arriving");
     assert.equal(ride.driverId, driver._id);
     assert.equal(ride.vehicleId, vehicle._id);
     assert.equal(driverClaim.options.new, true);
     assert.equal(rideClaim.options.runValidators, true);
-
-    const arrivingRes = makeRes();
-    await driverArriving({
-        user: { userId: "driver-user", role: "driver" },
-        params: { id: ride._id },
-        body: {}
-    }, arrivingRes);
-
-    assert.equal(arrivingRes.statusCode, 200);
-    assert.equal(ride.status, "driver_arriving");
 
     const startRes = makeRes();
     await startRide({
@@ -292,9 +327,9 @@ test("verified driver can claim, start, and complete a ride while payment/profil
         $inc: { totalRides: 1, totalSpent: 58.5 }
     });
     assert.deepEqual(paymentUpsert.filter, { rideId: ride._id });
-    assert.equal(paymentUpsert.update.$setOnInsert.paymentMethod, "cash");
-    assert.equal(paymentUpsert.update.$setOnInsert.paymentStatus, "paid");
-    assert.ok(paymentUpsert.update.$setOnInsert.paidAt instanceof Date);
+    assert.equal(paymentUpsert.update.$setOnInsert.paymentMethod, "credit_card");
+    assert.equal(paymentUpsert.update.$setOnInsert.paymentStatus, "pending");
+    assert.equal(paymentUpsert.update.$setOnInsert.paidAt, null);
     assert.equal(paymentUpsert.options.upsert, true);
 });
 
@@ -328,4 +363,125 @@ test("assigned driver is released when an accepted ride is cancelled", async () 
     assert.ok(ride.cancelledAt instanceof Date);
     assert.equal(releasedDriverId, "driver-1");
     assert.deepEqual(releasedUpdate, { status: "available" });
+});
+
+test("cancelling a ride refunds redeemed loyalty points in the cancellation transaction", async () => {
+    const events = [];
+    const session = makeSession(events);
+    const ride = makeRide({
+        status: "accepted",
+        driverId: "driver-1",
+        loyaltyPointsRedeemed: 25,
+        loyaltyRedemptionUserId: "user-1",
+        loyaltyPointsRefunded: false
+    });
+    let userRefund;
+    let refundMarker;
+    let releasedDriver;
+
+    patchMethod(patches, mongoose, "startSession", async () => session);
+    patchMethod(patches, Ride, "findById", async () => ride);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        return userId === "passenger-user" ? { _id: ride.passengerId, userId: "user-1" } : null;
+    });
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+    patchMethod(patches, Ride, "findOneAndUpdate", async (filter, update, options) => {
+        assert.equal(options.session, session);
+        if (update.$set?.status === "cancelled") {
+            assert.deepEqual(filter, { _id: ride._id, status: { $nin: ["completed", "cancelled"] } });
+            Object.assign(ride, update.$set);
+            return ride;
+        }
+        refundMarker = { filter, update, options };
+        Object.assign(ride, update.$set);
+        return ride;
+    });
+    patchMethod(patches, User, "findByIdAndUpdate", async (id, update, options) => {
+        userRefund = { id, update, options };
+        return { _id: id, loyaltyPoints: 125 };
+    });
+    patchMethod(patches, DriverProfile, "findByIdAndUpdate", async (id, update, options) => {
+        releasedDriver = { id, update, options };
+        return { _id: id, ...update };
+    });
+
+    const res = makeRes();
+    await cancelRide({
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { id: ride._id },
+        body: { cancellationReason: "plans changed" }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.remainingPoints, 125);
+    assert.equal(ride.status, "cancelled");
+    assert.equal(ride.loyaltyPointsRefunded, true);
+    assert.ok(ride.loyaltyPointsRefundedAt instanceof Date);
+    assert.deepEqual(refundMarker.filter, {
+        _id: ride._id,
+        loyaltyPointsRedeemed: { $gt: 0 },
+        loyaltyPointsRefunded: { $ne: true }
+    });
+    assert.equal(userRefund.id, "user-1");
+    assert.deepEqual(userRefund.update, { $inc: { loyaltyPoints: 25 } });
+    assert.equal(userRefund.options.session, session);
+    assert.equal(releasedDriver.id, "driver-1");
+    assert.equal(releasedDriver.options.session, session);
+    assert.deepEqual(events, ["transaction-start", "transaction-commit", "session-end"]);
+});
+
+test("admin cancellation refunds redeemed loyalty points", async () => {
+    const events = [];
+    const session = makeSession(events);
+    const existing = makeRide({
+        _id: "ride-1",
+        status: "in_progress",
+        driverId: "driver-1",
+        loyaltyPointsRedeemed: 10,
+        loyaltyRedemptionUserId: "user-1",
+        loyaltyPointsRefunded: false
+    });
+    let adminUpdate;
+    let userRefund;
+    let releasedDriver;
+
+    patchMethod(patches, mongoose, "startSession", async () => session);
+    patchMethod(patches, Ride, "findById", async () => existing);
+    patchMethod(patches, Ride, "findByIdAndUpdate", async (id, update, options) => {
+        adminUpdate = { id, update, options };
+        return { ...existing, ...update };
+    });
+    patchMethod(patches, Ride, "findOneAndUpdate", async (filter, update, options) => {
+        assert.equal(options.session, session);
+        return { ...existing, ...adminUpdate.update, ...update.$set };
+    });
+    patchMethod(patches, User, "findByIdAndUpdate", async (id, update, options) => {
+        userRefund = { id, update, options };
+        return { _id: id, loyaltyPoints: 90 };
+    });
+    patchMethod(patches, DriverProfile, "findByIdAndUpdate", async (id, update, options) => {
+        releasedDriver = { id, update, options };
+        return { _id: id, ...update };
+    });
+
+    const res = makeRes();
+    await adminUpdateRide({
+        user: { userId: "admin-user", role: "admin" },
+        params: { id: "ride-1" },
+        body: {
+            status: "cancelled",
+            cancellationReason: "support cancellation"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.remainingPoints, 90);
+    assert.equal(adminUpdate.options.session, session);
+    assert.equal(adminUpdate.update.status, "cancelled");
+    assert.equal(userRefund.id, "user-1");
+    assert.deepEqual(userRefund.update, { $inc: { loyaltyPoints: 10 } });
+    assert.equal(userRefund.options.session, session);
+    assert.equal(releasedDriver.id, "driver-1");
+    assert.equal(releasedDriver.options.session, session);
+    assert.deepEqual(events, ["transaction-start", "transaction-commit", "session-end"]);
 });

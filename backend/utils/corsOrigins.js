@@ -25,6 +25,10 @@ function isLocalDevOrigin(origin) {
 }
 
 function isAllowedOrigin(origin) {
+    // Requests from server-to-server clients, health checks, curl/Postman, and
+    // native clients often do not include an Origin header. Authentication and
+    // authorization are enforced separately, so no-Origin requests are allowed
+    // intentionally rather than as a permissive browser CORS fallback.
     if (!origin) return true;
     return configuredOrigins().includes(origin) || isLocalDevOrigin(origin);
 }
