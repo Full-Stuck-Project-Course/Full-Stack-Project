@@ -385,8 +385,7 @@ export default function AdminPanel() {
                                         <button style={s.smallBtn} disabled={saving} onClick={() => runAction("תמונת פרופיל נמחקה", () => api.delete(`/uploads/profile/${user._id}`))}>מחק תמונת פרופיל</button>
                                         <button style={s.successBtn} disabled={saving} onClick={() => runAction("תעודת הזהות אושרה", () => api.put(`/uploads/verify-id/${user._id}`, { status: "approved" }))}>אשר ת.ז.</button>
                                         <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("תעודת הזהות נדחתה", () => api.put(`/uploads/verify-id/${user._id}`, { status: "rejected" }))}>דחה ת.ז.</button>
-                                        <button style={s.smallBtn} disabled={saving} onClick={() => runAction("סטטוס ת.ז. אופס", () => api.put(`/uploads/verify-id/${user._id}`, { status: "not_submitted" }))}>אפס ת.ז.</button>
-                                        <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("תמונת ID נמחקה", () => api.delete(`/uploads/id-photo/${user._id}`))}>מחק ID</button>
+                                        <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("תעודת הזהות נמחקה", () => api.delete(`/uploads/id-photo/${user._id}`))}>מחק תז</button>
                                         <button style={s.dangerBtn} disabled={saving} onClick={() => window.confirm("לבצע מחיקה רגילה למשתמש?") && runAction("המשתמש נמחק", () => api.delete(`/users/${user._id}`))}>מחק משתמש</button>
                                         <button style={s.dangerBtn} disabled={saving} onClick={() => confirmHardDelete(user) && runAction("המשתמש נמחק קשה", () => api.delete(`/users/${user._id}/hard`))}>מחיקה קשה</button>
                                     </div>
@@ -430,8 +429,7 @@ export default function AdminPanel() {
                                         <button style={s.smallBtn} disabled={saving} onClick={() => runAction("סטטוס הנהג עודכן", () => api.put(`/drivers/${driver._id}/status`, { status: current.status }))}>שמור סטטוס</button>
                                         <button style={s.successBtn} disabled={saving} onClick={() => runAction("הנהג אושר", () => api.put(`/uploads/verify-driver/${driver._id}`, { status: "approved" }))}>אשר נהג</button>
                                         <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("הנהג נדחה", () => api.put(`/uploads/verify-driver/${driver._id}`, { status: "rejected" }))}>דחה נהג</button>
-                                        <button style={s.smallBtn} disabled={saving} onClick={() => runAction("אימות הנהג אופס", () => api.put(`/uploads/verify-driver/${driver._id}`, { status: "not_submitted" }))}>אפס אימות</button>
-                                        <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("צילום הרישיון נמחק", () => api.delete(`/uploads/license/${driver._id}`))}>מחק צילום רישיון</button>
+                                        <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("מסמכי הנהג נמחקו", () => api.delete(`/uploads/license/${driver._id}`))}>מחק מסמכי נהג</button>
                                         <button style={s.dangerBtn} disabled={saving} onClick={() => window.confirm("למחוק את פרופיל הנהג וכל הרכבים שלו? המשתמש יישאר ויוכל להגדיר נהג מחדש.") && runAction("פרופיל הנהג נמחק", () => api.delete(`/drivers/${driver._id}`))}>מחק נהג</button>
                                     </div>
                                 </div>
@@ -481,8 +479,7 @@ export default function AdminPanel() {
                                         <button style={s.primaryBtn} disabled={saving} onClick={() => saveVehicle(vehicle)}>שמור רכב</button>
                                         <button style={s.successBtn} disabled={saving} onClick={() => runAction("מסמכי הרכב אושרו", () => api.put(`/uploads/verify-vehicle/${vehicle._id}`, { status: "approved" }))}>אשר מסמכים</button>
                                         <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("מסמכי הרכב נדחו", () => api.put(`/uploads/verify-vehicle/${vehicle._id}`, { status: "rejected" }))}>דחה מסמכים</button>
-                                        <button style={s.smallBtn} disabled={saving} onClick={() => runAction("אימות הרכב אופס", () => api.put(`/uploads/verify-vehicle/${vehicle._id}`, { status: "not_submitted" }))}>אפס אימות</button>
-                                        <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("מסמכי הרכב נמחקו", () => api.delete(`/uploads/vehicle-docs/${vehicle._id}`))}>מחק מסמכים</button>
+                                        <button style={s.dangerBtn} disabled={saving} onClick={() => runAction("מסמכי הרכב נמחקו", () => api.delete(`/uploads/vehicle-docs/${vehicle._id}`))}>מחק מסמכי רכב</button>
                                         <button style={s.dangerBtn} disabled={saving} onClick={() => window.confirm("למחוק את הרכב? הנהג והמשתמש יישארו ויוכלו להוסיף רכב מחדש.") && runAction("הרכב נמחק", () => api.delete(`/vehicles/${vehicle._id}`))}>מחק רכב</button>
                                     </div>
                                 </div>

@@ -10,7 +10,7 @@ import AutoVerificationOverlay, { waitForAutoVerification } from "../components/
 const STEPS = ["פרטי נהג", "רכב", "מסמכים"];
 const VEHICLE_TYPES = ["regular", "comfort", "luxury", "van"];
 const LANGS = ["עברית", "אנגלית", "ערבית", "רוסית", "אמהרית", "צרפתית"];
-const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 const ALLOWED_DOCUMENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const CAR_BRANDS = {
@@ -63,7 +63,7 @@ function FieldErr({ msg }) {
 
 function validateDocumentFile(file) {
     if (!file) return "";
-    if (file.size > MAX_DOCUMENT_BYTES) return "הקובץ גדול מדי. אפשר להעלות עד 5MB";
+    if (file.size > MAX_DOCUMENT_BYTES) return "הקובץ גדול מדי. אפשר להעלות עד 15MB";
     if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) return "אפשר להעלות רק תמונות JPG, PNG או WEBP";
     return "";
 }

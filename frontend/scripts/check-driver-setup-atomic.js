@@ -30,8 +30,8 @@ for (const oldEndpoint of [
     );
 }
 assert(
-    source.includes("MAX_DOCUMENT_BYTES") && source.includes("5 * 1024 * 1024"),
-    "Driver setup must validate the 5MB document size limit before submitting."
+    source.includes("MAX_DOCUMENT_BYTES") && source.includes("15 * 1024 * 1024"),
+    "Driver setup must validate the 15MB document size limit before submitting."
 );
 assert(
     source.includes('e.target.value = ""'),

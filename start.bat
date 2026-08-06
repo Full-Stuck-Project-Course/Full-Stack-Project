@@ -69,13 +69,12 @@ for /f "usebackq tokens=1,* delims==" %%A in (`findstr /R /C:"^PORT=[0-9][0-9]*$
 )
 
 echo.
-echo Closing existing HailNow processes if any...
-call :StopPidFile "%BACKEND_PID_FILE%" "backend" "HailNow Backend"
-call :StopPidFile "%FRONTEND_PID_FILE%" "frontend" "HailNow Frontend"
-call :StopCmdWindow "HailNow Backend"
-call :StopCmdWindow "HailNow Frontend"
-call :StopPort "%BACKEND_PORT%" "backend"
-call :StopPort "%FRONTEND_PORT%" "frontend"
+call "%ROOT%stop.bat"
+if errorlevel 1 (
+    echo ERROR: failed to stop existing HailNow processes.
+    pause
+    exit /b 1
+)
 
 :: Install backend node_modules if missing
 if not exist "%BACKEND%\node_modules" (
@@ -145,32 +144,6 @@ start "" "%FRONTEND_URL%"
 endlocal
 exit /b 0
 
-:StopPidFile
-set "PID_FILE=%~1"
-set "SERVICE_NAME=%~2"
-set "WINDOW_TITLE=%~3"
-if not exist "%PID_FILE%" exit /b 0
-
-set "TARGET_PID="
-set /p TARGET_PID=<"%PID_FILE%"
-del /q "%PID_FILE%" >nul 2>&1
-
-if not defined TARGET_PID exit /b 0
-echo(%TARGET_PID%| findstr /R "^[0-9][0-9]*$" >nul
-if errorlevel 1 exit /b 0
-
-tasklist /FI "PID eq %TARGET_PID%" 2>nul | findstr /R /C:"[ ]%TARGET_PID%[ ]" >nul
-if not errorlevel 1 (
-    echo Closing previous %SERVICE_NAME% process from PID file, PID %TARGET_PID%...
-    taskkill /PID %TARGET_PID% /T /F >nul 2>&1
-)
-exit /b 0
-
-:StopCmdWindow
-set "WINDOW_TITLE=%~1"
-taskkill /F /T /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq %WINDOW_TITLE%*" >nul 2>&1
-exit /b 0
-
 :StartBackend
 if not exist "%PID_DIR%" mkdir "%PID_DIR%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path $env:PID_DIR | Out-Null; $process=Start-Process -FilePath 'cmd.exe' -ArgumentList '/k','title HailNow Backend && npm run dev' -WorkingDirectory $env:BACKEND -PassThru; Set-Content -Path $env:BACKEND_PID_FILE -Value $process.Id -Encoding Ascii; Write-Output ('Started Backend, PID ' + $process.Id)"
@@ -189,10 +162,4 @@ set "WAIT_SECONDS=%~2"
 set "WAIT_SERVICE=%~3"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$deadline=(Get-Date).AddSeconds([int]$env:WAIT_SECONDS); do { try { $res=Invoke-WebRequest -UseBasicParsing -Uri $env:WAIT_URL -TimeoutSec 2; if ($res.StatusCode -ge 200 -and $res.StatusCode -lt 500) { exit 0 } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); Write-Error ($env:WAIT_SERVICE + ' is not ready at ' + $env:WAIT_URL); exit 1"
 if errorlevel 1 exit /b 1
-exit /b 0
-
-:StopPort
-set "TARGET_PORT=%~1"
-set "SERVICE_NAME=%~2"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $port=[int]$env:TARGET_PORT; $service=$env:SERVICE_NAME; $ids=Get-NetTCPConnection -LocalPort $port -State Listen | Select-Object -ExpandProperty OwningProcess -Unique; foreach ($processId in $ids) { if ($processId -and $processId -ne 0) { Write-Output ('Closing existing ' + $service + ' process on port ' + $port + ', PID ' + $processId + '...'); Stop-Process -Id $processId -Force } }"
 exit /b 0

@@ -316,21 +316,50 @@ function startScheduledTasks() {
     ];
 }
 
+function formatListenError(error, port) {
+    if (error?.code === "EADDRINUSE") {
+        return `Port ${port} is already in use. Close the existing backend with stop.bat, or run this backend with a different PORT.`;
+    }
+    return error?.message || String(error);
+}
+
+function listen(serverInstance, port) {
+    return new Promise((resolve, reject) => {
+        function cleanup() {
+            serverInstance.off("error", onError);
+            serverInstance.off("listening", onListening);
+        }
+
+        function onError(error) {
+            cleanup();
+            reject(error);
+        }
+
+        function onListening() {
+            cleanup();
+            resolve();
+        }
+
+        serverInstance.once("error", onError);
+        serverInstance.once("listening", onListening);
+        serverInstance.listen(port);
+    });
+}
+
 async function startServer() {
     await connectMongo();
     await configureSocketIoAdapter(io, { env: process.env, logger: console });
 
-    server.listen(PORT, () => {
-        console.log(`HailNow server running on port ${PORT}`);
-        console.log(`Allowed origins: ${configuredOrigins().join(", ")}`);
-    });
+    await listen(server, PORT);
+    console.log(`HailNow server running on port ${PORT}`);
+    console.log(`Allowed origins: ${configuredOrigins().join(", ")}`);
 
     startScheduledTasks();
 }
 
 if (require.main === module) {
     startServer().catch(error => {
-        console.error("Server startup failed:", error.message);
+        console.error("Server startup failed:", formatListenError(error, PORT));
         process.exit(1);
     });
 }
@@ -340,6 +369,8 @@ module.exports = {
     io,
     notifyNearbyDrivers,
     server,
+    formatListenError,
+    listen,
     startScheduledTasks,
     startServer
 };
