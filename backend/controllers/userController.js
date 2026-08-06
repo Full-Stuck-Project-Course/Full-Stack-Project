@@ -10,6 +10,7 @@ const DriverProfile    = require("../db/models/DriverProfile");
 const { sameId, isAdmin } = require("../utils/authz");
 const { signAuthToken } = require("../utils/jwtConfig");
 const { sendPasswordResetEmail, isSmtpConfigured } = require("../utils/email");
+const { needsProfileCompletion } = require("../utils/profileCompletion");
 const {
     cleanupDeletedUserPrivacy,
     deleteStoredUploads
@@ -25,22 +26,12 @@ function isPlaceholderGoogleClientId(clientId) {
 }
 
 function getGoogleClientIdsFromEnv(env = process.env) {
-    const raw = String(env.GOOGLE_CLIENT_ID || env.VITE_GOOGLE_CLIENT_ID || "").trim();
-    return raw
+    return [env.GOOGLE_CLIENT_ID, env.VITE_GOOGLE_CLIENT_ID]
+        .filter(Boolean)
+        .join(",")
         .split(",")
         .map(clientId => clientId.trim())
         .filter(clientId => clientId && !isPlaceholderGoogleClientId(clientId));
-}
-
-function isTemporaryGooglePhone(phone) {
-    return /^google-[a-z0-9_-]+$/i.test(String(phone || ""));
-}
-
-function needsProfileCompletion(user) {
-    return Boolean(user && (
-        isTemporaryGooglePhone(user.phone) ||
-        (user.authProvider === "google" && !user.idPhotoPath)
-    ));
 }
 
 function isGoogleVerificationNetworkError(error) {
@@ -548,6 +539,9 @@ async function googleLogin(req, res) {
         const email = String(payload.email || "").trim().toLowerCase();
 
         if (!email) return res.status(400).json({ error: "Google account has no email" });
+        if (payload.email_verified !== true) {
+            return res.status(400).json({ error: "Google account email must be verified" });
+        }
 
         let user = await User.findOne({ email });
 

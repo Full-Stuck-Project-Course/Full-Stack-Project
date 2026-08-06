@@ -27,4 +27,26 @@ function adminOnly(req, res, next) {
     next();
 }
 
-module.exports = { auth, adminOnly };
+function isProfileCompletionRoute(req) {
+    const userId = String(req.user?.userId || "");
+    if (!userId) return false;
+
+    return (
+        (req.method === "GET" && req.path === `/users/${userId}`) ||
+        (req.method === "POST" && req.path === `/users/${userId}/complete-profile`) ||
+        (req.method === "POST" && req.path === "/uploads/id-photo")
+    );
+}
+
+function requireCompletedProfile(req, res, next) {
+    if (req.user?.role === "admin" || !req.user?.needsProfileCompletion || isProfileCompletionRoute(req)) {
+        return next();
+    }
+
+    return res.status(403).json({
+        code: "PROFILE_COMPLETION_REQUIRED",
+        error: "Profile completion is required before using HailNow"
+    });
+}
+
+module.exports = { auth, adminOnly, requireCompletedProfile };

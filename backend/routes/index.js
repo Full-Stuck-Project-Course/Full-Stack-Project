@@ -3,7 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const upload = require("../middleware/upload");
-const { auth, adminOnly } = require("../middleware/auth");
+const { auth, adminOnly, requireCompletedProfile } = require("../middleware/auth");
 const validate = require("../middleware/validate");
 const createRateLimiter = require("../middleware/rateLimit");
 const {
@@ -66,6 +66,7 @@ router.post("/users/check-phone", authLimiter, async (req, res) => {
 
 // All routes below require authentication.
 router.use(auth);
+router.use(requireCompletedProfile);
 
 // Users.
 router.get("/users", auth, adminOnly, userController.getAllUsers);
@@ -131,6 +132,11 @@ router.put("/rides/:id/admin", adminOnly, rideController.adminUpdateRide);
 
 // Drivers.
 router.post("/drivers", driverController.registerDriver);
+router.post("/drivers/setup", uploadLimiter, upload.fields([
+    { name: "licensePhoto", maxCount: 1 },
+    { name: "testPhoto", maxCount: 1 },
+    { name: "insurancePhoto", maxCount: 1 }
+]), driverController.completeDriverSetup);
 router.get("/drivers", driverController.getAllDrivers);
 router.get("/drivers/available", driverController.getAvailableDrivers);
 router.get("/drivers/:id", driverController.getDriverById);

@@ -10,6 +10,8 @@ import AutoVerificationOverlay, { waitForAutoVerification } from "../components/
 const STEPS = ["פרטי נהג", "רכב", "מסמכים"];
 const VEHICLE_TYPES = ["regular", "comfort", "luxury", "van"];
 const LANGS = ["עברית", "אנגלית", "ערבית", "רוסית", "אמהרית", "צרפתית"];
+const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+const ALLOWED_DOCUMENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const CAR_BRANDS = {
     "טויוטה":   ["קורולה", "יאריס", "קאמרי", "RAV4", "לנד קרוזר", "היילקס", "C-HR", "אחר"],
@@ -59,6 +61,19 @@ function FieldErr({ msg }) {
     return <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {msg}</p>;
 }
 
+function validateDocumentFile(file) {
+    if (!file) return "";
+    if (file.size > MAX_DOCUMENT_BYTES) return "הקובץ גדול מדי. אפשר להעלות עד 5MB";
+    if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) return "אפשר להעלות רק תמונות JPG, PNG או WEBP";
+    return "";
+}
+
+function readPreview(file, setPreview) {
+    const reader = new FileReader();
+    reader.onload = ev => setPreview(ev.target.result);
+    reader.readAsDataURL(file);
+}
+
 function FileUpload({ label, preview, onChange, fieldName }) {
     return (
         <div style={s.group}>
@@ -73,6 +88,7 @@ function FileUpload({ label, preview, onChange, fieldName }) {
                 <input type="file" accept="image/*" style={{ display: "none" }}
                     onChange={e => {
                         const file = e.target.files[0];
+                        e.target.value = "";
                         if (!file) return;
                         onChange(file);
                     }} />
@@ -206,11 +222,24 @@ export default function DriverSetupPage() {
         return Object.keys(errs).length > 0 ? "יש לתקן את השדות המסומנים" : null;
     };
 
+    const setDocumentFile = (field, file, setFile, setPreview) => {
+        const fileError = validateDocumentFile(file);
+        if (fileError) {
+            setFile(null);
+            setPreview("");
+            setError(fileError);
+            setFieldErrors(f => ({ ...f, [field]: fileError }));
+            return;
+        }
+
+        setError("");
+        setFieldErrors(f => ({ ...f, [field]: undefined }));
+        setFile(file);
+        readPreview(file, setPreview);
+    };
+
     const handleLicenseFile = (file) => {
-        setLicenseFile(file);
-        const reader = new FileReader();
-        reader.onload = ev => setLicensePreview(ev.target.result);
-        reader.readAsDataURL(file);
+        setDocumentFile("licensePhoto", file, setLicenseFile, setLicensePreview);
     };
 
     const handleSubmit = async () => {
@@ -233,87 +262,35 @@ export default function DriverSetupPage() {
         setLoading(true);
         const verificationDelay = waitForAutoVerification();
         try {
-            let driverId;
-
-            if (existingDriver) {
-                await api.put(`/drivers/${existingDriver._id}`, {
-                    licenseNumber: driverForm.licenseNumber,
-                    gender: driverForm.gender,
-                    preferredMusic: driverForm.preferredMusic,
-                    hobbies: driverForm.hobbies.split(",").map(s => s.trim()).filter(Boolean),
-                    spokenLanguages: driverForm.spokenLanguages,
-                    acceptsCarpoolRides: driverForm.acceptsCarpoolRides,
-                    vehicleConditions: driverForm.vehicleConditions,
-                    licenseExpiry: driverForm.licenseExpiry || undefined
-                });
-                driverId = existingDriver._id;
-            } else {
-                const { data } = await api.post("/drivers", {
-                    userId,
-                    licenseNumber: driverForm.licenseNumber,
-                    gender: driverForm.gender,
-                    preferredMusic: driverForm.preferredMusic,
-                    hobbies: driverForm.hobbies.split(",").map(s => s.trim()).filter(Boolean),
-                    spokenLanguages: driverForm.spokenLanguages,
-                    acceptsCarpoolRides: driverForm.acceptsCarpoolRides,
-                    vehicleConditions: driverForm.vehicleConditions,
-                    licenseExpiry: driverForm.licenseExpiry || undefined
-                });
-                driverId = data.driver?._id;
-            }
-
-            // Vehicle — resolve "אחר" to the custom text
             const finalCompany = vehicleForm.company === "אחר" ? (vehicleForm.companyOther || "אחר") : vehicleForm.company;
             const finalModel   = vehicleForm.model   === "אחר" ? (vehicleForm.modelOther   || "אחר") : vehicleForm.model;
             const finalColor   = vehicleForm.color   === "אחר" ? (vehicleForm.colorOther   || "אחר") : vehicleForm.color;
 
-            const vehicleData = {
-                driverId,
-                company: finalCompany,
-                model:   finalModel,
-                year:    Number(vehicleForm.year),
-                color:   finalColor,
-                licensePlate: vehicleForm.licensePlate,
-                vehicleType:  vehicleForm.vehicleType,
-                seats:   Number(vehicleForm.seats)
-            };
+            const fd = new FormData();
+            fd.append("licenseNumber", driverForm.licenseNumber);
+            fd.append("gender", driverForm.gender);
+            fd.append("preferredMusic", driverForm.preferredMusic);
+            fd.append("hobbies", JSON.stringify(driverForm.hobbies.split(",").map(s => s.trim()).filter(Boolean)));
+            fd.append("spokenLanguages", JSON.stringify(driverForm.spokenLanguages));
+            fd.append("acceptsCarpoolRides", String(driverForm.acceptsCarpoolRides));
+            fd.append("vehicleConditions", JSON.stringify(driverForm.vehicleConditions));
+            if (driverForm.licenseExpiry) fd.append("licenseExpiry", driverForm.licenseExpiry);
+            fd.append("company", finalCompany);
+            fd.append("model", finalModel);
+            fd.append("year", String(vehicleForm.year));
+            fd.append("color", finalColor);
+            fd.append("licensePlate", vehicleForm.licensePlate);
+            fd.append("vehicleType", vehicleForm.vehicleType);
+            fd.append("seats", String(vehicleForm.seats));
+            if (licenseFile) fd.append("licensePhoto", licenseFile);
+            if (testFile) fd.append("testPhoto", testFile);
+            if (insuranceFile) fd.append("insurancePhoto", insuranceFile);
 
-            let vehicleId;
-            if (existingVehicle?._id) {
-                vehicleId = existingVehicle._id;
-                await api.put(`/vehicles/${vehicleId}`, vehicleData);
-            } else {
-                const existingVehicles = await api.get(`/vehicles/driver/${driverId}`).catch(() => ({ data: [] }));
-                if (existingVehicles.data?.length > 0) {
-                    vehicleId = existingVehicles.data[0]._id;
-                    await api.put(`/vehicles/${vehicleId}`, vehicleData);
-                } else {
-                    const { data: vehicleResponse } = await api.post("/vehicles", vehicleData);
-                    vehicleId = vehicleResponse.vehicle?._id;
-                }
-            }
-
-            // License photo
-            if (licenseFile && driverId) {
-                const fd = new FormData();
-                fd.append("licensePhoto", licenseFile);
-                fd.append("driverProfileId", driverId);
-                await api.post("/uploads/license", fd, { headers: { "Content-Type": "multipart/form-data" } });
-            }
-
-            if (testFile && vehicleId) {
-                const fd = new FormData();
-                fd.append("testPhoto", testFile);
-                fd.append("vehicleId", vehicleId);
-                await api.post("/uploads/vehicle-test", fd, { headers: { "Content-Type": "multipart/form-data" } });
-            }
-
-            if (insuranceFile && vehicleId) {
-                const fd = new FormData();
-                fd.append("insurancePhoto", insuranceFile);
-                fd.append("vehicleId", vehicleId);
-                await api.post("/uploads/vehicle-insurance", fd, { headers: { "Content-Type": "multipart/form-data" } });
-            }
+            const { data } = await api.post("/drivers/setup", fd, {
+                headers: { "Content-Type": "multipart/form-data" }
+            });
+            setExistingDriver(data.driver);
+            setExistingVehicle(data.vehicle);
 
             // Update user role if needed
             if (user?.role === "passenger") {
@@ -566,7 +543,7 @@ export default function DriverSetupPage() {
                     <FileUpload
                         label="🔧 צילום אישור טסט בתוקף * (חובה)"
                         preview={testPreview}
-                        onChange={(file) => { setTestFile(file); const r = new FileReader(); r.onload = ev => setTestPreview(ev.target.result); r.readAsDataURL(file); setFieldErrors(f => ({ ...f, testPhoto: undefined })); }}
+                        onChange={(file) => setDocumentFile("testPhoto", file, setTestFile, setTestPreview)}
                         fieldName="testPhoto"
                     />
                     <FieldErr msg={fieldErrors.testPhoto} />
@@ -574,7 +551,7 @@ export default function DriverSetupPage() {
                     <FileUpload
                         label="🛡️ צילום אישור ביטוח בתוקף * (חובה)"
                         preview={insurancePreview}
-                        onChange={(file) => { setInsuranceFile(file); const r = new FileReader(); r.onload = ev => setInsurancePreview(ev.target.result); r.readAsDataURL(file); setFieldErrors(f => ({ ...f, insurancePhoto: undefined })); }}
+                        onChange={(file) => setDocumentFile("insurancePhoto", file, setInsuranceFile, setInsurancePreview)}
                         fieldName="insurancePhoto"
                     />
                     <FieldErr msg={fieldErrors.insurancePhoto} />

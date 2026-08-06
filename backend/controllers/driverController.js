@@ -9,6 +9,7 @@ const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 const { hasValidCoordinates } = require("../utils/pricing");
 const { toGeoPoint } = require("../utils/geoLocation");
 const { deleteStoredUploads } = require("../utils/privacyCleanup");
+const upload = require("../middleware/upload");
 
 const VALID_DRIVER_GENDERS = new Set(["male", "female"]);
 
@@ -22,6 +23,66 @@ const DRIVER_UPDATE_FIELDS = [
     "acceptsCarpoolRides",
     "vehicleConditions"
 ];
+
+const REQUIRED_SETUP_FILE_FIELDS = ["licensePhoto", "testPhoto", "insurancePhoto"];
+
+function firstUpload(req, field) {
+    const files = req.files?.[field];
+    return Array.isArray(files) ? files[0] : files;
+}
+
+function cleanupSetupUploads(req) {
+    for (const field of REQUIRED_SETUP_FILE_FIELDS) {
+        upload.cleanupFile(firstUpload(req, field));
+    }
+}
+
+function storedUploadPath(file, folder) {
+    return file ? `/uploads/${folder}/${file.filename}` : null;
+}
+
+function parseBoolean(value, fallback = false) {
+    if (value === undefined) return fallback;
+    if (typeof value === "boolean") return value;
+    return String(value).toLowerCase() === "true";
+}
+
+function parseJson(value, fallback) {
+    if (value === undefined) return fallback;
+    if (typeof value === "object") return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
+}
+
+function parseStringList(value) {
+    const parsed = parseJson(value, value);
+    if (Array.isArray(parsed)) return parsed.map(item => String(item).trim()).filter(Boolean);
+    return String(parsed || "").split(",").map(item => item.trim()).filter(Boolean);
+}
+
+function duplicateError(field) {
+    const error = new Error(`${field} already exists`);
+    error.statusCode = 409;
+    return error;
+}
+
+async function updateUserRoleAfterDriverSetup(userId) {
+    const existingUser = await User.findById(userId);
+    let newRole = "driver";
+    if (existingUser?.role === "admin") {
+        newRole = "admin";
+    } else if (existingUser?.role === "passenger" || existingUser?.role === "both") {
+        newRole = "both";
+    }
+    await User.findByIdAndUpdate(userId, { role: newRole });
+}
+
+function assertValidSetupUpload(file) {
+    return file && upload.isValidImageFile(file);
+}
 
 // POST /drivers
 async function registerDriver(req, res) {
@@ -68,6 +129,133 @@ async function registerDriver(req, res) {
 
         res.status(201).json({ message: "Driver registered successfully", driver });
     } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+// POST /drivers/setup
+async function completeDriverSetup(req, res) {
+    let createdDriverId = null;
+    let createdVehicleId = null;
+
+    try {
+        const userId = isAdmin(req) && req.body.userId ? req.body.userId : req.user.userId;
+        const existingDriver = await DriverProfile.findOne({ userId });
+        const existingVehicle = existingDriver
+            ? await Vehicle.findOne({ driverId: existingDriver._id })
+            : null;
+
+        const licensePhoto = firstUpload(req, "licensePhoto");
+        const testPhoto = firstUpload(req, "testPhoto");
+        const insurancePhoto = firstUpload(req, "insurancePhoto");
+
+        const hasLicensePhoto = Boolean(licensePhoto || existingDriver?.licenseImagePath);
+        const hasTestPhoto = Boolean(testPhoto || existingVehicle?.testImagePath);
+        const hasInsurancePhoto = Boolean(insurancePhoto || existingVehicle?.insuranceImagePath);
+        if (!hasLicensePhoto || !hasTestPhoto || !hasInsurancePhoto) {
+            cleanupSetupUploads(req);
+            return res.status(400).json({ error: "Driver license, vehicle test, and insurance photos are required" });
+        }
+
+        for (const file of [licensePhoto, testPhoto, insurancePhoto].filter(Boolean)) {
+            if (!assertValidSetupUpload(file)) {
+                cleanupSetupUploads(req);
+                return res.status(400).json({ error: "Invalid image file" });
+            }
+        }
+
+        const gender = req.body.gender;
+        if (!VALID_DRIVER_GENDERS.has(gender)) {
+            cleanupSetupUploads(req);
+            return res.status(400).json({ error: "Driver gender must be male or female" });
+        }
+
+        const licenseNumber = String(req.body.licenseNumber || "").trim();
+        const licensePlate = String(req.body.licensePlate || "").trim();
+        const licenseOwner = await DriverProfile.findOne({
+            licenseNumber,
+            ...(existingDriver ? { _id: { $ne: existingDriver._id } } : {})
+        });
+        if (licenseOwner) throw duplicateError("licenseNumber");
+
+        const plateOwner = await Vehicle.findOne({
+            licensePlate,
+            ...(existingVehicle ? { _id: { $ne: existingVehicle._id } } : {})
+        });
+        if (plateOwner) throw duplicateError("licensePlate");
+
+        const driverPayload = {
+            userId,
+            licenseNumber,
+            gender,
+            preferredMusic: req.body.preferredMusic || "",
+            hobbies: parseStringList(req.body.hobbies),
+            spokenLanguages: parseStringList(req.body.spokenLanguages),
+            acceptsCarpoolRides: parseBoolean(req.body.acceptsCarpoolRides, true),
+            vehicleConditions: parseJson(req.body.vehicleConditions, { noPets: false, noSmoking: true, noFood: false }),
+            licenseExpiry: req.body.licenseExpiry || undefined,
+            licenseImagePath: storedUploadPath(licensePhoto, "licenses") || existingDriver?.licenseImagePath,
+            verificationStatus: "approved",
+            isVerified: true
+        };
+
+        const vehiclePayload = {
+            driverId: existingDriver?._id,
+            company: req.body.company,
+            model: req.body.model,
+            year: Number(req.body.year),
+            color: req.body.color,
+            licensePlate,
+            vehicleType: req.body.vehicleType || "regular",
+            seats: Number(req.body.seats || 4),
+            testImagePath: storedUploadPath(testPhoto, "vehicle-docs") || existingVehicle?.testImagePath,
+            insuranceImagePath: storedUploadPath(insurancePhoto, "vehicle-docs") || existingVehicle?.insuranceImagePath,
+            testApproval: true,
+            insuranceApproval: true,
+            documentsVerificationStatus: "approved"
+        };
+
+        let driver = existingDriver;
+        let vehicle = existingVehicle;
+
+        if (!driver) {
+            driver = await DriverProfile.create(driverPayload);
+            createdDriverId = driver._id;
+            vehiclePayload.driverId = driver._id;
+        }
+
+        if (vehicle) {
+            vehicle = await Vehicle.findByIdAndUpdate(vehicle._id, vehiclePayload, {
+                new: true, runValidators: true
+            });
+        } else {
+            vehicle = await Vehicle.create(vehiclePayload);
+            createdVehicleId = vehicle._id;
+        }
+
+        if (existingDriver) {
+            driver = await DriverProfile.findByIdAndUpdate(existingDriver._id, driverPayload, {
+                new: true, runValidators: true
+            });
+        }
+
+        await updateUserRoleAfterDriverSetup(userId);
+
+        res.status(existingDriver ? 200 : 201).json({
+            message: "Driver setup completed successfully",
+            driver,
+            vehicle
+        });
+    } catch (error) {
+        cleanupSetupUploads(req);
+        if (createdVehicleId) await Vehicle.findByIdAndDelete(createdVehicleId).catch(() => {});
+        if (createdDriverId) await DriverProfile.findByIdAndDelete(createdDriverId).catch(() => {});
+
+        if (error?.statusCode) return res.status(error.statusCode).json({ error: error.message });
+        if (error?.code === 11000) {
+            const field = Object.keys(error.keyValue || {})[0] || "field";
+            return res.status(409).json({ error: `${field} already exists` });
+        }
         res.status(400).json({ error: error.message });
     }
 }
@@ -268,6 +456,6 @@ async function deleteDriver(req, res) {
 }
 
 module.exports = {
-    registerDriver, getAllDrivers, getAvailableDrivers,
+    registerDriver, completeDriverSetup, getAllDrivers, getAvailableDrivers,
     getDriverById, updateDriver, updateDriverStatus, updateLocation, verifyDriver, deleteDriver
 };

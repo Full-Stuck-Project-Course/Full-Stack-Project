@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const jwt = require("jsonwebtoken");
 
 const User = require("../db/models/User");
-const { adminOnly, auth } = require("../middleware/auth");
+const { adminOnly, auth, requireCompletedProfile } = require("../middleware/auth");
 const {
     MIN_JWT_SECRET_LENGTH,
     signAuthToken,
@@ -72,7 +72,12 @@ test("admin access is based on the database role, not a forged token role", asyn
     });
 
     assert.equal(nextCalled, true);
-    assert.deepEqual(req.user, { userId: "user-1", role: "passenger", isActive: true });
+    assert.deepEqual(req.user, {
+        userId: "user-1",
+        role: "passenger",
+        isActive: true,
+        needsProfileCompletion: false
+    });
 
     const adminRes = makeRes();
     let adminNextCalled = false;
@@ -103,4 +108,82 @@ test("disabled users cannot authenticate with an otherwise valid token", async (
     assert.equal(nextCalled, false);
     assert.equal(res.statusCode, 403);
     assert.match(res.body.error, /disabled/i);
+});
+
+test("auth marks Google users with temporary profile data as needing completion", async () => {
+    process.env.JWT_SECRET = STRONG_SECRET;
+    const token = signAuthToken({ _id: "google-user" });
+
+    patchMethod(patches, User, "findById", () => (
+        queryResult({
+            _id: "google-user",
+            role: "passenger",
+            isActive: true,
+            phone: "google-123",
+            authProvider: "google",
+            idPhotoPath: null
+        })
+    ));
+
+    const req = {
+        headers: { authorization: `Bearer ${token}` }
+    };
+    const res = makeRes();
+    let nextCalled = false;
+    await auth(req, res, () => {
+        nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(req.user.needsProfileCompletion, true);
+});
+
+test("profile completion middleware blocks app routes until Google completion is done", () => {
+    const req = {
+        method: "POST",
+        path: "/rides",
+        user: {
+            userId: "user-1",
+            role: "passenger",
+            needsProfileCompletion: true
+        }
+    };
+    const res = makeRes();
+    let nextCalled = false;
+
+    requireCompletedProfile(req, res, () => {
+        nextCalled = true;
+    });
+
+    assert.equal(nextCalled, false);
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, "PROFILE_COMPLETION_REQUIRED");
+});
+
+test("profile completion middleware allows the routes needed to finish Google signup", () => {
+    const allowedRequests = [
+        { method: "GET", path: "/users/user-1" },
+        { method: "POST", path: "/users/user-1/complete-profile" },
+        { method: "POST", path: "/uploads/id-photo" }
+    ];
+
+    for (const allowed of allowedRequests) {
+        const req = {
+            ...allowed,
+            user: {
+                userId: "user-1",
+                role: "passenger",
+                needsProfileCompletion: true
+            }
+        };
+        const res = makeRes();
+        let nextCalled = false;
+
+        requireCompletedProfile(req, res, () => {
+            nextCalled = true;
+        });
+
+        assert.equal(nextCalled, true, `${allowed.method} ${allowed.path} should be allowed`);
+        assert.equal(res.body, undefined);
+    }
 });

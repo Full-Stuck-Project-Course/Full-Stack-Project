@@ -107,6 +107,10 @@ export default function CompleteProfilePage() {
             setErrors(current => ({ ...current, phone: `חסרות ${10 - digits.length} ספרות` }));
             return;
         }
+        if (digits === String(user?.phone || "")) {
+            setPhoneChecking(false);
+            return;
+        }
         if (digits.match(/^05\d{8}$/)) {
             setPhoneChecking(true);
             api.post("/users/check-phone", { phone: digits }, { skipAuthRedirect: true })
@@ -178,32 +182,34 @@ export default function CompleteProfilePage() {
         });
         const verificationDelay = waitForAutoVerification();
         try {
-            const fd = new FormData();
-            fd.append("idPhoto", idPhotoFile);
-            const { data: uploadData } = await api.post("/uploads/id-photo", fd, {
-                headers: { "Content-Type": "multipart/form-data" }
-            });
-
             const { data } = await api.post(`/users/${user.userId}/complete-profile`, {
                 fullName: form.fullName.trim(),
                 phone: form.phone,
                 role: form.role,
                 preferredLanguage: form.preferredLanguage
             });
+
+            const fd = new FormData();
+            fd.append("idPhoto", idPhotoFile);
+            const { data: uploadData } = await api.post("/uploads/id-photo", fd, {
+                headers: { "Content-Type": "multipart/form-data" }
+            });
+
+            const { data: refreshedUser } = await api.get(`/users/${user.userId}`);
             updateUser({
-                userId: data.userId,
-                role: data.role,
-                fullName: data.fullName,
-                email: data.email,
-                phone: data.phone,
-                preferredLanguage: data.preferredLanguage,
-                referralCode: data.referralCode,
-                loyaltyPoints: data.loyaltyPoints,
-                passengerId: data.passengerId,
-                driverId: data.driverId,
-                idPhotoPath: uploadData.url,
-                idVerificationStatus: "approved",
-                needsProfileCompletion: data.needsProfileCompletion
+                userId: refreshedUser.userId || data.userId,
+                role: refreshedUser.role || data.role,
+                fullName: refreshedUser.fullName || data.fullName,
+                email: refreshedUser.email || data.email,
+                phone: refreshedUser.phone || data.phone,
+                preferredLanguage: refreshedUser.preferredLanguage || data.preferredLanguage,
+                referralCode: refreshedUser.referralCode || data.referralCode,
+                loyaltyPoints: refreshedUser.loyaltyPoints ?? data.loyaltyPoints,
+                passengerId: refreshedUser.passengerId || data.passengerId,
+                driverId: refreshedUser.driverId || data.driverId,
+                idPhotoPath: refreshedUser.idPhotoPath || uploadData.url,
+                idVerificationStatus: refreshedUser.idVerificationStatus || "approved",
+                needsProfileCompletion: refreshedUser.needsProfileCompletion ?? false
             });
             await verificationDelay;
             navigate(form.role === "driver" || form.role === "both" ? "/driver-setup" : "/", { replace: true });

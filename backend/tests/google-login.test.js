@@ -83,6 +83,51 @@ test("google login verifies the credential against configured Google client ids"
     assert.ok(res.body.token);
 });
 
+test("google login ignores placeholder backend client ids and falls back to the frontend client id", async () => {
+    process.env.GOOGLE_CLIENT_ID = "your_google_client_id.apps.googleusercontent.com";
+    process.env.VITE_GOOGLE_CLIENT_ID = "frontend-client.apps.googleusercontent.com";
+    process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
+
+    const user = {
+        _id: "64f000000000000000000011",
+        fullName: "Fallback User",
+        email: "fallback@example.com",
+        phone: "0502223333",
+        role: "passenger",
+        preferredLanguage: "he",
+        profileImage: null,
+        idPhotoPath: "/uploads/ids/id.jpg",
+        referralCode: "FALLBACK",
+        loyaltyPoints: 0,
+        isActive: true,
+        async save() {
+            return this;
+        }
+    };
+
+    patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async (options) => {
+        assert.equal(options.audience, "frontend-client.apps.googleusercontent.com");
+        return {
+            getPayload() {
+                return {
+                    email: "fallback@example.com",
+                    name: "Fallback User",
+                    email_verified: true
+                };
+            }
+        };
+    });
+    patchMethod(patches, User, "findOne", async () => user);
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-fallback" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await googleLogin({ body: { credential: "google-id-token" } }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.email, "fallback@example.com");
+});
+
 test("first-time google login creates a temporary phone and requires profile completion", async () => {
     process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
     process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
@@ -126,6 +171,32 @@ test("first-time google login creates a temporary phone and requires profile com
     assert.match(createdUser.phone, /^google-/);
     assert.equal(createdUser.authProvider, "google");
     assert.equal(res.body.needsProfileCompletion, true);
+});
+
+test("google login rejects accounts whose email was not verified by Google", async () => {
+    process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
+
+    let findOneCalled = false;
+    patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async () => ({
+        getPayload() {
+            return {
+                email: "unverified@example.com",
+                name: "Unverified User",
+                email_verified: false
+            };
+        }
+    }));
+    patchMethod(patches, User, "findOne", async () => {
+        findOneCalled = true;
+        return null;
+    });
+
+    const res = makeRes();
+    await googleLogin({ body: { credential: "google-id-token" } }, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.match(res.body.error, /email must be verified/i);
+    assert.equal(findOneCalled, false);
 });
 
 test("google login returns a clear configuration error before calling Google", async () => {
@@ -249,6 +320,50 @@ test("google users still need profile completion until an ID photo exists", asyn
 
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.needsProfileCompletion, true);
+});
+
+test("google users with an existing real phone can complete details before uploading an ID photo", async () => {
+    const user = {
+        _id: "64f000000000000000000006",
+        fullName: "Existing Google Name",
+        email: "existing-google@example.com",
+        phone: "0509998888",
+        role: "passenger",
+        preferredLanguage: "he",
+        authProvider: "google",
+        idPhotoPath: null,
+        referralCode: "REALPHONE",
+        loyaltyPoints: 0,
+        isActive: true,
+        async save() {
+            return this;
+        }
+    };
+
+    patchMethod(patches, User, "findById", async () => user);
+    patchMethod(patches, User, "findOne", async (filter) => {
+        assert.equal(filter.phone, "0509998888");
+        assert.deepEqual(filter._id, { $ne: user._id });
+        return null;
+    });
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-real-phone" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await completeProfile({
+        user: { userId: user._id, role: "passenger" },
+        params: { id: user._id },
+        body: {
+            fullName: "Existing Google Name",
+            phone: "0509998888",
+            role: "passenger",
+            preferredLanguage: "he"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.needsProfileCompletion, true);
+    assert.equal(user.phone, "0509998888");
 });
 
 test("profile completion rejects a phone that is already in use", async () => {
