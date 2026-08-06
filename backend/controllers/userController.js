@@ -20,6 +20,18 @@ const RESET_EXPIRES_MINUTES = 60;
 const RESET_MAX_CODE_ATTEMPTS = 5;
 const SAFE_USER_SELECT = "-passwordHash -resetPasswordToken -resetPasswordCodeHash -resetPasswordExpires -resetPasswordCodeAttempts";
 
+function isPlaceholderGoogleClientId(clientId) {
+    return /^your_/i.test(clientId) || /placeholder|replace|example/i.test(clientId);
+}
+
+function getGoogleClientIdsFromEnv(env = process.env) {
+    const raw = String(env.GOOGLE_CLIENT_ID || env.VITE_GOOGLE_CLIENT_ID || "").trim();
+    return raw
+        .split(",")
+        .map(clientId => clientId.trim())
+        .filter(clientId => clientId && !isPlaceholderGoogleClientId(clientId));
+}
+
 function hashResetSecret(value) {
     return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
@@ -465,12 +477,17 @@ async function googleLogin(req, res) {
         const { credential } = req.body;
         if (!credential) return res.status(400).json({ error: "Missing Google credential" });
 
+        const googleClientIds = getGoogleClientIdsFromEnv();
+        if (googleClientIds.length === 0) {
+            return res.status(503).json({ error: "Google login is not configured. Set GOOGLE_CLIENT_ID in backend/.env." });
+        }
+
         const ticket = await googleClient.verifyIdToken({
             idToken: credential,
-            audience: process.env.GOOGLE_CLIENT_ID,
+            audience: googleClientIds.length === 1 ? googleClientIds[0] : googleClientIds,
         });
         const payload = ticket.getPayload();
-        const email = payload.email;
+        const email = String(payload.email || "").trim().toLowerCase();
 
         if (!email) return res.status(400).json({ error: "Google account has no email" });
 

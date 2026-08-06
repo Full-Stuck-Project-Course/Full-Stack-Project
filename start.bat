@@ -13,7 +13,7 @@ set "DEFAULT_DB_CONNECTION=mongodb://localhost:27017/hailnow"
 set "DEFAULT_BACKEND_PORT=5000"
 set "BACKEND_PORT=%DEFAULT_BACKEND_PORT%"
 set "FRONTEND_PORT=3000"
-set "FRONTEND_URL=http://127.0.0.1:3000"
+set "FRONTEND_URL=http://localhost:3000"
 set "SERVICE_START_TIMEOUT_SECONDS=60"
 
 echo ============================================

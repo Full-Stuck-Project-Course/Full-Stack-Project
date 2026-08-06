@@ -67,7 +67,7 @@ npm install
 npm start
 ```
 
-The frontend runs at `http://127.0.0.1:3000` by default. The backend defaults to port `5000` unless `PORT` is configured in `backend/.env`.
+The frontend runs at `http://localhost:3000` by default. For Google login in local development, add `http://localhost:3000` as an authorized JavaScript origin in the Google OAuth client. The backend defaults to port `5000` unless `PORT` is configured in `backend/.env`.
 
 ## Verification
 
