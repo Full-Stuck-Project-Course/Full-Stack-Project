@@ -32,6 +32,23 @@ function getGoogleClientIdsFromEnv(env = process.env) {
         .filter(clientId => clientId && !isPlaceholderGoogleClientId(clientId));
 }
 
+function isTemporaryGooglePhone(phone) {
+    return /^google-[a-z0-9_-]+$/i.test(String(phone || ""));
+}
+
+function needsProfileCompletion(user) {
+    return Boolean(user && (
+        isTemporaryGooglePhone(user.phone) ||
+        (user.authProvider === "google" && !user.idPhotoPath)
+    ));
+}
+
+function isGoogleVerificationNetworkError(error) {
+    const message = String(error?.message || "");
+    return /Failed to retrieve verification certificates/i.test(message) ||
+        /ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed|network|socket/i.test(message);
+}
+
 function hashResetSecret(value) {
     return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
@@ -110,7 +127,8 @@ async function buildUserResponse(user) {
         idPhotoPath: user.idPhotoPath,
         idVerificationStatus: user.idVerificationStatus,
         passengerId: passengerProfile?._id || null,
-        driverId: driverProfile?._id || null
+        driverId: driverProfile?._id || null,
+        needsProfileCompletion: needsProfileCompletion(user)
     };
 }
 
@@ -394,6 +412,46 @@ async function deleteUser(req, res) {
     }
 }
 
+// POST /users/:id/complete-profile
+async function completeProfile(req, res) {
+    try {
+        if (!sameId(req.user.userId, req.params.id) && req.user.role !== "admin") {
+            return res.status(403).json({ error: "Cannot update another user" });
+        }
+
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        if (!needsProfileCompletion(user) && req.user.role !== "admin") {
+            return res.status(409).json({ error: "Profile is already complete" });
+        }
+
+        const fullName = String(req.body.fullName || "").trim();
+        const phone = String(req.body.phone || "").trim();
+        const preferredLanguage = req.body.preferredLanguage || user.preferredLanguage;
+        const role = req.body.role || user.role;
+
+        const phoneOwner = await User.findOne({ phone, _id: { $ne: user._id } });
+        if (phoneOwner) return res.status(409).json({ error: "Registration details already in use" });
+
+        user.fullName = fullName;
+        user.phone = phone;
+        user.preferredLanguage = preferredLanguage;
+        if (user.role !== "admin") user.role = role;
+        await user.save();
+
+        const userData = await buildUserResponse(user);
+        res.status(200).json({
+            message: "Profile completed successfully",
+            ...userData
+        });
+    } catch (error) {
+        if (error?.code === 11000) {
+            return res.status(409).json({ error: "Registration details already in use" });
+        }
+        res.status(400).json({ error: error.message });
+    }
+}
+
 // DELETE /users/:id/hard
 async function hardDeleteUser(req, res) {
     try {
@@ -504,10 +562,13 @@ async function googleLogin(req, res) {
                 phone: "google-" + Date.now(),
                 profileImage: payload.picture || null,
                 isEmailVerified: payload.email_verified || false,
+                authProvider: "google",
                 role: "passenger"
             });
 
             await PassengerProfile.create({ userId: user._id });
+        } else if (user.authProvider !== "google") {
+            user.authProvider = "google";
         }
         if (!user.isActive) return res.status(403).json({ error: "Account is disabled" });
 
@@ -524,6 +585,11 @@ async function googleLogin(req, res) {
             ...userData
         });
     } catch (error) {
+        if (isGoogleVerificationNetworkError(error)) {
+            return res.status(503).json({
+                error: "Google login is temporarily unavailable because the server cannot reach Google verification services. Restart the app with start.bat and check internet/firewall access."
+            });
+        }
         res.status(400).json({ error: "Google authentication failed: " + error.message });
     }
 }
@@ -537,6 +603,7 @@ module.exports = {
     getAllUsers,
     getUserById,
     updateUser,
+    completeProfile,
     changePassword,
     deleteUser,
     hardDeleteUser,

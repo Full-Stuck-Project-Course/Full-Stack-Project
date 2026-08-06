@@ -5,7 +5,7 @@ const { OAuth2Client } = require("google-auth-library");
 const User = require("../db/models/User");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const DriverProfile = require("../db/models/DriverProfile");
-const { googleLogin } = require("../controllers/userController");
+const { completeProfile, googleLogin } = require("../controllers/userController");
 const {
     makeRes,
     patchMethod,
@@ -41,6 +41,7 @@ test("google login verifies the credential against configured Google client ids"
         role: "passenger",
         preferredLanguage: "he",
         profileImage: null,
+        idPhotoPath: "/uploads/ids/id.jpg",
         referralCode: "ABCD1234",
         loyaltyPoints: 0,
         isActive: true,
@@ -78,7 +79,53 @@ test("google login verifies the credential against configured Google client ids"
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.email, "user@example.com");
     assert.equal(res.body.passengerId, "passenger-1");
+    assert.equal(res.body.needsProfileCompletion, false);
     assert.ok(res.body.token);
+});
+
+test("first-time google login creates a temporary phone and requires profile completion", async () => {
+    process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
+    process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
+
+    let createdUser;
+    patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async () => ({
+        getPayload() {
+            return {
+                email: "new@example.com",
+                name: "New Google User",
+                picture: "https://example.com/avatar.png",
+                email_verified: true
+            };
+        }
+    }));
+    patchMethod(patches, User, "findOne", async () => null);
+    patchMethod(patches, User, "create", async (payload) => {
+        createdUser = {
+            _id: "64f000000000000000000002",
+            isActive: true,
+            referralCode: "NEW12345",
+            loyaltyPoints: 0,
+            saveCount: 0,
+            async save() {
+                this.saveCount += 1;
+                return this;
+            },
+            ...payload
+        };
+        return createdUser;
+    });
+    patchMethod(patches, PassengerProfile, "create", async () => ({ _id: "passenger-2" }));
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-2" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await googleLogin({ body: { credential: "google-id-token" } }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(createdUser.email, "new@example.com");
+    assert.match(createdUser.phone, /^google-/);
+    assert.equal(createdUser.authProvider, "google");
+    assert.equal(res.body.needsProfileCompletion, true);
 });
 
 test("google login returns a clear configuration error before calling Google", async () => {
@@ -97,4 +144,134 @@ test("google login returns a clear configuration error before calling Google", a
     assert.equal(res.statusCode, 503);
     assert.match(res.body.error, /GOOGLE_CLIENT_ID/);
     assert.equal(verifyCalled, false);
+});
+
+test("google login reports certificate network failures as a service outage", async () => {
+    process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
+
+    patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async () => {
+        throw new Error("Failed to retrieve verification certificates: request to https://www.googleapis.com/oauth2/v1/certs failed, reason:");
+    });
+
+    const res = makeRes();
+    await googleLogin({ body: { credential: "google-id-token" } }, res);
+
+    assert.equal(res.statusCode, 503);
+    assert.match(res.body.error, /server cannot reach Google/i);
+});
+
+test("google users can complete the required profile details", async () => {
+    const user = {
+        _id: "64f000000000000000000003",
+        fullName: "Google Name",
+        email: "google@example.com",
+        phone: "google-123",
+        role: "passenger",
+        preferredLanguage: "he",
+        profileImage: null,
+        authProvider: "google",
+        idPhotoPath: "/uploads/ids/id.jpg",
+        idVerificationStatus: "approved",
+        referralCode: "COMPLETE1",
+        loyaltyPoints: 0,
+        isActive: true,
+        async save() {
+            return this;
+        }
+    };
+
+    patchMethod(patches, User, "findById", async (id) => {
+        assert.equal(id, user._id);
+        return user;
+    });
+    patchMethod(patches, User, "findOne", async (filter) => {
+        assert.equal(filter.phone, "0501234567");
+        assert.deepEqual(filter._id, { $ne: user._id });
+        return null;
+    });
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-3" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await completeProfile({
+        user: { userId: user._id, role: "passenger" },
+        params: { id: user._id },
+        body: {
+            fullName: "Completed User",
+            phone: "0501234567",
+            role: "both",
+            preferredLanguage: "en"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(user.fullName, "Completed User");
+    assert.equal(user.phone, "0501234567");
+    assert.equal(user.role, "both");
+    assert.equal(user.preferredLanguage, "en");
+    assert.equal(res.body.needsProfileCompletion, false);
+});
+
+test("google users still need profile completion until an ID photo exists", async () => {
+    const user = {
+        _id: "64f000000000000000000005",
+        fullName: "Google Name",
+        email: "google-no-id@example.com",
+        phone: "google-789",
+        role: "passenger",
+        preferredLanguage: "he",
+        authProvider: "google",
+        idPhotoPath: null,
+        referralCode: "NOID1234",
+        loyaltyPoints: 0,
+        isActive: true,
+        async save() {
+            return this;
+        }
+    };
+
+    patchMethod(patches, User, "findById", async () => user);
+    patchMethod(patches, User, "findOne", async () => null);
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-5" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await completeProfile({
+        user: { userId: user._id, role: "passenger" },
+        params: { id: user._id },
+        body: {
+            fullName: "Completed User",
+            phone: "0501112223",
+            role: "passenger",
+            preferredLanguage: "he"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.needsProfileCompletion, true);
+});
+
+test("profile completion rejects a phone that is already in use", async () => {
+    const user = {
+        _id: "64f000000000000000000004",
+        phone: "google-456"
+    };
+
+    patchMethod(patches, User, "findById", async () => user);
+    patchMethod(patches, User, "findOne", async () => ({ _id: "other-user" }));
+
+    const res = makeRes();
+    await completeProfile({
+        user: { userId: user._id, role: "passenger" },
+        params: { id: user._id },
+        body: {
+            fullName: "Completed User",
+            phone: "0507654321",
+            role: "passenger",
+            preferredLanguage: "he"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 409);
+    assert.deepEqual(res.body, { error: "Registration details already in use" });
 });

@@ -13,6 +13,7 @@ const {
     forgotPasswordSchema,
     resetPasswordSchema,
     updateUserSchema,
+    completeProfileSchema,
     changePasswordSchema
 } = require("../validators/userValidators");
 const { createRideSchema, acceptRideSchema, cancelRideSchema } = require("../validators/rideValidators");
@@ -69,6 +70,7 @@ router.use(auth);
 // Users.
 router.get("/users", auth, adminOnly, userController.getAllUsers);
 router.get("/users/:id", userController.getUserById);
+router.post("/users/:id/complete-profile", validate(completeProfileSchema), userController.completeProfile);
 router.put("/users/:id", validate(updateUserSchema), userController.updateUser);
 router.put("/users/:id/password", validate(changePasswordSchema), userController.changePassword);
 router.post("/users/:id/password-reset", adminOnly, userController.adminSendPasswordReset);

@@ -56,6 +56,13 @@ const updateUserSchema = Joi.object({
     isActive:          Joi.boolean().optional(),
 });
 
+const completeProfileSchema = Joi.object({
+    fullName:          Joi.string().trim().min(2).required(),
+    phone:             Joi.string().pattern(/^05\d{8}$/).required(),
+    role:              Joi.string().valid("passenger", "driver", "both").required(),
+    preferredLanguage: Joi.string().valid("he", "en").required(),
+});
+
 const changePasswordSchema = Joi.object({
     currentPassword: Joi.string().required(),
     newPassword:     passwordSchema.required(),
@@ -68,5 +75,6 @@ module.exports = {
     forgotPasswordSchema,
     resetPasswordSchema,
     updateUserSchema,
+    completeProfileSchema,
     changePasswordSchema,
 };

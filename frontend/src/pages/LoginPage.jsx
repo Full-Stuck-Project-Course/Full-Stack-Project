@@ -29,6 +29,25 @@ export default function LoginPage() {
     const [loading, setL] = useState(false);
     const [showPw, setShow] = useState(false);
 
+    const userFromAuthResponse = (data) => ({
+        userId: data.userId,
+        role: data.role,
+        fullName: data.fullName,
+        email: data.email,
+        phone: data.phone,
+        preferredLanguage: data.preferredLanguage,
+        referralCode: data.referralCode,
+        loyaltyPoints: data.loyaltyPoints,
+        passengerId: data.passengerId,
+        driverId: data.driverId,
+        needsProfileCompletion: data.needsProfileCompletion
+    });
+
+    const nextPathFromAuthResponse = (data) => {
+        if (data.needsProfileCompletion) return "/complete-profile";
+        return location.state?.needsDriverSetup ? "/driver-setup" : "/";
+    };
+
     const handleGoogleSuccess = async (credentialResponse) => {
         setE("");
         setL(true);
@@ -36,11 +55,8 @@ export default function LoginPage() {
             const { data } = await api.post("/users/google-login", {
                 credential: credentialResponse.credential
             });
-            login(
-                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints, passengerId: data.passengerId, driverId: data.driverId },
-                data.token
-            );
-            navigate(location.state?.needsDriverSetup ? "/driver-setup" : "/");
+            login(userFromAuthResponse(data), data.token);
+            navigate(nextPathFromAuthResponse(data));
         } catch (err) {
             setE(err.response?.data?.error || "שגיאה בהתחברות עם Google");
         } finally {
@@ -61,11 +77,8 @@ export default function LoginPage() {
         setL(true);
         try {
             const { data } = await api.post("/users/login", form);
-            login(
-                { userId: data.userId, role: data.role, fullName: data.fullName, preferredLanguage: data.preferredLanguage, referralCode: data.referralCode, loyaltyPoints: data.loyaltyPoints, passengerId: data.passengerId, driverId: data.driverId },
-                data.token
-            );
-            navigate(location.state?.needsDriverSetup ? "/driver-setup" : "/");
+            login(userFromAuthResponse(data), data.token);
+            navigate(nextPathFromAuthResponse(data));
         } catch (err) {
             setE(err.response?.data?.error || "שגיאה בהתחברות");
         } finally {

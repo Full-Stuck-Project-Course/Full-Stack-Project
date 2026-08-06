@@ -1,7 +1,7 @@
 // src/App.jsx
 
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "./routing";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "./routing";
 import { Provider } from "react-redux";
 import store from "./store";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -20,6 +20,7 @@ const RideHistoryPage    = lazy(() => import("./pages/RideHistoryPage"));
 const DriverDashboard    = lazy(() => import("./pages/DriverDashboard"));
 const PassengerDashboard = lazy(() => import("./pages/PassengerDashboard"));
 const DriverSetupPage    = lazy(() => import("./pages/DriverSetupPage"));
+const CompleteProfilePage = lazy(() => import("./pages/CompleteProfilePage"));
 const ProfilePage        = lazy(() => import("./pages/ProfilePage"));
 const RatingPage         = lazy(() => import("./pages/RatingPage"));
 const PaymentSimulationPage = lazy(() => import("./pages/PaymentSimulationPage"));
@@ -27,8 +28,13 @@ const AdminPanel         = lazy(() => import("./pages/AdminPanel"));
 
 function PrivateRoute({ children }) {
     const { user, loading } = useAuth();
+    const location = useLocation();
     if (loading) return <div className="spinner" aria-label="טוען..." />;
-    return user ? children : <Navigate to="/login" replace />;
+    if (!user) return <Navigate to="/login" replace />;
+    if (user.needsProfileCompletion && location.pathname !== "/complete-profile") {
+        return <Navigate to="/complete-profile" replace />;
+    }
+    return children;
 }
 
 function AdminRoute({ children }) {
@@ -39,11 +45,12 @@ function AdminRoute({ children }) {
 
 function AppRoutes() {
     const { user } = useAuth();
+    const requiresProfileCompletion = Boolean(user?.needsProfileCompletion);
 
     return (
         <>
             <a href="#main-content" className="skip-nav">דלג לתוכן הראשי</a>
-            {user && <Navbar />}
+            {user && !requiresProfileCompletion && <Navbar />}
             <main id="main-content">
                 <Suspense fallback={<div className="spinner" aria-label="טוען..." />}>
                 <Routes>
@@ -60,6 +67,7 @@ function AppRoutes() {
                     <Route path="/history"        element={<PrivateRoute><RideHistoryPage /></PrivateRoute>} />
                     <Route path="/driver"         element={<PrivateRoute><DriverDashboard /></PrivateRoute>} />
                     <Route path="/passenger"      element={<PrivateRoute><PassengerDashboard /></PrivateRoute>} />
+                    <Route path="/complete-profile" element={<PrivateRoute><CompleteProfilePage /></PrivateRoute>} />
                     <Route path="/driver-setup"   element={<PrivateRoute><DriverSetupPage /></PrivateRoute>} />
                     <Route path="/profile"        element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
                     <Route path="/admin"          element={<AdminRoute><AdminPanel /></AdminRoute>} />

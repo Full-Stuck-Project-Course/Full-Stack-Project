@@ -159,9 +159,9 @@ if not defined TARGET_PID exit /b 0
 echo(%TARGET_PID%| findstr /R "^[0-9][0-9]*$" >nul
 if errorlevel 1 exit /b 0
 
-tasklist /V /FO CSV /FI "PID eq %TARGET_PID%" 2>nul | findstr /I /C:"%WINDOW_TITLE%" >nul
+tasklist /FI "PID eq %TARGET_PID%" 2>nul | findstr /R /C:"[ ]%TARGET_PID%[ ]" >nul
 if not errorlevel 1 (
-    echo Closing previous %SERVICE_NAME% window, PID %TARGET_PID%...
+    echo Closing previous %SERVICE_NAME% process from PID file, PID %TARGET_PID%...
     taskkill /PID %TARGET_PID% /T /F >nul 2>&1
 )
 exit /b 0
@@ -194,15 +194,5 @@ exit /b 0
 :StopPort
 set "TARGET_PORT=%~1"
 set "SERVICE_NAME=%~2"
-set "CLOSED_PIDS= "
-for /f "tokens=5" %%P in ('netstat -ano -p tcp ^| findstr /R /C:":%TARGET_PORT% .*LISTENING"') do (
-    if not "%%P"=="0" (
-        echo !CLOSED_PIDS!| findstr /C:" %%P " >nul
-        if errorlevel 1 (
-            set "CLOSED_PIDS=!CLOSED_PIDS!%%P "
-            echo Closing existing %SERVICE_NAME% process on port %TARGET_PORT%, PID %%P...
-            taskkill /PID %%P /T /F >nul 2>&1
-        )
-    )
-)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $port=[int]$env:TARGET_PORT; $service=$env:SERVICE_NAME; $ids=Get-NetTCPConnection -LocalPort $port -State Listen | Select-Object -ExpandProperty OwningProcess -Unique; foreach ($processId in $ids) { if ($processId -and $processId -ne 0) { Write-Output ('Closing existing ' + $service + ' process on port ' + $port + ', PID ' + $processId + '...'); Stop-Process -Id $processId -Force } }"
 exit /b 0
