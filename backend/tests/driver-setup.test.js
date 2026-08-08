@@ -40,10 +40,18 @@ function setupBody(overrides = {}) {
 
 function setupFiles() {
     return {
-        licensePhoto: [{ fieldname: "licensePhoto", filename: "license.jpg", path: "license.jpg" }],
-        testPhoto: [{ fieldname: "testPhoto", filename: "test.jpg", path: "test.jpg" }],
-        insurancePhoto: [{ fieldname: "insurancePhoto", filename: "insurance.jpg", path: "insurance.jpg" }]
+        licensePhoto: [{ fieldname: "licensePhoto", originalname: "license.jpg" }],
+        testPhoto: [{ fieldname: "testPhoto", originalname: "test.jpg" }],
+        insurancePhoto: [{ fieldname: "insurancePhoto", originalname: "insurance.jpg" }]
     };
+}
+
+// Uploads are persisted to MongoDB, so the controller asks the middleware for a
+// stored path instead of deriving one from a filename on disk.
+function patchSaveUpload() {
+    patchMethod(patches, upload, "saveUpload", async (file, kind) => ({
+        storedPath: `/uploads/${kind}/${file.originalname}`
+    }));
 }
 
 test("driver setup does not create a profile when required documents are missing", async () => {
@@ -81,6 +89,7 @@ test("driver setup creates driver and vehicle together only after valid document
 
     patchMethod(patches, upload, "isValidImageFile", () => true);
     patchMethod(patches, upload, "cleanupFile", () => {});
+    patchSaveUpload();
     patchMethod(patches, DriverProfile, "findOne", async () => null);
     patchMethod(patches, Vehicle, "findOne", async () => null);
     patchMethod(patches, DriverProfile, "create", async (payload) => {
@@ -118,6 +127,7 @@ test("driver setup removes a newly-created driver if vehicle creation fails", as
 
     patchMethod(patches, upload, "isValidImageFile", () => true);
     patchMethod(patches, upload, "cleanupFile", () => {});
+    patchSaveUpload();
     patchMethod(patches, DriverProfile, "findOne", async () => null);
     patchMethod(patches, Vehicle, "findOne", async () => null);
     patchMethod(patches, DriverProfile, "create", async (payload) => ({ _id: "driver-created", ...payload }));

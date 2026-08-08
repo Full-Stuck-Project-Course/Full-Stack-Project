@@ -86,18 +86,6 @@ router.get("/maps/best-departure", mapsController.getBestDeparture);
 router.get("/maps/price-prediction", mapsController.getPricePrediction);
 router.get("/maps/driver-eta", mapsController.getDriverETA);
 
-// Generic public-file upload. Sensitive documents use the private upload routes below.
-router.post("/file", uploadLimiter, upload.single("file"), (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-    if (!upload.isValidImageFile(req.file)) {
-        upload.cleanupFile(req.file);
-        return res.status(400).json({ error: "Invalid image file" });
-    }
-
-    const publicBaseUrl = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/+$/, "");
-    res.status(200).json({ url: `${publicBaseUrl}/public/${req.file.filename}` });
-});
-
 // Private uploads.
 router.post("/uploads/profile", uploadLimiter, upload.single("profileImage"), uploadController.uploadProfile);
 router.post("/uploads/id-photo", uploadLimiter, upload.single("idPhoto"), uploadController.uploadIdPhoto);

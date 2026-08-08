@@ -3,6 +3,7 @@
 const path = require("path");
 const User = require("../db/models/User");
 const DriverProfile = require("../db/models/DriverProfile");
+const Upload = require("../db/models/Upload");
 const Vehicle = require("../db/models/Vehicle");
 const upload = require("../middleware/upload");
 const { sameId, isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
@@ -26,7 +27,7 @@ function securePath(kind, filename) {
 
     return {
         safeName,
-        diskPath: path.join(__dirname, "..", "uploads", folders[kind], safeName),
+        kind: folders[kind],
         storedPath: `/uploads/${folders[kind]}/${safeName}`
     };
 }
@@ -63,11 +64,28 @@ async function getSecureUpload(req, res) {
         const resolved = securePath(req.params.kind, req.params.filename);
         if (!resolved) return res.status(400).json({ error: "Invalid file path" });
         if (!await canAccessSecureUpload(req, req.params.kind, resolved.storedPath)) return forbidden(res);
-        res.sendFile(resolved.diskPath, (error) => {
-            if (!error) return;
-            if (res.headersSent) return;
-            res.status(error.statusCode === 404 ? 404 : 500).json({ error: "File could not be served" });
-        });
+
+        const file = await Upload.findOne({ kind: resolved.kind, filename: resolved.safeName });
+        if (!file) return res.status(404).json({ error: "File not found" });
+        res.setHeader("Content-Type", file.mimeType);
+        res.send(file.data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+// GET /uploads/profiles/:filename  (public; profile pictures only)
+async function getProfileImage(req, res) {
+    try {
+        const filename = path.basename(req.params.filename || "");
+        if (!filename || filename !== req.params.filename) {
+            return res.status(400).json({ error: "Invalid file path" });
+        }
+
+        const file = await Upload.findOne({ kind: "profiles", filename });
+        if (!file) return res.status(404).json({ error: "File not found" });
+        res.setHeader("Content-Type", file.mimeType);
+        res.send(file.data);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -79,14 +97,14 @@ async function uploadProfile(req, res) {
         if (!req.file) return res.status(400).json({ error: "No file uploaded" });
         if (!upload.isValidImageFile(req.file)) return invalidUploadedImage(req, res);
 
-        const url = `/uploads/profiles/${req.file.filename}`;
+        const { storedPath } = await upload.saveUpload(req.file, "profiles", req.user.userId);
         const userId = isAdmin(req) && req.body.userId ? req.body.userId : req.user.userId;
-        const user = await User.findByIdAndUpdate(userId, { profileImage: url }, { new: true });
+        const user = await User.findByIdAndUpdate(userId, { profileImage: storedPath }, { new: true });
         if (!user) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "User not found" });
         }
-        res.json({ url, message: "Profile image uploaded" });
+        res.json({ url: storedPath, message: "Profile image uploaded" });
     } catch (e) {
         upload.cleanupFile(req.file);
         res.status(500).json({ error: e.message });
@@ -99,17 +117,17 @@ async function uploadIdPhoto(req, res) {
         if (!req.file) return res.status(400).json({ error: "No file uploaded" });
         if (!upload.isValidImageFile(req.file)) return invalidUploadedImage(req, res);
 
-        const url = `/uploads/ids/${req.file.filename}`;
+        const { storedPath } = await upload.saveUpload(req.file, "ids", req.user.userId);
         const userId = isAdmin(req) && req.body.userId ? req.body.userId : req.user.userId;
         const user = await User.findByIdAndUpdate(userId, {
-            idPhotoPath: url,
+            idPhotoPath: storedPath,
             idVerificationStatus: "approved"
         }, { new: true });
         if (!user) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "User not found" });
         }
-        res.json({ url, message: "ID photo uploaded and verified" });
+        res.json({ url: storedPath, message: "ID photo uploaded and verified" });
     } catch (e) {
         upload.cleanupFile(req.file);
         res.status(500).json({ error: e.message });
@@ -130,9 +148,9 @@ async function uploadLicense(req, res) {
             return forbidden(res);
         }
 
-        const url = `/uploads/licenses/${req.file.filename}`;
+        const { storedPath } = await upload.saveUpload(req.file, "licenses", req.user.userId);
         const driver = await DriverProfile.findByIdAndUpdate(req.body.driverProfileId, {
-            licenseImagePath: url,
+            licenseImagePath: storedPath,
             verificationStatus: "approved",
             isVerified: true
         }, { new: true });
@@ -140,7 +158,7 @@ async function uploadLicense(req, res) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "Driver not found" });
         }
-        res.json({ url, message: "License photo uploaded and verified" });
+        res.json({ url: storedPath, message: "License photo uploaded and verified" });
     } catch (e) {
         upload.cleanupFile(req.file);
         res.status(500).json({ error: e.message });
@@ -166,7 +184,7 @@ async function uploadVehicleDocument(req, res, field) {
             return forbidden(res);
         }
 
-        const url = `/uploads/vehicle-docs/${req.file.filename}`;
+        const { storedPath } = await upload.saveUpload(req.file, "vehicle-docs", req.user.userId);
         const hasTestAfterUpload = field === "test" || Boolean(vehicle.testImagePath);
         const hasInsuranceAfterUpload = field === "insurance" || Boolean(vehicle.insuranceImagePath);
         const update = {
@@ -174,12 +192,12 @@ async function uploadVehicleDocument(req, res, field) {
             testApproval: hasTestAfterUpload,
             insuranceApproval: hasInsuranceAfterUpload
         };
-        if (field === "test") update.testImagePath = url;
-        if (field === "insurance") update.insuranceImagePath = url;
+        if (field === "test") update.testImagePath = storedPath;
+        if (field === "insurance") update.insuranceImagePath = storedPath;
 
         await Vehicle.findByIdAndUpdate(vehicle._id, update);
         res.json({
-            url,
+            url: storedPath,
             message: update.documentsVerificationStatus === "approved"
                 ? "Vehicle documents uploaded and verified"
                 : "Vehicle document uploaded; upload the remaining document to complete verification"
@@ -353,6 +371,7 @@ module.exports = {
     uploadVehicleTest,
     uploadVehicleInsurance,
     getSecureUpload,
+    getProfileImage,
     getPendingVerifications,
     verifyId,
     verifyDriverLicense,

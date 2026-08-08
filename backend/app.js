@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const routes = require("./routes");
+const uploadController = require("./controllers/uploadController");
 const errorHandler = require("./middleware/errorHandler");
 const { isAllowedOrigin } = require("./utils/corsOrigins");
 
@@ -25,12 +26,22 @@ app.use(cors({
 app.use(express.json());
 
 // Profile images are public; identity, license, and vehicle documents require authenticated routes.
-app.use("/uploads/profiles", express.static(path.join(__dirname, "uploads", "profiles")));
-app.use("/public", express.static(path.join(__dirname, "public")));
+// Uploads live in MongoDB rather than on disk, because the hosting tier is ephemeral.
+app.get("/uploads/profiles/:filename", uploadController.getProfileImage);
+
+app.get("/api/health", (req, res) => res.json({ status: "ok", uptime: process.uptime() }));
 
 app.use("/api", routes);
 
-app.get("/", (req, res) => res.json({ message: "HailNow API is running" }));
+// The built React app is served by this same process in production.
+const frontendDist = path.join(__dirname, "..", "frontend", "dist");
+app.use(express.static(frontendDist));
+
+// Client-side routing uses pushState, so unknown non-API paths return index.html.
+app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api") || req.path.startsWith("/uploads")) return next();
+    res.sendFile(path.join(frontendDist, "index.html"));
+});
 
 app.use(errorHandler);
 

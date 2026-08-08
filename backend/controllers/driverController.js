@@ -37,8 +37,10 @@ function cleanupSetupUploads(req) {
     }
 }
 
-function storedUploadPath(file, folder) {
-    return file ? `/uploads/${folder}/${file.filename}` : null;
+async function storedUploadPath(file, folder, userId) {
+    if (!file) return null;
+    const { storedPath } = await upload.saveUpload(file, folder, userId);
+    return storedPath;
 }
 
 function parseBoolean(value, fallback = false) {
@@ -184,6 +186,13 @@ async function completeDriverSetup(req, res) {
         });
         if (plateOwner) throw duplicateError("licensePlate");
 
+        // Persist the images only once every validation above has passed.
+        const [licensePath, testPath, insurancePath] = await Promise.all([
+            storedUploadPath(licensePhoto, "licenses", userId),
+            storedUploadPath(testPhoto, "vehicle-docs", userId),
+            storedUploadPath(insurancePhoto, "vehicle-docs", userId)
+        ]);
+
         const driverPayload = {
             userId,
             licenseNumber,
@@ -194,7 +203,7 @@ async function completeDriverSetup(req, res) {
             acceptsCarpoolRides: parseBoolean(req.body.acceptsCarpoolRides, true),
             vehicleConditions: parseJson(req.body.vehicleConditions, { noPets: false, noSmoking: true, noFood: false }),
             licenseExpiry: req.body.licenseExpiry || undefined,
-            licenseImagePath: storedUploadPath(licensePhoto, "licenses") || existingDriver?.licenseImagePath,
+            licenseImagePath: licensePath || existingDriver?.licenseImagePath,
             verificationStatus: "approved",
             isVerified: true
         };
@@ -208,8 +217,8 @@ async function completeDriverSetup(req, res) {
             licensePlate,
             vehicleType: req.body.vehicleType || "regular",
             seats: Number(req.body.seats || 4),
-            testImagePath: storedUploadPath(testPhoto, "vehicle-docs") || existingVehicle?.testImagePath,
-            insuranceImagePath: storedUploadPath(insurancePhoto, "vehicle-docs") || existingVehicle?.insuranceImagePath,
+            testImagePath: testPath || existingVehicle?.testImagePath,
+            insuranceImagePath: insurancePath || existingVehicle?.insuranceImagePath,
             testApproval: true,
             insuranceApproval: true,
             documentsVerificationStatus: "approved"
