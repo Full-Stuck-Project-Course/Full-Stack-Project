@@ -342,21 +342,17 @@ test("verified driver can claim, start, and complete a ride while payment/profil
     assert.deepEqual(passengerProfileUpdate.update, {
         $inc: { totalRides: 1, totalSpent: 58.5 }
     });
+    // Completing a ride opens the payment; the passenger still has to submit the
+    // card form, which is what approves it.
     assert.deepEqual(paymentUpsert.filter, { rideId: ride._id });
-    assert.deepEqual(paymentUpsert.update.$setOnInsert, { rideId: ride._id });
-    assert.equal(paymentUpsert.update.$set.paymentMethod, "credit_card");
-    assert.equal(paymentUpsert.update.$set.paymentStatus, "paid", "completing a ride settles the payment automatically");
-    assert.equal(paymentUpsert.update.$set.paymentProvider, "simulated");
-    assert.equal(paymentUpsert.update.$set.amount, 58.5);
-    assert.match(paymentUpsert.update.$set.transactionId, /^auto_/);
-    assert.ok(paymentUpsert.update.$set.paidAt instanceof Date);
+    assert.equal(paymentUpsert.update.$setOnInsert.paymentMethod, "credit_card");
+    assert.equal(paymentUpsert.update.$setOnInsert.paymentStatus, "pending");
+    assert.equal(paymentUpsert.update.$setOnInsert.amount, 58.5);
+    assert.equal(paymentUpsert.update.$setOnInsert.paidAt, null);
+    assert.equal(paymentUpsert.update.$set, undefined, "completing a ride must not overwrite an existing payment");
     assert.equal(paymentUpsert.options.upsert, true);
 
-    assert.equal(paymentNotifications.length, 2, "passenger and driver are told the payment was approved");
-    assert.deepEqual(
-        [...new Set(paymentNotifications.map(note => note.type))],
-        ["payment_received"]
-    );
+    assert.equal(paymentNotifications.length, 0, "the approval notice belongs to the card submission, not ride completion");
 });
 
 test("assigned driver is released when an accepted ride is cancelled", async () => {

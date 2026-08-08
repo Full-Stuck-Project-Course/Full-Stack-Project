@@ -14,7 +14,6 @@ const {
     normalizeMinRating,
     normalizeVehicleType
 } = require("../utils/driverDiscovery");
-const { notifyPaymentApproved } = require("../utils/approvalNotifications");
 const {
     sameId,
     isAdmin,
@@ -103,36 +102,27 @@ function driverPreferenceMismatch(ride, driver, vehicle) {
     return null;
 }
 
-// There is no payment provider in this project, so completing a ride settles it
-// immediately instead of leaving a pending record for someone to approve. A
-// refunded payment is never resurrected.
-async function autoApprovePayment(req, ride) {
-    const existing = await Payment.findOne({ rideId: ride._id });
-    if (existing?.paymentStatus === "refunded") return existing;
-    if (existing?.paymentStatus === "paid") return existing;
-
-    const paidAt = new Date();
-    const payment = await Payment.findOneAndUpdate(
+// Completing a ride opens the payment rather than settling it, so the passenger
+// still sees the card screen. Approval happens when that form is submitted, with
+// no payment provider and no human reviewer involved. An existing paid or
+// refunded payment is left exactly as it is.
+async function openPaymentForRide(ride) {
+    return Payment.findOneAndUpdate(
         { rideId: ride._id },
         {
-            $set: {
+            $setOnInsert: {
+                rideId: ride._id,
                 passengerId: ride.passengerId,
                 driverId: ride.driverId,
                 amount: ride.finalPrice || 0,
                 currency: "ILS",
                 paymentMethod: "credit_card",
-                paymentStatus: "paid",
-                paymentProvider: "simulated",
-                transactionId: `auto_${ride._id}_${paidAt.getTime()}`,
-                paidAt
-            },
-            $setOnInsert: { rideId: ride._id }
+                paymentStatus: "pending",
+                paidAt: null
+            }
         },
         { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
     );
-
-    await notifyPaymentApproved(req, { ride, payment });
-    return payment;
 }
 
 function readyForDispatchFilter(date = new Date()) {
@@ -596,7 +586,7 @@ async function completeRide(req, res) {
             $inc: { totalRides: 1, totalSpent: ride.finalPrice || 0 }
         });
 
-        await autoApprovePayment(req, ride);
+        await openPaymentForRide(ride);
 
         res.status(200).json({ message: "Ride completed", ride });
     } catch (error) {

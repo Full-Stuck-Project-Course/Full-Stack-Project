@@ -79,6 +79,22 @@ const s = {
         border: "1px solid var(--border)",
         color: "var(--text)",
         marginTop: 8
+    },
+    receipt: {
+        textAlign: "start",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        padding: "12px 16px",
+        marginTop: 16,
+        display: "grid",
+        gap: 8
+    },
+    receiptRow: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 12,
+        fontSize: 13,
+        color: "var(--text-muted)"
     }
 };
 
@@ -244,13 +260,34 @@ export default function PaymentSimulationPage() {
                     <div style={{ fontSize: 56, marginBottom: 10 }}>✓</div>
                     <h1 style={s.title}>התשלום אושר</h1>
                     <p style={s.subtitle}>
-                        התשלום על הנסיעה אושר עם סיומה — לא נדרשת פעולה נוספת
+                        הכרטיס אומת והתשלום נקלט
                         {payment?.cardLast4 ? ` · כרטיס מסתיים ב-${payment.cardLast4}` : ""}.
                     </p>
-                    <p style={{ ...s.helper, marginTop: 8 }}>נשלחה אליך התראה על אישור התשלום.</p>
-                    {payment?.transactionId && (
-                        <div style={{ ...s.helper, marginTop: 10 }}>Transaction: {payment.transactionId}</div>
-                    )}
+                    <div style={s.receipt}>
+                        <div style={s.receiptRow}>
+                            <span>סכום</span>
+                            <strong>₪{formatAmount(amount)}</strong>
+                        </div>
+                        {payment?.cardLast4 && (
+                            <div style={s.receiptRow}>
+                                <span>אמצעי תשלום</span>
+                                <strong dir="ltr">•••• {payment.cardLast4}</strong>
+                            </div>
+                        )}
+                        {payment?.paidAt && (
+                            <div style={s.receiptRow}>
+                                <span>מועד</span>
+                                <strong>{new Date(payment.paidAt).toLocaleString("he-IL")}</strong>
+                            </div>
+                        )}
+                        {payment?.transactionId && (
+                            <div style={s.receiptRow}>
+                                <span>אסמכתה</span>
+                                <strong dir="ltr" style={{ fontSize: 11 }}>{payment.transactionId}</strong>
+                            </div>
+                        )}
+                    </div>
+                    <p style={{ ...s.helper, marginTop: 12 }}>נשלחה אליך התראה על אישור התשלום.</p>
                 </div>
                 <button className="btn-primary" onClick={() => navigate(`/rate/${id}?direction=passenger_to_driver`)}>
                     דרג את הנסיעה
@@ -266,8 +303,8 @@ export default function PaymentSimulationPage() {
         <div style={s.page} className="fade-in">
             <div style={s.header}>
                 <div style={s.icon}>💳</div>
-                <h1 style={s.title}>תשלום נסיעה</h1>
-                <p style={s.subtitle}>אימות תשלום מדומה לסיום הנסיעה</p>
+                <h1 style={s.title}>תשלום בכרטיס אשראי</h1>
+                <p style={s.subtitle}>הזן את פרטי הכרטיס — האישור אוטומטי ומיידי</p>
             </div>
 
             <form style={s.card} onSubmit={submit}>
