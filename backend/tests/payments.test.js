@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const DriverProfile = require("../db/models/DriverProfile");
+const Notification = require("../db/models/Notification");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const Payment = require("../db/models/payment");
 const Ride = require("../db/models/Ride");
@@ -163,6 +164,22 @@ test("admins create payments from the assigned ride and cannot refund more than 
     });
 });
 
+// The payment controller announces an approved payment; these stubs keep that
+// side effect isolated from whatever the test under test is asserting.
+function stubPaymentNotifications(captured = {}) {
+    patchMethod(patches, PassengerProfile, "findById", () => ({
+        select: async () => ({ userId: "passenger-user" })
+    }));
+    patchMethod(patches, DriverProfile, "findById", () => ({
+        select: async () => ({ userId: "driver-user" })
+    }));
+    patchMethod(patches, Notification, "insertMany", async (docs) => {
+        captured.notifications = docs;
+        return docs.map((doc, index) => ({ _id: `notification-${index}`, ...doc }));
+    });
+    return captured;
+}
+
 test("ride passenger can approve a completed ride with simulated card details", async () => {
     const ride = {
         _id: "ride-1",
@@ -173,6 +190,7 @@ test("ride passenger can approve a completed ride with simulated card details", 
     };
     let paymentUpsert;
 
+    stubPaymentNotifications();
     patchMethod(patches, Ride, "findById", async (id) => id === ride._id ? ride : null);
     patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
         return userId === "passenger-user" ? { _id: ride.passengerId } : null;
@@ -205,6 +223,147 @@ test("ride passenger can approve a completed ride with simulated card details", 
     assert.ok(paymentUpsert.update.$set.paidAt instanceof Date);
     assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cardNumber"), false);
     assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cvv"), false);
+});
+
+test("approving a payment notifies the passenger and the driver", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 72.5
+    };
+    const captured = stubPaymentNotifications();
+    const emitted = [];
+
+    patchMethod(patches, Ride, "findById", async () => ride);
+    patchMethod(patches, PassengerProfile, "findOne", async () => ({ _id: ride.passengerId }));
+    patchMethod(patches, Payment, "findOne", async () => null);
+    patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update) => ({
+        _id: "payment-1",
+        ...update.$setOnInsert,
+        ...update.$set
+    }));
+
+    const io = {
+        to(room) {
+            return {
+                emit(event, payload) {
+                    emitted.push({ room, event, payload });
+                }
+            };
+        }
+    };
+
+    const res = makeRes();
+    await simulatePayment({
+        app: { get: (key) => key === "io" ? io : null },
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Test Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(captured.notifications.length, 2);
+
+    const [passengerNote, driverNote] = captured.notifications;
+    assert.equal(passengerNote.userId, "passenger-user");
+    assert.equal(passengerNote.type, "payment_received");
+    assert.equal(passengerNote.rideId, ride._id);
+    assert.match(passengerNote.body, /72\.5/);
+    assert.match(passengerNote.body, /1111/);
+
+    assert.equal(driverNote.userId, "driver-user");
+    assert.equal(driverNote.type, "payment_received");
+
+    assert.deepEqual(emitted.map(e => e.room), ["user:passenger-user", "user:driver-user"]);
+    assert.deepEqual([...new Set(emitted.map(e => e.event))], ["payment-approved"]);
+    assert.equal(emitted[0].payload.amount, 72.5);
+});
+
+test("a notification failure never turns an approved payment into an error", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 30
+    };
+
+    patchMethod(patches, Ride, "findById", async () => ride);
+    patchMethod(patches, PassengerProfile, "findOne", async () => ({ _id: ride.passengerId }));
+    patchMethod(patches, PassengerProfile, "findById", () => ({
+        select: async () => { throw new Error("notification lookup exploded"); }
+    }));
+    patchMethod(patches, DriverProfile, "findById", () => ({
+        select: async () => ({ userId: "driver-user" })
+    }));
+    patchMethod(patches, Notification, "insertMany", async () => {
+        throw new Error("notifications are down");
+    });
+    patchMethod(patches, Payment, "findOne", async () => null);
+    patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update) => ({
+        _id: "payment-1",
+        ...update.$set
+    }));
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Test Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.payment.paymentStatus, "paid");
+});
+
+test("an already-approved payment is not announced a second time", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 30
+    };
+    let notificationsSent = false;
+
+    patchMethod(patches, Ride, "findById", async () => ride);
+    patchMethod(patches, PassengerProfile, "findOne", async () => ({ _id: ride.passengerId }));
+    patchMethod(patches, Payment, "findOne", async () => ({
+        _id: "payment-1",
+        paymentStatus: "paid"
+    }));
+    patchMethod(patches, Notification, "insertMany", async () => {
+        notificationsSent = true;
+        return [];
+    });
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Test Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.match(res.body.message, /already approved/i);
+    assert.equal(notificationsSent, false);
 });
 
 test("simulated payment can only be approved by the ride passenger", async () => {

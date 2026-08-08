@@ -7,7 +7,8 @@ const PassengerProfile = require("../db/models/PassengerProfile");
 const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
-const { calculateFare } = require("../utils/pricing");
+const { calculateFare, haversineKm, hasValidCoordinates } = require("../utils/pricing");
+const { normalizeDriverGender, normalizeVehicleType } = require("../utils/driverDiscovery");
 const {
     sameId,
     isAdmin,
@@ -28,6 +29,47 @@ const ADMIN_RIDE_STATUSES = new Set([
     "completed",
     "cancelled"
 ]);
+
+const MIN_DRIVER_DISTANCE_KM = 1;
+const MAX_DRIVER_DISTANCE_KM = 25;
+
+function clampDriverDistanceKm(value) {
+    const distance = Number(value);
+    if (!Number.isFinite(distance)) return null;
+    return Math.min(MAX_DRIVER_DISTANCE_KM, Math.max(MIN_DRIVER_DISTANCE_KM, distance));
+}
+
+// Checks a driver and their vehicle against the preferences the passenger chose
+// when booking. Returns null when the driver is a match.
+function driverPreferenceMismatch(ride, driver, vehicle) {
+    if (ride.preferredDriverGender && driver.gender !== ride.preferredDriverGender) {
+        return {
+            statusCode: 403,
+            error: "This passenger requested a driver of a different gender"
+        };
+    }
+
+    if (ride.vehicleType && vehicle.vehicleType !== ride.vehicleType) {
+        return {
+            statusCode: 400,
+            error: `This ride was booked and priced for a ${ride.vehicleType} vehicle`
+        };
+    }
+
+    if (ride.maxDriverDistanceKm &&
+        hasValidCoordinates(driver.currentLocation?.lat, driver.currentLocation?.lng) &&
+        hasValidCoordinates(ride.pickupLocation?.lat, ride.pickupLocation?.lng)) {
+        const distanceKm = haversineKm(ride.pickupLocation, driver.currentLocation);
+        if (distanceKm > ride.maxDriverDistanceKm) {
+            return {
+                statusCode: 400,
+                error: `Driver is ${distanceKm.toFixed(1)} km away, beyond the ${ride.maxDriverDistanceKm} km the passenger allowed`
+            };
+        }
+    }
+
+    return null;
+}
 
 function readyForDispatchFilter(date = new Date()) {
     return {
@@ -169,6 +211,12 @@ async function createRide(req, res) {
             passengerCount
         });
 
+        // Driver-matching preferences. These are enforced in acceptRide, so a
+        // passenger's choice actually restricts who can take the ride.
+        const vehicleType = normalizeVehicleType(req.body.vehicleType);
+        const preferredDriverGender = normalizeDriverGender(req.body.preferredDriverGender);
+        const maxDriverDistanceKm = clampDriverDistanceKm(req.body.maxDriverDistanceKm);
+
         const pointsToRedeem = Math.floor(positiveNumber(req.body.pointsToRedeem));
         const originalFinalPrice = fare.finalPrice;
         let finalPrice = originalFinalPrice;
@@ -183,6 +231,9 @@ async function createRide(req, res) {
             rideType,
             scheduledTime: req.body.scheduledTime || null,
             passengerCount,
+            vehicleType,
+            preferredDriverGender,
+            maxDriverDistanceKm,
             distanceKm: fare.distanceKm,
             estimatedDurationMinutes: fare.estimatedDurationMinutes,
             basePrice: fare.basePrice,
@@ -373,6 +424,9 @@ async function acceptRide(req, res) {
         if (vehicle.seats < ridePreview.passengerCount) {
             return res.status(400).json({ error: "Vehicle does not have enough seats for this ride" });
         }
+
+        const mismatch = driverPreferenceMismatch(ridePreview, driver, vehicle);
+        if (mismatch) return res.status(mismatch.statusCode).json({ error: mismatch.error });
 
         const claimedDriver = await DriverProfile.findOneAndUpdate(
             { _id: driverId, status: "available", isVerified: true },

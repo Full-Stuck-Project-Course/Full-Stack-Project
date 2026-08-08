@@ -53,6 +53,16 @@ const VEHICLE_TYPES = [
     { value: "van",     label: "🚐 מיניוואן" }
 ];
 
+const DRIVER_GENDERS = [
+    { value: "",       label: "👥 ללא העדפה" },
+    { value: "male",   label: "👨 נהג" },
+    { value: "female", label: "👩 נהגת" }
+];
+
+const DEFAULT_DRIVER_RADIUS_KM = 15;
+const MIN_DRIVER_RADIUS_KM = 1;
+const MAX_DRIVER_RADIUS_KM = 25;
+
 function toLocalDateTimeInputValue(date = new Date()) {
     const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 16);
@@ -78,6 +88,8 @@ export default function BookRidePage() {
 
     const [rideType,     setRideType]     = useState(params.get("type") || "ride");
     const [vehicleType,  setVehicleType]  = useState("regular");
+    const [driverGender, setDriverGender] = useState("");
+    const [driverRadius, setDriverRadius] = useState(DEFAULT_DRIVER_RADIUS_KM);
     const [pickup,       setPickup]       = useState({ address: "", lat: null, lng: null });
     const [dest,         setDest]         = useState({ address: "", lat: null, lng: null });
     const [stops,        setStops]        = useState([]);
@@ -115,12 +127,29 @@ export default function BookRidePage() {
         }
     }, []);
 
-    // Fetch nearby drivers, saved addresses, points
+    // Re-query nearby drivers whenever the passenger changes a matching filter.
+    // Debounced so dragging the distance slider does not spam the API.
+    useEffect(() => {
+        if (!userLoc) return;
+        const timer = setTimeout(() => {
+            api.get("/maps/nearby-drivers", {
+                params: {
+                    lat: userLoc.lat,
+                    lng: userLoc.lng,
+                    radius: driverRadius,
+                    vehicleType,
+                    ...(driverGender ? { gender: driverGender } : {})
+                }
+            })
+                .then(r => setNearbyDrivers(r.data || []))
+                .catch(() => setNearbyDrivers([]));
+        }, 350);
+        return () => clearTimeout(timer);
+    }, [userLoc, driverRadius, vehicleType, driverGender]);
+
+    // Fetch saved addresses, points, and departure hints
     useEffect(() => {
         if (userLoc) {
-            api.get("/maps/nearby-drivers", { params: { lat: userLoc.lat, lng: userLoc.lng, radius: 15 } })
-                .then(r => setNearbyDrivers(r.data || []))
-                .catch(() => {});
             api.get("/maps/best-departure").then(r => setBestTime(r.data)).catch(() => {});
         }
         // Fetch saved addresses
@@ -213,6 +242,8 @@ export default function BookRidePage() {
             const { data } = await api.post("/rides", {
                 rideType,
                 vehicleType,
+                preferredDriverGender: driverGender || null,
+                maxDriverDistanceKm: driverRadius,
                 pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
                 destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                 passengerCount,
@@ -333,6 +364,44 @@ export default function BookRidePage() {
                         </div>
                     </div>
 
+                    {/* Driver matching filters */}
+                    <div style={s.group}>
+                        <label style={s.label}>{"מגדר הנהג"}</label>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {DRIVER_GENDERS.map(g => (
+                                <button
+                                    key={g.value || "any"}
+                                    type="button"
+                                    style={s.tab(driverGender === g.value)}
+                                    aria-pressed={driverGender === g.value}
+                                    onClick={() => setDriverGender(g.value)}
+                                >{g.label}</button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div style={s.group}>
+                        <label style={s.label} htmlFor="driver-radius">
+                            {"מרחק מרבי מהנהג"}: {driverRadius} {'ק"מ'}
+                        </label>
+                        <input
+                            id="driver-radius"
+                            type="range"
+                            min={MIN_DRIVER_RADIUS_KM}
+                            max={MAX_DRIVER_RADIUS_KM}
+                            step={1}
+                            value={driverRadius}
+                            onChange={e => setDriverRadius(Number(e.target.value))}
+                            aria-label={'בחר מרחק מרבי מהנהג בקילומטרים'}
+                            style={{ width: "100%" }}
+                        />
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                            {nearbyDrivers.length > 0
+                                ? `${nearbyDrivers.length} נהגים מתאימים לסינון שבחרת`
+                                : "אין נהגים שמתאימים לסינון הנוכחי — נסה להרחיב את המרחק או לשנות את סוג הרכב"}
+                        </div>
+                    </div>
+
                     <div style={s.row}>
                         <div style={s.group}>
                             <label style={s.label}>{"נוסעים"}</label>
@@ -443,7 +512,10 @@ export default function BookRidePage() {
                             <div key={d._id || i} style={s.driverCard}>
                                 <div>
                                     <div style={{ fontWeight: 600, fontSize: 14 }}>{d.userId?.fullName || "נהג"}</div>
-                                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>📏 {d.distanceKm} ק"מ ממך</div>
+                                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                                        📏 {d.distanceKm} ק"מ ממך
+                                        {d.vehicleDescription ? ` · ${d.vehicleDescription}` : ""}
+                                    </div>
                                 </div>
                                 <div style={{ textAlign: "left" }}>
                                     <div style={{ fontSize: 14, fontWeight: 700 }}>⭐ {d.ratingAverage}</div>

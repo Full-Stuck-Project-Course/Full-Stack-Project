@@ -11,7 +11,13 @@ const {
     estimateDurationMinutes
 } = require("../utils/pricing");
 const { forbidden, getDriverProfileForUser, getPassengerProfileForUser, isAdmin } = require("../utils/authz");
-const { clampNearbyDriverLimit, findNearbyAvailableDrivers } = require("../utils/driverDiscovery");
+const {
+    clampNearbyDriverLimit,
+    findNearbyAvailableDrivers,
+    normalizeDriverGender,
+    normalizeVehicleType
+} = require("../utils/driverDiscovery");
+const Vehicle = require("../db/models/Vehicle");
 
 function parseLatLng(value) {
     const [lat, lng] = String(value || "").split(",").map(Number);
@@ -124,25 +130,43 @@ async function getNearbyDrivers(req, res) {
 
         const origin = { lat: Number(lat), lng: Number(lng) };
         const maxRadius = clampRadius(radius);
+        const gender = normalizeDriverGender(req.query.gender);
+        const vehicleType = normalizeVehicleType(req.query.vehicleType);
+
         const nearbyDrivers = await findNearbyAvailableDrivers({
             location: origin,
             radiusKm: maxRadius,
             limit: clampNearbyDriverLimit(limit),
-            populateUser: true
+            populateUser: true,
+            gender,
+            vehicleType
         });
 
-        const nearby = nearbyDrivers.map(({ driver, distanceKm }) => ({
-            _id: driver._id,
-            userId: driver.userId,
-            ratingAverage: driver.ratingAverage,
-            totalRides: driver.totalRides,
-            currentLocation: {
-                lat: roundCoordinate(driver.currentLocation.lat),
-                lng: roundCoordinate(driver.currentLocation.lng),
-                updatedAt: driver.currentLocation.updatedAt
-            },
-            distanceKm
-        }));
+        // Surface each driver's vehicle so the passenger can see what they filtered on.
+        const vehicles = await Vehicle.find({
+            driverId: { $in: nearbyDrivers.map(({ driver }) => driver._id) },
+            isActive: true
+        }).select("driverId vehicleType company model seats");
+        const vehicleByDriver = new Map(vehicles.map(vehicle => [String(vehicle.driverId), vehicle]));
+
+        const nearby = nearbyDrivers.map(({ driver, distanceKm }) => {
+            const vehicle = vehicleByDriver.get(String(driver._id));
+            return {
+                _id: driver._id,
+                userId: driver.userId,
+                ratingAverage: driver.ratingAverage,
+                totalRides: driver.totalRides,
+                gender: driver.gender,
+                vehicleType: vehicle?.vehicleType || null,
+                vehicleDescription: vehicle ? `${vehicle.company} ${vehicle.model}` : null,
+                currentLocation: {
+                    lat: roundCoordinate(driver.currentLocation.lat),
+                    lng: roundCoordinate(driver.currentLocation.lng),
+                    updatedAt: driver.currentLocation.updatedAt
+                },
+                distanceKm
+            };
+        });
 
         res.json(nearby);
     } catch (error) {

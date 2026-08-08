@@ -267,10 +267,14 @@ async function notifyNearbyDrivers() {
 
         for (const ride of recentRides) {
             if (!hasValidCoordinates(ride.pickupLocation?.lat, ride.pickupLocation?.lng)) continue;
+            // Honour the passenger's matching preferences so drivers are not
+            // offered rides that acceptRide would refuse.
             const nearbyDrivers = await findNearbyAvailableDrivers({
                 location: ride.pickupLocation,
-                radiusKm: 5,
+                radiusKm: ride.maxDriverDistanceKm || 5,
                 carpoolOnly: ride.rideType === "carpool",
+                gender: ride.preferredDriverGender,
+                vehicleType: ride.vehicleType,
                 limit: process.env.NEARBY_DRIVER_NOTIFY_LIMIT || 100
             });
 

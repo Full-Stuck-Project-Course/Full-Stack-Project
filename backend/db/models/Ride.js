@@ -58,6 +58,27 @@ const rideSchema = new mongoose.Schema({
         default: null
     },
 
+    // Passenger driver-matching preferences. null means "no preference"; anything
+    // set here is enforced when a driver tries to accept the ride.
+    vehicleType: {
+        type: String,
+        enum: ["regular", "comfort", "luxury", "van", null],
+        default: null
+    },
+
+    preferredDriverGender: {
+        type: String,
+        enum: ["male", "female", null],
+        default: null
+    },
+
+    maxDriverDistanceKm: {
+        type: Number,
+        default: null,
+        min: 1,
+        max: 25
+    },
+
     distanceKm:               { type: Number, default: 0 },
     estimatedDurationMinutes: { type: Number, default: 0 },
     basePrice:                { type: Number, default: 0 },
