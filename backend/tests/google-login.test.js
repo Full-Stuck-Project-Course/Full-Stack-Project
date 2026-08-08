@@ -14,23 +14,23 @@ const {
 
 const patches = [];
 const originalEnv = {
-    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-    VITE_GOOGLE_CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID,
+    GOOGLE_SERVER_CLIENT_ID: process.env.GOOGLE_SERVER_CLIENT_ID,
+    VITE_GOOGLE_BROWSER_CLIENT_ID: process.env.VITE_GOOGLE_BROWSER_CLIENT_ID,
     JWT_SECRET: process.env.JWT_SECRET
 };
 
 test.afterEach(() => {
     restoreMethods(patches);
-    if (originalEnv.GOOGLE_CLIENT_ID === undefined) delete process.env.GOOGLE_CLIENT_ID;
-    else process.env.GOOGLE_CLIENT_ID = originalEnv.GOOGLE_CLIENT_ID;
-    if (originalEnv.VITE_GOOGLE_CLIENT_ID === undefined) delete process.env.VITE_GOOGLE_CLIENT_ID;
-    else process.env.VITE_GOOGLE_CLIENT_ID = originalEnv.VITE_GOOGLE_CLIENT_ID;
+    if (originalEnv.GOOGLE_SERVER_CLIENT_ID === undefined) delete process.env.GOOGLE_SERVER_CLIENT_ID;
+    else process.env.GOOGLE_SERVER_CLIENT_ID = originalEnv.GOOGLE_SERVER_CLIENT_ID;
+    if (originalEnv.VITE_GOOGLE_BROWSER_CLIENT_ID === undefined) delete process.env.VITE_GOOGLE_BROWSER_CLIENT_ID;
+    else process.env.VITE_GOOGLE_BROWSER_CLIENT_ID = originalEnv.VITE_GOOGLE_BROWSER_CLIENT_ID;
     if (originalEnv.JWT_SECRET === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = originalEnv.JWT_SECRET;
 });
 
 test("google login verifies the credential against configured Google client ids", async () => {
-    process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com, client-b.apps.googleusercontent.com";
+    process.env.GOOGLE_SERVER_CLIENT_ID = "client-a.apps.googleusercontent.com, client-b.apps.googleusercontent.com";
     process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
 
     const user = {
@@ -84,8 +84,8 @@ test("google login verifies the credential against configured Google client ids"
 });
 
 test("google login ignores placeholder backend client ids and falls back to the frontend client id", async () => {
-    process.env.GOOGLE_CLIENT_ID = "your_google_client_id.apps.googleusercontent.com";
-    process.env.VITE_GOOGLE_CLIENT_ID = "frontend-client.apps.googleusercontent.com";
+    process.env.GOOGLE_SERVER_CLIENT_ID = "your_google_client_id.apps.googleusercontent.com";
+    process.env.VITE_GOOGLE_BROWSER_CLIENT_ID = "frontend-client.apps.googleusercontent.com";
     process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
 
     const user = {
@@ -129,7 +129,7 @@ test("google login ignores placeholder backend client ids and falls back to the 
 });
 
 test("first-time google login creates a temporary phone and requires profile completion", async () => {
-    process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
+    process.env.GOOGLE_SERVER_CLIENT_ID = "client-a.apps.googleusercontent.com";
     process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
 
     let createdUser;
@@ -174,7 +174,7 @@ test("first-time google login creates a temporary phone and requires profile com
 });
 
 test("google login rejects accounts whose email was not verified by Google", async () => {
-    process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
+    process.env.GOOGLE_SERVER_CLIENT_ID = "client-a.apps.googleusercontent.com";
 
     let findOneCalled = false;
     patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async () => ({
@@ -200,8 +200,8 @@ test("google login rejects accounts whose email was not verified by Google", asy
 });
 
 test("google login returns a clear configuration error before calling Google", async () => {
-    delete process.env.GOOGLE_CLIENT_ID;
-    delete process.env.VITE_GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_SERVER_CLIENT_ID;
+    delete process.env.VITE_GOOGLE_BROWSER_CLIENT_ID;
 
     let verifyCalled = false;
     patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async () => {
@@ -213,12 +213,12 @@ test("google login returns a clear configuration error before calling Google", a
     await googleLogin({ body: { credential: "google-id-token" } }, res);
 
     assert.equal(res.statusCode, 503);
-    assert.match(res.body.error, /GOOGLE_CLIENT_ID/);
+    assert.match(res.body.error, /GOOGLE_SERVER_CLIENT_ID/);
     assert.equal(verifyCalled, false);
 });
 
 test("google login reports certificate network failures as a service outage", async () => {
-    process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
+    process.env.GOOGLE_SERVER_CLIENT_ID = "client-a.apps.googleusercontent.com";
 
     patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async () => {
         throw new Error("Failed to retrieve verification certificates: request to https://www.googleapis.com/oauth2/v1/certs failed, reason:");

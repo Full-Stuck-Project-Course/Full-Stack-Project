@@ -55,7 +55,7 @@ async function getDistanceAndPrice(req, res) {
         let fare;
         let distanceText;
         let durationText;
-        const key = process.env.GOOGLE_MAPS_API_KEY;
+        const key = process.env.GOOGLE_SERVER_MAPS_API_KEY;
 
         if (key && key !== "place_holder" && !key.startsWith("your_") && key !== "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
             const { data } = await axios.get(
@@ -305,7 +305,7 @@ async function getDriverETA(req, res) {
             return res.status(400).json({ error: "Valid driver and passenger coordinates are required" });
         }
 
-        const key = process.env.GOOGLE_MAPS_API_KEY;
+        const key = process.env.GOOGLE_SERVER_MAPS_API_KEY;
         if (!key || key === "place_holder" || key.startsWith("your_") || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
             const distKm = haversineKm(
                 { lat: Number(driverLat), lng: Number(driverLng) },

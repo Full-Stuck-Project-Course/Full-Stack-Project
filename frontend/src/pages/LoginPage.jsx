@@ -23,7 +23,7 @@ export default function LoginPage() {
     const { login }    = useAuth();
     const navigate     = useNavigate();
     const location     = useLocation();
-    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    const googleClientId = import.meta.env.VITE_GOOGLE_BROWSER_CLIENT_ID;
     const [form, setF] = useState({ email: "", password: "" });
     const [error, setE] = useState("");
     const [loading, setL] = useState(false);
