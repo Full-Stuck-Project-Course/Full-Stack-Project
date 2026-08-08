@@ -34,10 +34,13 @@ const driverProfileSchema = new mongoose.Schema({
         default: false
     },
 
+    // Documents are approved automatically on upload, so a driver is never left
+    // waiting in "pending" — before a licence exists the status is simply
+    // not_submitted.
     verificationStatus: {
         type: String,
         enum: ["not_submitted", "pending", "approved", "rejected"],
-        default: "pending"
+        default: "not_submitted"
     },
 
     ratingAverage: {

@@ -9,6 +9,7 @@ const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 const { hasValidCoordinates } = require("../utils/pricing");
 const { toGeoPoint } = require("../utils/geoLocation");
 const { deleteStoredUploads } = require("../utils/privacyCleanup");
+const { notifyDocumentApproved } = require("../utils/approvalNotifications");
 const upload = require("../middleware/upload");
 
 const VALID_DRIVER_GENDERS = new Set(["male", "female"]);
@@ -250,6 +251,11 @@ async function completeDriverSetup(req, res) {
 
         await updateUserRoleAfterDriverSetup(userId);
 
+        // Every document submitted in this request was approved automatically.
+        for (const kind of [licensePath && "licenses", (testPath || insurancePath) && "vehicle-docs"]) {
+            if (kind) await notifyDocumentApproved(req, { userId, kind });
+        }
+
         res.status(existingDriver ? 200 : 201).json({
             message: "Driver setup completed successfully",
             driver,
@@ -342,8 +348,10 @@ async function updateDriver(req, res) {
             return res.status(400).json({ error: "Driver gender must be male or female" });
         }
         if (req.body.licenseNumber !== undefined && String(req.body.licenseNumber) !== String(existing.licenseNumber)) {
+            // A new licence number needs a new licence photo, which will be
+            // approved automatically as soon as it is uploaded.
             update.isVerified = false;
-            update.verificationStatus = "pending";
+            update.verificationStatus = "not_submitted";
             update.status = "offline";
         }
         const driver = await DriverProfile.findByIdAndUpdate(req.params.id, update, {

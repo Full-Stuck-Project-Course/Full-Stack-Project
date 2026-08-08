@@ -1,10 +1,8 @@
 // controllers/paymentController.js
 
-const DriverProfile = require("../db/models/DriverProfile");
-const Notification = require("../db/models/Notification");
-const PassengerProfile = require("../db/models/PassengerProfile");
 const Payment = require("../db/models/payment");
 const Ride = require("../db/models/Ride");
+const { notifyPaymentApproved } = require("../utils/approvalNotifications");
 const {
     sameId,
     isAdmin,
@@ -58,62 +56,6 @@ function validateSimulatedCard(body) {
         cardholderName,
         expiry
     };
-}
-
-function formatAmount(payment) {
-    return `₪${Number(payment.amount || 0).toFixed(1)}`;
-}
-
-// Announces an approved payment to the passenger and the driver. The payment has
-// already been persisted by the time this runs, so a failure here must never
-// turn a successful payment into an error response.
-async function notifyPaymentApproved(req, ride, payment) {
-    try {
-        const [passenger, driver] = await Promise.all([
-            PassengerProfile.findById(ride.passengerId).select("userId"),
-            DriverProfile.findById(ride.driverId).select("userId")
-        ]);
-
-        const amount = formatAmount(payment);
-        const recipients = [
-            passenger?.userId && {
-                userId: passenger.userId,
-                type: "payment_received",
-                title: "התשלום אושר",
-                body: `התשלום על סך ${amount} אושר בהצלחה${payment.cardLast4 ? ` · כרטיס מסתיים ב-${payment.cardLast4}` : ""}.`,
-                rideId: ride._id
-            },
-            driver?.userId && {
-                userId: driver.userId,
-                type: "payment_received",
-                title: "התקבל תשלום",
-                body: `התקבל תשלום על סך ${amount} עבור הנסיעה שהושלמה.`,
-                rideId: ride._id
-            }
-        ].filter(Boolean);
-
-        if (recipients.length === 0) return [];
-
-        const notifications = await Notification.insertMany(recipients);
-
-        // Push it live too; the notification bell otherwise polls every 30 seconds.
-        const io = req.app?.get?.("io");
-        if (io) {
-            for (const notification of notifications) {
-                io.to(`user:${notification.userId}`).emit("payment-approved", {
-                    rideId: ride._id,
-                    amount: payment.amount,
-                    transactionId: payment.transactionId,
-                    notification
-                });
-            }
-        }
-
-        return notifications;
-    } catch (error) {
-        console.warn("Could not send payment notifications:", error.message);
-        return [];
-    }
 }
 
 // POST /payments
@@ -264,7 +206,7 @@ async function simulatePayment(req, res) {
             { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
         );
 
-        await notifyPaymentApproved(req, ride, payment);
+        await notifyPaymentApproved(req, { ride, payment });
 
         res.status(200).json({ message: "Simulated payment approved", payment });
     } catch (error) {

@@ -242,10 +242,12 @@ export default function PaymentSimulationPage() {
             <div style={s.page} className="fade-in">
                 <div style={s.successBox} role="status">
                     <div style={{ fontSize: 56, marginBottom: 10 }}>✓</div>
-                    <h1 style={s.title}>התשלום התקבל</h1>
+                    <h1 style={s.title}>התשלום אושר אוטומטית</h1>
                     <p style={s.subtitle}>
-                        אישור מדומה נקלט במערכת{payment?.cardLast4 ? ` · כרטיס מסתיים ב-${payment.cardLast4}` : ""}.
+                        התשלום על הנסיעה אושר אוטומטית עם סיומה — לא נדרשת פעולה נוספת
+                        {payment?.cardLast4 ? ` · כרטיס מסתיים ב-${payment.cardLast4}` : ""}.
                     </p>
+                    <p style={{ ...s.helper, marginTop: 8 }}>נשלחה אליך התראה על אישור התשלום.</p>
                     {payment?.transactionId && (
                         <div style={{ ...s.helper, marginTop: 10 }}>Transaction: {payment.transactionId}</div>
                     )}

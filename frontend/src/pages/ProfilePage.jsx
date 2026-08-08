@@ -31,8 +31,20 @@ const s = {
 
 const ROLE_LABELS = { passenger: "נוסע", driver: "נהג", both: "נהג ונוסע", admin: "מנהל" };
 const ROLE_COLORS = { passenger: "#3b82f6", driver: "#10b981", both: "#8b5cf6", admin: "#ef4444" };
-const VERIFY_LABELS = { not_submitted: "לא הוגש", pending: "בבדיקה אוטומטית", approved: "מאושר", rejected: "נדחה" };
+const VERIFY_LABELS = { not_submitted: "לא הוגש", pending: "בבדיקה אוטומטית", approved: "מאושר אוטומטית", rejected: "נדחה" };
 const VERIFY_ICONS  = { not_submitted: "📄", pending: "⏳", approved: "✅", rejected: "❌" };
+
+const PROFILE_PHOTO_VERIFICATION = {
+    title: "בודקים את תמונת הפרופיל שלך",
+    subtitle: "התמונה תאושר אוטומטית מיד אחרי הבדיקה.",
+    steps: [
+        { label: "מעלה את התמונה", detail: "הקובץ נשמר במסד הנתונים" },
+        { label: "בודק איכות תמונה", detail: "מוודא שהקובץ תקין וקריא" },
+        { label: "מאשר את התמונה", detail: "האישור אוטומטי — אין המתנה לנציג" }
+    ],
+    successTitle: "תמונת הפרופיל אושרה",
+    successText: "התמונה שלך עודכנה ואושרה אוטומטית."
+};
 
 function SecureImage({ path, alt, style }) {
     const [src, setSrc] = useState("");
@@ -73,6 +85,7 @@ export default function ProfilePage() {
     const [pwError,  setPwError]  = useState("");
     const [showPw,   setShowPw]   = useState({ currentPassword: false, newPassword: false, confirm: false });
     const [idVerification, setIdVerification] = useState(null);
+    const [photoApproved, setPhotoApproved] = useState(false);
 
     useEffect(() => {
         (async () => {
@@ -149,9 +162,26 @@ export default function ProfilePage() {
         const fd = new FormData();
         fd.append("profileImage", file);
         fd.append("userId", user.userId);
-        await api.post("/uploads/profile", fd, { headers: { "Content-Type": "multipart/form-data" } });
-        const { data } = await api.get(`/users/${user.userId}`);
-        setProfile(data);
+        setError("");
+        setPhotoApproved(false);
+        setIdVerification(PROFILE_PHOTO_VERIFICATION);
+        const verificationDelay = waitForAutoVerification();
+        try {
+            const [updatedProfile] = await Promise.all([
+                (async () => {
+                    await api.post("/uploads/profile", fd, { headers: { "Content-Type": "multipart/form-data" } });
+                    const { data } = await api.get(`/users/${user.userId}`);
+                    return data;
+                })(),
+                verificationDelay
+            ]);
+            setProfile(updatedProfile);
+            setPhotoApproved(true);
+        } catch (err) {
+            setError(err.response?.data?.error || "שגיאה בהעלאת תמונת הפרופיל");
+        } finally {
+            setIdVerification(null);
+        }
     };
 
     const handleIdPhoto = async (e) => {
@@ -222,11 +252,17 @@ export default function ProfilePage() {
                                 {ROLE_LABELS[profile?.role] || profile?.role}
                             </span>
                             <span style={s.verifyBadge(verifyStatus)}>
-                                {VERIFY_ICONS[verifyStatus]} {VERIFY_LABELS[verifyStatus]}
+                                🪪 {"תעודת זהות"}: {VERIFY_ICONS[verifyStatus]} {VERIFY_LABELS[verifyStatus]}
                             </span>
                         </div>
                     </div>
                 </div>
+
+                {photoApproved && (
+                    <div role="status" style={{ background: "#d1fae5", color: "#065f46", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
+                        ✅ תמונת הפרופיל אושרה אוטומטית
+                    </div>
+                )}
 
                 {profile?.loyaltyPoints > 0 && (
                     <div style={{ background: "#fef3c7", borderRadius: 10, padding: "12px 14px", fontSize: 14, fontWeight: 700, color: "#92400e", marginBottom: 12 }}>

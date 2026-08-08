@@ -9,6 +9,7 @@ const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
 const { calculateFare, haversineKm, hasValidCoordinates } = require("../utils/pricing");
 const { normalizeDriverGender, normalizeVehicleType } = require("../utils/driverDiscovery");
+const { notifyPaymentApproved } = require("../utils/approvalNotifications");
 const {
     sameId,
     isAdmin,
@@ -69,6 +70,38 @@ function driverPreferenceMismatch(ride, driver, vehicle) {
     }
 
     return null;
+}
+
+// There is no payment provider in this project, so completing a ride settles it
+// immediately instead of leaving a pending record for someone to approve. A
+// refunded payment is never resurrected.
+async function autoApprovePayment(req, ride) {
+    const existing = await Payment.findOne({ rideId: ride._id });
+    if (existing?.paymentStatus === "refunded") return existing;
+    if (existing?.paymentStatus === "paid") return existing;
+
+    const paidAt = new Date();
+    const payment = await Payment.findOneAndUpdate(
+        { rideId: ride._id },
+        {
+            $set: {
+                passengerId: ride.passengerId,
+                driverId: ride.driverId,
+                amount: ride.finalPrice || 0,
+                currency: "ILS",
+                paymentMethod: "credit_card",
+                paymentStatus: "paid",
+                paymentProvider: "simulated",
+                transactionId: `auto_${ride._id}_${paidAt.getTime()}`,
+                paidAt
+            },
+            $setOnInsert: { rideId: ride._id }
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
+    );
+
+    await notifyPaymentApproved(req, { ride, payment });
+    return payment;
 }
 
 function readyForDispatchFilter(date = new Date()) {
@@ -523,22 +556,7 @@ async function completeRide(req, res) {
             $inc: { totalRides: 1, totalSpent: ride.finalPrice || 0 }
         });
 
-        await Payment.findOneAndUpdate(
-            { rideId: ride._id },
-            {
-                $setOnInsert: {
-                    rideId: ride._id,
-                    passengerId: ride.passengerId,
-                    driverId: ride.driverId,
-                    amount: ride.finalPrice || 0,
-                    currency: "ILS",
-                    paymentMethod: "credit_card",
-                    paymentStatus: "pending",
-                    paidAt: null
-                }
-            },
-            { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
-        );
+        await autoApprovePayment(req, ride);
 
         res.status(200).json({ message: "Ride completed", ride });
     } catch (error) {

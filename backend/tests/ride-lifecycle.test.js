@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const mongoose = require("mongoose");
 
 const DriverProfile = require("../db/models/DriverProfile");
+const Notification = require("../db/models/Notification");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const Payment = require("../db/models/payment");
 const Ride = require("../db/models/Ride");
@@ -235,13 +236,19 @@ test("verified driver can claim, start, and complete a ride while payment/profil
     let driverProfileUpdate;
     let passengerProfileUpdate;
     let paymentUpsert;
+    let paymentNotifications = [];
 
     patchMethod(patches, DriverProfile, "findOne", async ({ userId }) => {
         return userId === "driver-user" ? driver : null;
     });
     patchMethod(patches, PassengerProfile, "findOne", async () => null);
-    patchMethod(patches, DriverProfile, "findById", async (id) => {
-        return id === driver._id ? driver : null;
+    // acceptRide awaits this directly; the payment notifier calls .select("userId").
+    patchMethod(patches, DriverProfile, "findById", (id) => {
+        const result = id === driver._id ? driver : null;
+        return {
+            select: async () => result,
+            then: (resolve, reject) => Promise.resolve(result).then(resolve, reject)
+        };
     });
     patchMethod(patches, Ride, "findOne", async (filter) => {
         assert.equal(filter._id, ride._id);
@@ -279,9 +286,18 @@ test("verified driver can claim, start, and complete a ride while payment/profil
         passengerProfileUpdate = { id, update };
         return { _id: id, ...update };
     });
+    patchMethod(patches, Payment, "findOne", async () => null);
     patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update, options) => {
         paymentUpsert = { filter, update, options };
-        return { _id: "payment-1", ...update.$setOnInsert };
+        return { _id: "payment-1", ...update.$setOnInsert, ...update.$set };
+    });
+    // Completing a ride settles the payment and announces it.
+    patchMethod(patches, PassengerProfile, "findById", () => ({
+        select: async () => ({ userId: "passenger-user" })
+    }));
+    patchMethod(patches, Notification, "insertMany", async (docs) => {
+        paymentNotifications = docs;
+        return docs.map((doc, index) => ({ _id: `notification-${index}`, ...doc }));
     });
 
     const acceptRes = makeRes();
@@ -327,10 +343,20 @@ test("verified driver can claim, start, and complete a ride while payment/profil
         $inc: { totalRides: 1, totalSpent: 58.5 }
     });
     assert.deepEqual(paymentUpsert.filter, { rideId: ride._id });
-    assert.equal(paymentUpsert.update.$setOnInsert.paymentMethod, "credit_card");
-    assert.equal(paymentUpsert.update.$setOnInsert.paymentStatus, "pending");
-    assert.equal(paymentUpsert.update.$setOnInsert.paidAt, null);
+    assert.deepEqual(paymentUpsert.update.$setOnInsert, { rideId: ride._id });
+    assert.equal(paymentUpsert.update.$set.paymentMethod, "credit_card");
+    assert.equal(paymentUpsert.update.$set.paymentStatus, "paid", "completing a ride settles the payment automatically");
+    assert.equal(paymentUpsert.update.$set.paymentProvider, "simulated");
+    assert.equal(paymentUpsert.update.$set.amount, 58.5);
+    assert.match(paymentUpsert.update.$set.transactionId, /^auto_/);
+    assert.ok(paymentUpsert.update.$set.paidAt instanceof Date);
     assert.equal(paymentUpsert.options.upsert, true);
+
+    assert.equal(paymentNotifications.length, 2, "passenger and driver are told the payment was approved");
+    assert.deepEqual(
+        [...new Set(paymentNotifications.map(note => note.type))],
+        ["payment_received"]
+    );
 });
 
 test("assigned driver is released when an accepted ride is cancelled", async () => {

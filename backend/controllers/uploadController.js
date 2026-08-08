@@ -6,6 +6,7 @@ const DriverProfile = require("../db/models/DriverProfile");
 const Upload = require("../db/models/Upload");
 const Vehicle = require("../db/models/Vehicle");
 const upload = require("../middleware/upload");
+const { notifyDocumentApproved } = require("../utils/approvalNotifications");
 const { sameId, isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 const { deleteStoredUploads } = require("../utils/privacyCleanup");
 
@@ -104,7 +105,8 @@ async function uploadProfile(req, res) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "User not found" });
         }
-        res.json({ url: storedPath, message: "Profile image uploaded" });
+        await notifyDocumentApproved(req, { userId: user._id, kind: "profiles" });
+        res.json({ url: storedPath, message: "Profile image uploaded and approved" });
     } catch (e) {
         upload.cleanupFile(req.file);
         res.status(500).json({ error: e.message });
@@ -127,6 +129,7 @@ async function uploadIdPhoto(req, res) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "User not found" });
         }
+        await notifyDocumentApproved(req, { userId: user._id, kind: "ids" });
         res.json({ url: storedPath, message: "ID photo uploaded and verified" });
     } catch (e) {
         upload.cleanupFile(req.file);
@@ -158,6 +161,7 @@ async function uploadLicense(req, res) {
             upload.cleanupFile(req.file);
             return res.status(404).json({ error: "Driver not found" });
         }
+        await notifyDocumentApproved(req, { userId: driver.userId, kind: "licenses" });
         res.json({ url: storedPath, message: "License photo uploaded and verified" });
     } catch (e) {
         upload.cleanupFile(req.file);
@@ -187,8 +191,12 @@ async function uploadVehicleDocument(req, res, field) {
         const { storedPath } = await upload.saveUpload(req.file, "vehicle-docs", req.user.userId);
         const hasTestAfterUpload = field === "test" || Boolean(vehicle.testImagePath);
         const hasInsuranceAfterUpload = field === "insurance" || Boolean(vehicle.insuranceImagePath);
+        // Each document is approved the moment it arrives. The vehicle as a whole
+        // only counts as approved once both documents exist; until then it is
+        // "not_submitted" rather than "pending", because nothing is under review.
+        const fullyDocumented = hasTestAfterUpload && hasInsuranceAfterUpload;
         const update = {
-            documentsVerificationStatus: hasTestAfterUpload && hasInsuranceAfterUpload ? "approved" : "pending",
+            documentsVerificationStatus: fullyDocumented ? "approved" : "not_submitted",
             testApproval: hasTestAfterUpload,
             insuranceApproval: hasInsuranceAfterUpload
         };
@@ -196,11 +204,17 @@ async function uploadVehicleDocument(req, res, field) {
         if (field === "insurance") update.insuranceImagePath = storedPath;
 
         await Vehicle.findByIdAndUpdate(vehicle._id, update);
+
+        const driver = await DriverProfile.findById(vehicle.driverId).select("userId");
+        if (driver?.userId) {
+            await notifyDocumentApproved(req, { userId: driver.userId, kind: "vehicle-docs" });
+        }
+
         res.json({
             url: storedPath,
-            message: update.documentsVerificationStatus === "approved"
+            message: fullyDocumented
                 ? "Vehicle documents uploaded and verified"
-                : "Vehicle document uploaded; upload the remaining document to complete verification"
+                : "Vehicle document uploaded and approved; upload the remaining document to complete verification"
         });
     } catch (e) {
         upload.cleanupFile(req.file);

@@ -19,6 +19,7 @@ const notificationSchema = new mongoose.Schema({
             "ride_completed",
             "ride_cancelled",
             "payment_received",
+            "document_approved",
             "rating_received",
             "promo",
             "system"

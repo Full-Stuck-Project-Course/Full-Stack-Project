@@ -10,6 +10,7 @@
     "unit": "node --test \"tests/**/*.test.js\"",
     "bootstrap:admin": "node scripts/bootstrap-admin.js",
     "privacy:purge-gps": "node scripts/purge-gps-retention.js",
+    "migrate:approve-pending": "node scripts/approve-pending-approvals.js",
     "migrate:loyalty-points": "node scripts/migrate-loyalty-points-to-user.js",
     "migrate:rating-direction-index": "node scripts/migrate-rating-direction-index.js"
   },
