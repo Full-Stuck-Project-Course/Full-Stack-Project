@@ -187,7 +187,7 @@ export default function AutoVerificationOverlay({
                                     <div style={s.rowDetail}>{step.detail}</div>
                                 </div>
                                 <div style={s.rowState(rowDone)}>
-                                    {rowDone ? "בוצע" : rowActive ? "בודק עכשיו" : "ממתין"}
+                                    {rowDone ? "אושר" : rowActive ? "מאשר עכשיו" : "בתור"}
                                 </div>
                             </div>
                         );

@@ -7,6 +7,13 @@ import api from "../api/axios";
 import { extractItems } from "../api/pagination";
 import MapComponent from "../components/MapComponent";
 import { createSocket } from "../api/socket";
+import {
+    documentBadgeStyle,
+    documentStatus,
+    documentStatusIcon,
+    documentStatusLabel,
+    vehicleDocumentsStatus
+} from "../api/verification";
 
 const s = {
     page: { padding: "28px 20px", maxWidth: 860, margin: "0 auto" },
@@ -192,6 +199,32 @@ export default function DriverDashboard() {
         type: "hotspot"
     }));
 
+    // Documents are approved on upload, so their displayed state depends only on
+    // whether the file exists — never on a review status.
+    const vehicleDocs = vehicleDocumentsStatus(vehicle);
+    const documentRows = [
+        {
+            key: "license",
+            label: "🪪 רישיון נהיגה",
+            raw: driver?.verificationStatus,
+            hasFile: Boolean(driver?.licenseImagePath)
+        },
+        {
+            key: "test",
+            label: "🔧 אישור טסט",
+            raw: vehicle?.documentsVerificationStatus,
+            hasFile: Boolean(vehicle?.testImagePath)
+        },
+        {
+            key: "insurance",
+            label: "🛡️ תעודת ביטוח",
+            raw: vehicle?.documentsVerificationStatus,
+            hasFile: Boolean(vehicle?.insuranceImagePath)
+        }
+    ].map(row => ({ ...row, status: documentStatus(row.raw, row.hasFile) }));
+
+    const allDocumentsApproved = documentRows.every(row => row.status === "approved") && vehicleDocs.complete;
+
     if (loading) return <div className="spinner" />;
 
     if (!driver) return (
@@ -246,12 +279,36 @@ export default function DriverDashboard() {
                 </div>
             </div>
 
+            {/* Documents — approved automatically on upload, no review queue */}
+            <div style={s.card}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>📎 {"המסמכים שלי"}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                    כל מסמך שמועלה מאושר אוטומטית מיד — אין המתנה לאישור נציג.
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                    {documentRows.map(row => (
+                        <div key={row.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                            <span style={{ fontSize: 14 }}>{row.label}</span>
+                            <span style={documentBadgeStyle(row.status)}>
+                                {documentStatusIcon(row.raw, row.hasFile)} {documentStatusLabel(row.raw, row.hasFile)}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+                {!allDocumentsApproved && (
+                    <button type="button" onClick={() => navigate("/driver-setup")}
+                        style={{ marginTop: 12, background: "var(--primary)", color: "#fff", padding: "8px 16px", fontSize: 13 }}>
+                        השלם העלאת מסמכים
+                    </button>
+                )}
+            </div>
+
             {/* Status */}
             <div style={s.card}>
                 <div style={{ fontWeight: 700, marginBottom: 12 }}>{"סטטוס זמינות"}</div>
                 {!driver.isVerified && (
                     <div className="error-msg" style={{ marginBottom: 10 }}>
-                        פרופיל הנהג עדיין לא מאומת. אפשר להיות עסוק או לא מחובר, אבל אי אפשר להיות זמין לקבלת נסיעות עד השלמת אימות המסמכים.
+                        עדיין חסרים מסמכים. העלה אותם ב"הגדרת נהג" — הם יאושרו אוטומטית מיד, ואז אפשר יהיה לעבור לזמין.
                     </div>
                 )}
                 {statusError && <div className="error-msg" style={{ marginBottom: 10 }}>{statusError}</div>}

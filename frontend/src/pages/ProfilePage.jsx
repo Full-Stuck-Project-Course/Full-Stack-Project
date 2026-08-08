@@ -5,6 +5,12 @@ import { useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import { assetUrl, secureUploadPath } from "../api/assets";
+import {
+    documentBadgeStyle,
+    documentStatus,
+    documentStatusIcon,
+    documentStatusLabel
+} from "../api/verification";
 import AutoVerificationOverlay, { waitForAutoVerification } from "../components/AutoVerificationOverlay";
 
 const s = {
@@ -21,18 +27,10 @@ const s = {
     group: { marginBottom: 16 },
     row: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
     tag: (c) => ({ display: "inline-block", background: c + "18", color: c, padding: "3px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700 }),
-    verifyBadge: (status) => ({
-        display: "inline-flex", alignItems: "center", gap: 5,
-        padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700,
-        background: status === "approved" ? "#d1fae5" : status === "pending" ? "#fef3c7" : "#fee2e2",
-        color:      status === "approved" ? "#065f46" : status === "pending" ? "#92400e" : "#991b1b"
-    })
 };
 
 const ROLE_LABELS = { passenger: "נוסע", driver: "נהג", both: "נהג ונוסע", admin: "מנהל" };
 const ROLE_COLORS = { passenger: "#3b82f6", driver: "#10b981", both: "#8b5cf6", admin: "#ef4444" };
-const VERIFY_LABELS = { not_submitted: "לא הוגש", pending: "בבדיקה אוטומטית", approved: "מאושר אוטומטית", rejected: "נדחה" };
-const VERIFY_ICONS  = { not_submitted: "📄", pending: "⏳", approved: "✅", rejected: "❌" };
 
 const PROFILE_PHOTO_VERIFICATION = {
     title: "בודקים את תמונת הפרופיל שלך",
@@ -192,14 +190,14 @@ export default function ProfilePage() {
         fd.append("userId", user.userId);
         setError("");
         setIdVerification({
-            title: "בודקים את תעודת הזהות שלך",
-            subtitle: "הפרופיל יתעדכן מיד אחרי הבדיקה.",
+            title: "מאשרים את תעודת הזהות שלך",
+            subtitle: "האישור אוטומטי — הפרופיל יתעדכן מיד.",
             steps: [
                 { label: "מעלה תעודת זהות", detail: "הקובץ נשמר באזור פרטי" },
                 { label: "בודק איכות תמונה", detail: "מוודא שהצילום ברור וקריא" },
-                { label: "מעדכן סטטוס בפרופיל", detail: "תגית האימות עוברת למאושר" }
+                { label: "מאשר את המסמך", detail: "תגית האימות עוברת למאושר אוטומטית" }
             ],
-            successTitle: "תעודת הזהות אושרה",
+            successTitle: "תעודת הזהות אושרה אוטומטית",
             successText: "הפרופיל שלך עודכן בהצלחה."
         });
         const verificationDelay = waitForAutoVerification();
@@ -226,7 +224,11 @@ export default function ProfilePage() {
 
     if (loading) return <div className="spinner" />;
 
-    const verifyStatus = profile?.idVerificationStatus || "not_submitted";
+    const hasIdPhoto = Boolean(profile?.idPhotoPath);
+    const verifyStatus = documentStatus(profile?.idVerificationStatus, hasIdPhoto);
+    const verifyLabel = documentStatusLabel(profile?.idVerificationStatus, hasIdPhoto);
+    const verifyIcon = documentStatusIcon(profile?.idVerificationStatus, hasIdPhoto);
+    const photoStatus = documentStatus(null, Boolean(profile?.profileImage));
 
     return (
         <div style={s.page} className="fade-in">
@@ -251,8 +253,13 @@ export default function ProfilePage() {
                             <span style={s.tag(ROLE_COLORS[profile?.role] || "#888")}>
                                 {ROLE_LABELS[profile?.role] || profile?.role}
                             </span>
-                            <span style={s.verifyBadge(verifyStatus)}>
-                                🪪 {"תעודת זהות"}: {VERIFY_ICONS[verifyStatus]} {VERIFY_LABELS[verifyStatus]}
+                            {profile?.profileImage && (
+                                <span style={documentBadgeStyle(photoStatus)}>
+                                    🖼️ {"תמונת פרופיל"}: {documentStatusIcon(null, true)} {documentStatusLabel(null, true)}
+                                </span>
+                            )}
+                            <span style={documentBadgeStyle(verifyStatus)}>
+                                🪪 {"תעודת זהות"}: {verifyIcon} {verifyLabel}
                             </span>
                         </div>
                     </div>
@@ -330,8 +337,8 @@ export default function ProfilePage() {
                     <div>
                         <SecureImage path={profile.idPhotoPath} alt="תעודת זהות"
                             style={{ maxHeight: 140, borderRadius: 8, objectFit: "cover", marginBottom: 10 }} />
-                        <div style={s.verifyBadge(verifyStatus)}>
-                            {VERIFY_ICONS[verifyStatus]} {VERIFY_LABELS[verifyStatus]}
+                        <div style={documentBadgeStyle(verifyStatus)}>
+                            {verifyIcon} {verifyLabel}
                         </div>
                     </div>
                 ) : (

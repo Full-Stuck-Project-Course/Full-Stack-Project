@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
 import { extractItems } from "../api/pagination";
 import { assetUrl, secureUploadPath } from "../api/assets";
+import { documentBadgeStyle, documentStatus, documentStatusIcon, documentStatusLabel } from "../api/verification";
 import { createSocket } from "../api/socket";
 import { useNavigate, useSearchParams } from "../routing";
 
@@ -412,7 +413,11 @@ export default function AdminPanel() {
                                     <div style={s.rowHead}>
                                         <div>
                                             <div style={s.rowTitle}>{safeText(driver.userId?.fullName, "נהג")}</div>
-                                            <div style={s.meta}>{safeText(driver.userId?.email)} · רישיון {safeText(driver.licenseNumber)} · {safeText(driver.verificationStatus)}</div>
+                                            <div style={s.meta}>
+                                                {safeText(driver.userId?.email)} · רישיון {safeText(driver.licenseNumber)} ·{" "}
+                                                {documentStatusIcon(driver.verificationStatus, Boolean(driver.licenseImagePath))}{" "}
+                                                {documentStatusLabel(driver.verificationStatus, Boolean(driver.licenseImagePath))}
+                                            </div>
                                         </div>
                                         {driver.licenseImagePath && <SecureImage path={driver.licenseImagePath} alt="צילום רישיון" />}
                                     </div>
@@ -458,7 +463,17 @@ export default function AdminPanel() {
                                     <div style={s.rowHead}>
                                         <div>
                                             <div style={s.rowTitle}>{safeText(vehicle.company)} {safeText(vehicle.model, "")}</div>
-                                            <div style={s.meta}>{safeText(vehicle.licensePlate)} · {safeText(vehicle.documentsVerificationStatus)} · {vehicle.isActive === false ? "לא פעיל" : "פעיל"}</div>
+                                            <div style={s.meta}>
+                                                {safeText(vehicle.licensePlate)} ·{" "}
+                                                <span style={documentBadgeStyle(documentStatus(
+                                                    vehicle.documentsVerificationStatus,
+                                                    Boolean(vehicle.testImagePath && vehicle.insuranceImagePath)
+                                                ))}>
+                                                    {documentStatusIcon(vehicle.documentsVerificationStatus, Boolean(vehicle.testImagePath && vehicle.insuranceImagePath))}{" "}
+                                                    {documentStatusLabel(vehicle.documentsVerificationStatus, Boolean(vehicle.testImagePath && vehicle.insuranceImagePath))}
+                                                </span>
+                                                {" · "}{vehicle.isActive === false ? "לא פעיל" : "פעיל"}
+                                            </div>
                                         </div>
                                         <div style={s.actions}>
                                             {vehicle.testImagePath && <SecureImage path={vehicle.testImagePath} alt="מסמך טסט" />}
@@ -604,8 +619,16 @@ export default function AdminPanel() {
 
                 {tab === "verifications" && (
                     <section style={s.grid}>
-                        <div style={s.toolbar}><strong>ממתינים לאימות</strong><span style={s.meta}>תעודות זהות, רישיונות ומסמכי רכב</span></div>
-                        {data.pendingIds.length === 0 && data.pendingLicenses.length === 0 && data.pendingVehicles.length === 0 ? <Empty text="אין בקשות אימות פתוחות" /> : null}
+                        <div style={s.toolbar}>
+                            <strong>אימות מסמכים</strong>
+                            <span style={s.meta}>מסמכים מאושרים אוטומטית בהעלאה · כאן אפשר לדחות מסמך ידנית</span>
+                        </div>
+                        <div style={{ ...s.row, background: "#d1fae5", color: "#065f46", fontSize: 13, fontWeight: 700 }}>
+                            ✅ כל תעודות הזהות, הרישיונות ומסמכי הרכב מאושרים אוטומטית מיד עם ההעלאה — אין תור אישורים.
+                        </div>
+                        {data.pendingIds.length === 0 && data.pendingLicenses.length === 0 && data.pendingVehicles.length === 0
+                            ? <Empty text="אין מסמכים שממתינים לטיפול ידני" />
+                            : null}
                         {data.pendingIds.map(user => (
                             <div key={`id-${user._id}`} style={s.row}>
                                 <div style={s.rowHead}><div><div style={s.rowTitle}>תעודת זהות · {user.fullName}</div><div style={s.meta}>{user.email}</div></div>{user.idPhotoPath && <SecureImage path={user.idPhotoPath} alt="תעודת זהות" />}</div>
