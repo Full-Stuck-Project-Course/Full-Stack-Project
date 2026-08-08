@@ -32,6 +32,11 @@ assert(
     "verification.js must not define a pending label for documents."
 );
 
+assert(
+    /\[DOCUMENT_STATUS\.APPROVED\]:\s*"מאושר"/.test(verification),
+    'An approved document must be labelled simply "מאושר", not "automatically approved".'
+);
+
 const surfaces = [
     ["ProfilePage.jsx", profilePage],
     ["DriverDashboard.jsx", driverDashboard],

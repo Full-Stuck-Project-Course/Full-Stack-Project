@@ -249,14 +249,14 @@ export default function DriverSetupPage() {
         setError("");
         setVerification({
             title: "מאשרים את מסמכי הנהג והרכב",
-            subtitle: "כל המסמכים מאושרים אוטומטית מיד אחרי ההעלאה — אין המתנה לאישור נציג.",
+            subtitle: "כל המסמכים מאושרים מיד אחרי ההעלאה — אין המתנה לאישור נציג.",
             steps: [
                 { label: "מעלה רישיון נהיגה", detail: "שומר את צילום הרישיון בצורה מאובטחת" },
                 { label: "מעלה מסמכי רכב", detail: "שומר אישור טסט וביטוח בתוקף" },
                 { label: "מאשר את פרופיל הנהג", detail: "הנהג מסומן כמאומת במערכת" },
                 { label: "מאשר את הרכב", detail: "טסט וביטוח מסומנים כמאושרים" }
             ],
-            successTitle: "הנהג והרכב אושרו אוטומטית",
+            successTitle: "הנהג והרכב אושרו",
             successText: "אפשר לעבור ללוח הנהג ולהתחיל לקבל נסיעות."
         });
         setLoading(true);
@@ -530,7 +530,7 @@ export default function DriverSetupPage() {
             {step === 2 && (
                 <div style={s.card}>
                     <div style={{ background: "#fef9c3", borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: "#92400e" }}>
-                        🔒 המסמכים נשמרים בצורה מאובטחת ויעברו בדיקה אוטומטית לפני שתוכל לקבל נסיעות.
+                        🔒 המסמכים נשמרים בצורה מאובטחת ומאושרים מיד עם ההעלאה.
                     </div>
                     <FileUpload
                         label="📷 צילום רישיון נהיגה * (חובה)"

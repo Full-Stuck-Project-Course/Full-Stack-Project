@@ -79,6 +79,21 @@ const rideSchema = new mongoose.Schema({
         max: 25
     },
 
+    minDriverRating: {
+        type: Number,
+        default: null,
+        min: 1,
+        max: 5
+    },
+
+    // What the passenger needs the driver to permit. Only true values are
+    // enforced; false means "no requirement", not "must be forbidden".
+    requiredAllowances: {
+        pets:    { type: Boolean, default: false },
+        smoking: { type: Boolean, default: false },
+        food:    { type: Boolean, default: false }
+    },
+
     distanceKm:               { type: Number, default: 0 },
     estimatedDurationMinutes: { type: Number, default: 0 },
     basePrice:                { type: Number, default: 0 },

@@ -8,7 +8,12 @@ const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
 const { calculateFare, haversineKm, hasValidCoordinates } = require("../utils/pricing");
-const { normalizeDriverGender, normalizeVehicleType } = require("../utils/driverDiscovery");
+const {
+    normalizeAllowances,
+    normalizeDriverGender,
+    normalizeMinRating,
+    normalizeVehicleType
+} = require("../utils/driverDiscovery");
 const { notifyPaymentApproved } = require("../utils/approvalNotifications");
 const {
     sameId,
@@ -33,6 +38,18 @@ const ADMIN_RIDE_STATUSES = new Set([
 
 const MIN_DRIVER_DISTANCE_KM = 1;
 const MAX_DRIVER_DISTANCE_KM = 25;
+
+const ALLOWANCE_LABELS = {
+    pets: "pets",
+    smoking: "smoking",
+    food: "food and drink"
+};
+
+const DRIVER_RESTRICTION_KEYS = {
+    pets: "noPets",
+    smoking: "noSmoking",
+    food: "noFood"
+};
 
 function clampDriverDistanceKm(value) {
     const distance = Number(value);
@@ -66,6 +83,20 @@ function driverPreferenceMismatch(ride, driver, vehicle) {
                 statusCode: 400,
                 error: `Driver is ${distanceKm.toFixed(1)} km away, beyond the ${ride.maxDriverDistanceKm} km the passenger allowed`
             };
+        }
+    }
+
+    if (ride.minDriverRating && Number(driver.ratingAverage) < ride.minDriverRating) {
+        return {
+            statusCode: 403,
+            error: `This passenger asked for a driver rated ${ride.minDriverRating} or above`
+        };
+    }
+
+    for (const [key, label] of Object.entries(ALLOWANCE_LABELS)) {
+        if (!ride.requiredAllowances?.[key]) continue;
+        if (driver.vehicleConditions?.[DRIVER_RESTRICTION_KEYS[key]] === true) {
+            return { statusCode: 403, error: `This passenger needs a driver who allows ${label}` };
         }
     }
 
@@ -249,6 +280,13 @@ async function createRide(req, res) {
         const vehicleType = normalizeVehicleType(req.body.vehicleType);
         const preferredDriverGender = normalizeDriverGender(req.body.preferredDriverGender);
         const maxDriverDistanceKm = clampDriverDistanceKm(req.body.maxDriverDistanceKm);
+        const minDriverRating = normalizeMinRating(req.body.minDriverRating);
+        const requestedAllowances = normalizeAllowances(req.body.requiredAllowances);
+        const requiredAllowances = {
+            pets: Boolean(requestedAllowances.pets),
+            smoking: Boolean(requestedAllowances.smoking),
+            food: Boolean(requestedAllowances.food)
+        };
 
         const pointsToRedeem = Math.floor(positiveNumber(req.body.pointsToRedeem));
         const originalFinalPrice = fare.finalPrice;
@@ -267,6 +305,8 @@ async function createRide(req, res) {
             vehicleType,
             preferredDriverGender,
             maxDriverDistanceKm,
+            minDriverRating,
+            requiredAllowances,
             distanceKm: fare.distanceKm,
             estimatedDurationMinutes: fare.estimatedDurationMinutes,
             basePrice: fare.basePrice,

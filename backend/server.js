@@ -275,6 +275,8 @@ async function notifyNearbyDrivers() {
                 carpoolOnly: ride.rideType === "carpool",
                 gender: ride.preferredDriverGender,
                 vehicleType: ride.vehicleType,
+                minRating: ride.minDriverRating,
+                allowances: ride.requiredAllowances,
                 limit: process.env.NEARBY_DRIVER_NOTIFY_LIMIT || 100
             });
 

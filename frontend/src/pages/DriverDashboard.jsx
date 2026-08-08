@@ -283,7 +283,7 @@ export default function DriverDashboard() {
             <div style={s.card}>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>📎 {"המסמכים שלי"}</div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
-                    כל מסמך שמועלה מאושר אוטומטית מיד — אין המתנה לאישור נציג.
+                    כל מסמך שמועלה מאושר מיד — אין המתנה לאישור נציג.
                 </div>
                 <div style={{ display: "grid", gap: 8 }}>
                     {documentRows.map(row => (
@@ -308,7 +308,7 @@ export default function DriverDashboard() {
                 <div style={{ fontWeight: 700, marginBottom: 12 }}>{"סטטוס זמינות"}</div>
                 {!driver.isVerified && (
                     <div className="error-msg" style={{ marginBottom: 10 }}>
-                        עדיין חסרים מסמכים. העלה אותם ב"הגדרת נהג" — הם יאושרו אוטומטית מיד, ואז אפשר יהיה לעבור לזמין.
+                        עדיין חסרים מסמכים. העלה אותם ב"הגדרת נהג" — הם יאושרו מיד, ואז אפשר יהיה לעבור לזמין.
                     </div>
                 )}
                 {statusError && <div className="error-msg" style={{ marginBottom: 10 }}>{statusError}</div>}

@@ -5,8 +5,11 @@ const DriverProfile = require("../db/models/DriverProfile");
 const Ride = require("../db/models/Ride");
 const Vehicle = require("../db/models/Vehicle");
 const {
+    allowanceFilter,
     findNearbyAvailableDrivers,
+    normalizeAllowances,
     normalizeDriverGender,
+    normalizeMinRating,
     normalizeVehicleType
 } = require("../utils/driverDiscovery");
 const { acceptRide } = require("../controllers/rideController");
@@ -57,6 +60,48 @@ test("driver preference values are normalized, and unknown values mean no prefer
     assert.equal(normalizeVehicleType("Luxury"), "luxury");
     assert.equal(normalizeVehicleType("bicycle"), null);
     assert.equal(normalizeVehicleType(null), null);
+});
+
+test("a minimum rating of 1 or lower is treated as no rating preference", () => {
+    assert.equal(normalizeMinRating(4.5), 4.5);
+    assert.equal(normalizeMinRating("4"), 4);
+    assert.equal(normalizeMinRating(9), 5, "a rating above the scale is capped, not ignored");
+    assert.equal(normalizeMinRating(1), null);
+    assert.equal(normalizeMinRating(0), null);
+    assert.equal(normalizeMinRating("any"), null);
+});
+
+test("only the allowances the passenger actually asked for constrain the search", () => {
+    assert.deepEqual(normalizeAllowances({ pets: true, smoking: false }), { pets: true });
+    assert.deepEqual(normalizeAllowances({ pets: "true", food: "false" }), { pets: true });
+    assert.deepEqual(normalizeAllowances({}), {});
+
+    // Needing pets excludes drivers who set noPets, and leaves drivers who never
+    // saved the field at all.
+    assert.deepEqual(allowanceFilter({ pets: true }), { "vehicleConditions.noPets": { $ne: true } });
+    assert.deepEqual(allowanceFilter({}), {});
+});
+
+test("nearby driver search filters by rating and by what the driver allows", async () => {
+    let driverFilter;
+
+    patchMethod(patches, DriverProfile, "find", (filter) => {
+        driverFilter = filter;
+        return driverQuery([]);
+    });
+
+    await findNearbyAvailableDrivers({
+        location: TEL_AVIV,
+        radiusKm: 8,
+        minRating: 4,
+        allowances: { pets: true, food: true, smoking: false }
+    });
+
+    assert.deepEqual(driverFilter.ratingAverage, { $gte: 4 });
+    assert.deepEqual(driverFilter["vehicleConditions.noPets"], { $ne: true });
+    assert.deepEqual(driverFilter["vehicleConditions.noFood"], { $ne: true });
+    assert.equal(driverFilter["vehicleConditions.noSmoking"], undefined,
+        "an allowance the passenger did not ask for must not narrow the search");
 });
 
 test("nearby driver search filters by gender and vehicle type", async () => {
@@ -154,6 +199,8 @@ const MATCHING_DRIVER = {
     gender: "female",
     isVerified: true,
     status: "available",
+    ratingAverage: 4.8,
+    vehicleConditions: { noPets: false, noSmoking: true, noFood: false },
     currentLocation: TEL_AVIV
 };
 
@@ -175,6 +222,8 @@ function rideWithPreferences(overrides) {
         preferredDriverGender: null,
         vehicleType: null,
         maxDriverDistanceKm: null,
+        minDriverRating: null,
+        requiredAllowances: { pets: false, smoking: false, food: false },
         ...overrides
     };
 }
@@ -221,6 +270,61 @@ test("a driver beyond the distance the passenger allowed cannot accept the ride"
     assert.match(res.body.error, /beyond the 5 km/i);
 });
 
+test("a driver rated below what the passenger asked for cannot accept the ride", async () => {
+    patchAcceptRideDependencies({
+        driver: { ...MATCHING_DRIVER, ratingAverage: 3.6 },
+        vehicle: MATCHING_VEHICLE,
+        ride: rideWithPreferences({ minDriverRating: 4 })
+    });
+
+    const res = makeRes();
+    await acceptRide(acceptRideRequest(), res);
+
+    assert.equal(res.statusCode, 403);
+    assert.match(res.body.error, /rated 4 or above/i);
+});
+
+test("a driver who forbids something the passenger needs cannot accept the ride", async () => {
+    patchAcceptRideDependencies({
+        driver: MATCHING_DRIVER,
+        vehicle: MATCHING_VEHICLE,
+        ride: rideWithPreferences({
+            requiredAllowances: { pets: false, smoking: true, food: false }
+        })
+    });
+
+    const res = makeRes();
+    await acceptRide(acceptRideRequest(), res);
+
+    assert.equal(res.statusCode, 403);
+    assert.match(res.body.error, /allows smoking/i);
+});
+
+test("an allowance the passenger did not need does not block a driver who forbids it", async () => {
+    let claimAttempted = false;
+
+    patchMethod(patches, DriverProfile, "findById", async () => MATCHING_DRIVER);
+    patchMethod(patches, Ride, "findOne", async () => rideWithPreferences({
+        // The driver forbids smoking, but the passenger only needs pets allowed.
+        requiredAllowances: { pets: true, smoking: false, food: false }
+    }));
+    patchMethod(patches, Vehicle, "findOne", () => ({
+        sort: async () => MATCHING_VEHICLE,
+        then: (resolve, reject) => Promise.resolve(MATCHING_VEHICLE).then(resolve, reject)
+    }));
+    patchMethod(patches, DriverProfile, "findOneAndUpdate", async () => {
+        claimAttempted = true;
+        return null;
+    });
+    patchMethod(patches, Ride, "findById", async () => rideWithPreferences({ status: "searching" }));
+
+    const res = makeRes();
+    await acceptRide(acceptRideRequest(), res);
+
+    assert.equal(claimAttempted, true);
+    assert.equal(res.statusCode, 409);
+});
+
 test("a driver matching every preference is allowed through to the claim step", async () => {
     let claimAttempted = false;
 
@@ -228,7 +332,9 @@ test("a driver matching every preference is allowed through to the claim step", 
     patchMethod(patches, Ride, "findOne", async () => rideWithPreferences({
         preferredDriverGender: "female",
         vehicleType: "comfort",
-        maxDriverDistanceKm: 10
+        maxDriverDistanceKm: 10,
+        minDriverRating: 4.5,
+        requiredAllowances: { pets: true, smoking: false, food: true }
     }));
     patchMethod(patches, Vehicle, "findOne", () => ({
         sort: async () => MATCHING_VEHICLE,

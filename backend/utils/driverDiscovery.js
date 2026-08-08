@@ -26,6 +26,44 @@ function normalizeVehicleType(value) {
     return VEHICLE_TYPES.has(vehicleType) ? vehicleType : null;
 }
 
+const MIN_DRIVER_RATING = 1;
+const MAX_DRIVER_RATING = 5;
+
+function normalizeMinRating(value) {
+    const rating = Number(value);
+    if (!Number.isFinite(rating) || rating <= MIN_DRIVER_RATING) return null;
+    return Math.min(MAX_DRIVER_RATING, rating);
+}
+
+// What the passenger needs to bring or do, mapped onto the driver's own
+// "no pets / no smoking / no food" settings from the driver dashboard. Only a
+// true value constrains anything: "I don't need to bring a pet" must not
+// exclude drivers who happen to allow pets.
+const ALLOWANCE_TO_DRIVER_RULE = {
+    pets: "vehicleConditions.noPets",
+    smoking: "vehicleConditions.noSmoking",
+    food: "vehicleConditions.noFood"
+};
+
+function normalizeAllowances(value = {}) {
+    const requested = {};
+    for (const key of Object.keys(ALLOWANCE_TO_DRIVER_RULE)) {
+        if (value?.[key] === true || value?.[key] === "true") requested[key] = true;
+    }
+    return requested;
+}
+
+function allowanceFilter(allowances) {
+    const filter = {};
+    for (const [key, field] of Object.entries(ALLOWANCE_TO_DRIVER_RULE)) {
+        // A driver qualifies when the matching restriction is off. Drivers saved
+        // before the field existed have no value at all, so treat missing as
+        // unrestricted rather than excluding them.
+        if (allowances[key]) filter[field] = { $ne: true };
+    }
+    return filter;
+}
+
 // Vehicle type lives on Vehicle, not DriverProfile, so it has to be resolved to a
 // set of driver ids before the geospatial query runs.
 async function driverIdsWithVehicleType(vehicleType) {
@@ -40,7 +78,9 @@ async function findNearbyAvailableDrivers({
     carpoolOnly = false,
     populateUser = false,
     gender = null,
-    vehicleType = null
+    vehicleType = null,
+    minRating = null,
+    allowances = {}
 }) {
     const nearFilter = nearGeoLocationFilter(location, radiusKm);
     if (!nearFilter) return [];
@@ -54,6 +94,11 @@ async function findNearbyAvailableDrivers({
 
     const requestedGender = normalizeDriverGender(gender);
     if (requestedGender) filter.gender = requestedGender;
+
+    const requestedRating = normalizeMinRating(minRating);
+    if (requestedRating) filter.ratingAverage = { $gte: requestedRating };
+
+    Object.assign(filter, allowanceFilter(normalizeAllowances(allowances)));
 
     const requestedVehicleType = normalizeVehicleType(vehicleType);
     if (requestedVehicleType) {
@@ -73,8 +118,12 @@ async function findNearbyAvailableDrivers({
 }
 
 module.exports = {
+    ALLOWANCE_TO_DRIVER_RULE,
+    allowanceFilter,
     clampNearbyDriverLimit,
     findNearbyAvailableDrivers,
+    normalizeAllowances,
     normalizeDriverGender,
+    normalizeMinRating,
     normalizeVehicleType
 };

@@ -63,6 +63,27 @@ const DEFAULT_DRIVER_RADIUS_KM = 15;
 const MIN_DRIVER_RADIUS_KM = 1;
 const MAX_DRIVER_RADIUS_KM = 25;
 
+const MIN_RATING_OPTIONS = [
+    { value: 0,   label: "כל דירוג" },
+    { value: 3,   label: "⭐ 3+" },
+    { value: 4,   label: "⭐ 4+" },
+    { value: 4.5, label: "⭐ 4.5+" }
+];
+
+// Each entry asks the driver to permit something. The driver dashboard stores
+// the mirror image of these as "no pets / no smoking / no food".
+const ALLOWANCES = [
+    { key: "pets",    icon: "🐾", label: "מרשה חיות מחמד" },
+    { key: "smoking", icon: "🚬", label: "מרשה עישון" },
+    { key: "food",    icon: "🍔", label: "מרשה אוכל ושתייה" }
+];
+
+const DRIVER_RESTRICTION_KEYS = { pets: "noPets", smoking: "noSmoking", food: "noFood" };
+
+export function driverAllows(driver, key) {
+    return driver?.vehicleConditions?.[DRIVER_RESTRICTION_KEYS[key]] !== true;
+}
+
 function toLocalDateTimeInputValue(date = new Date()) {
     const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 16);
@@ -90,6 +111,8 @@ export default function BookRidePage() {
     const [vehicleType,  setVehicleType]  = useState("regular");
     const [driverGender, setDriverGender] = useState("");
     const [driverRadius, setDriverRadius] = useState(DEFAULT_DRIVER_RADIUS_KM);
+    const [minRating,    setMinRating]    = useState(0);
+    const [allowances,   setAllowances]   = useState({ pets: false, smoking: false, food: false });
     const [pickup,       setPickup]       = useState({ address: "", lat: null, lng: null });
     const [dest,         setDest]         = useState({ address: "", lat: null, lng: null });
     const [stops,        setStops]        = useState([]);
@@ -138,14 +161,18 @@ export default function BookRidePage() {
                     lng: userLoc.lng,
                     radius: driverRadius,
                     vehicleType,
-                    ...(driverGender ? { gender: driverGender } : {})
+                    ...(driverGender ? { gender: driverGender } : {}),
+                    ...(minRating ? { minRating } : {}),
+                    ...(allowances.pets ? { allowsPets: true } : {}),
+                    ...(allowances.smoking ? { allowsSmoking: true } : {}),
+                    ...(allowances.food ? { allowsFood: true } : {})
                 }
             })
                 .then(r => setNearbyDrivers(r.data || []))
                 .catch(() => setNearbyDrivers([]));
         }, 350);
         return () => clearTimeout(timer);
-    }, [userLoc, driverRadius, vehicleType, driverGender]);
+    }, [userLoc, driverRadius, vehicleType, driverGender, minRating, allowances]);
 
     // Fetch saved addresses, points, and departure hints
     useEffect(() => {
@@ -244,6 +271,8 @@ export default function BookRidePage() {
                 vehicleType,
                 preferredDriverGender: driverGender || null,
                 maxDriverDistanceKm: driverRadius,
+                minDriverRating: minRating || null,
+                requiredAllowances: allowances,
                 pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
                 destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                 passengerCount,
@@ -377,6 +406,39 @@ export default function BookRidePage() {
                                     onClick={() => setDriverGender(g.value)}
                                 >{g.label}</button>
                             ))}
+                        </div>
+                    </div>
+
+                    <div style={s.group}>
+                        <label style={s.label}>{"דירוג מינימלי של הנהג"}</label>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {MIN_RATING_OPTIONS.map(option => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    style={s.tab(minRating === option.value)}
+                                    aria-pressed={minRating === option.value}
+                                    onClick={() => setMinRating(option.value)}
+                                >{option.label}</button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div style={s.group}>
+                        <label style={s.label}>{"מה הנהג צריך להרשות"}</label>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {ALLOWANCES.map(allowance => (
+                                <button
+                                    key={allowance.key}
+                                    type="button"
+                                    style={s.tab(allowances[allowance.key])}
+                                    aria-pressed={allowances[allowance.key]}
+                                    onClick={() => setAllowances(prev => ({ ...prev, [allowance.key]: !prev[allowance.key] }))}
+                                >{allowance.icon} {allowance.label}</button>
+                            ))}
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
+                            נבחר לפי ההגדרות שהנהג הגדיר בלוח הנהג. בחירה מסננת רק נהגים שמאפשרים זאת.
                         </div>
                     </div>
 
@@ -515,6 +577,9 @@ export default function BookRidePage() {
                                     <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                                         📏 {d.distanceKm} ק"מ ממך
                                         {d.vehicleDescription ? ` · ${d.vehicleDescription}` : ""}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                                        {ALLOWANCES.map(a => `${a.icon}${driverAllows(d, a.key) ? "✓" : "✗"}`).join("  ")}
                                     </div>
                                 </div>
                                 <div style={{ textAlign: "left" }}>

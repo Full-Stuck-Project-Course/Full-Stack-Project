@@ -21,6 +21,12 @@ const createRideSchema = Joi.object({
     vehicleType:              Joi.string().valid("regular", "comfort", "luxury", "van").optional(),
     preferredDriverGender:    Joi.string().valid("male", "female").optional().allow(null, ""),
     maxDriverDistanceKm:      Joi.number().min(1).max(25).optional().allow(null),
+    minDriverRating:          Joi.number().min(1).max(5).optional().allow(null),
+    requiredAllowances:       Joi.object({
+        pets:    Joi.boolean().optional(),
+        smoking: Joi.boolean().optional(),
+        food:    Joi.boolean().optional()
+    }).optional().allow(null),
     pointsToRedeem:           Joi.number().integer().min(0).optional(),
 });
 

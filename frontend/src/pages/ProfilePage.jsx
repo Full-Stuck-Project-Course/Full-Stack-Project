@@ -33,15 +33,15 @@ const ROLE_LABELS = { passenger: "נוסע", driver: "נהג", both: "נהג ו�
 const ROLE_COLORS = { passenger: "#3b82f6", driver: "#10b981", both: "#8b5cf6", admin: "#ef4444" };
 
 const PROFILE_PHOTO_VERIFICATION = {
-    title: "בודקים את תמונת הפרופיל שלך",
-    subtitle: "התמונה תאושר אוטומטית מיד אחרי הבדיקה.",
+    title: "מאשרים את תמונת הפרופיל שלך",
+    subtitle: "האישור מתבצע מיד אחרי ההעלאה.",
     steps: [
         { label: "מעלה את התמונה", detail: "הקובץ נשמר במסד הנתונים" },
         { label: "בודק איכות תמונה", detail: "מוודא שהקובץ תקין וקריא" },
-        { label: "מאשר את התמונה", detail: "האישור אוטומטי — אין המתנה לנציג" }
+        { label: "מאשר את התמונה", detail: "האישור מיידי — אין המתנה לנציג" }
     ],
     successTitle: "תמונת הפרופיל אושרה",
-    successText: "התמונה שלך עודכנה ואושרה אוטומטית."
+    successText: "התמונה שלך עודכנה ואושרה."
 };
 
 function SecureImage({ path, alt, style }) {
@@ -191,13 +191,13 @@ export default function ProfilePage() {
         setError("");
         setIdVerification({
             title: "מאשרים את תעודת הזהות שלך",
-            subtitle: "האישור אוטומטי — הפרופיל יתעדכן מיד.",
+            subtitle: "הפרופיל יתעדכן מיד.",
             steps: [
                 { label: "מעלה תעודת זהות", detail: "הקובץ נשמר באזור פרטי" },
                 { label: "בודק איכות תמונה", detail: "מוודא שהצילום ברור וקריא" },
-                { label: "מאשר את המסמך", detail: "תגית האימות עוברת למאושר אוטומטית" }
+                { label: "מאשר את המסמך", detail: "תגית האימות עוברת למאושר" }
             ],
-            successTitle: "תעודת הזהות אושרה אוטומטית",
+            successTitle: "תעודת הזהות אושרה",
             successText: "הפרופיל שלך עודכן בהצלחה."
         });
         const verificationDelay = waitForAutoVerification();
@@ -267,7 +267,7 @@ export default function ProfilePage() {
 
                 {photoApproved && (
                     <div role="status" style={{ background: "#d1fae5", color: "#065f46", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
-                        ✅ תמונת הפרופיל אושרה אוטומטית
+                        ✅ תמונת הפרופיל אושרה
                     </div>
                 )}
 

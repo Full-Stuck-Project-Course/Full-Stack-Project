@@ -38,8 +38,26 @@ assert(
 );
 
 assert(
+    bookRidePage.includes("MIN_RATING_OPTIONS") && /minRating:\s*driverRating|minRating,/.test(bookRidePage),
+    "BookRidePage must offer a minimum driver rating filter and send it to the API."
+);
+
+assert(
+    bookRidePage.includes("ALLOWANCES") &&
+        bookRidePage.includes('key: "pets"') &&
+        bookRidePage.includes('key: "smoking"') &&
+        bookRidePage.includes('key: "food"') &&
+        /allowsPets: true/.test(bookRidePage) &&
+        /allowsSmoking: true/.test(bookRidePage) &&
+        /allowsFood: true/.test(bookRidePage),
+    "BookRidePage must let the passenger require what a driver allows and send it to the API."
+);
+
+assert(
     bookRidePage.includes("preferredDriverGender: driverGender || null") &&
-        bookRidePage.includes("maxDriverDistanceKm: driverRadius"),
+        bookRidePage.includes("maxDriverDistanceKm: driverRadius") &&
+        bookRidePage.includes("minDriverRating: minRating || null") &&
+        bookRidePage.includes("requiredAllowances: allowances"),
     "Booking a ride must persist the passenger's driver preferences so they are enforced server-side."
 );
 

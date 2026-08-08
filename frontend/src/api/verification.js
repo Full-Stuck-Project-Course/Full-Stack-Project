@@ -14,7 +14,7 @@ export const DOCUMENT_STATUS = {
 
 export const DOCUMENT_STATUS_LABELS = {
     [DOCUMENT_STATUS.NOT_SUBMITTED]: "לא הוגש",
-    [DOCUMENT_STATUS.APPROVED]: "מאושר אוטומטית",
+    [DOCUMENT_STATUS.APPROVED]: "מאושר",
     [DOCUMENT_STATUS.REJECTED]: "נדחה"
 };
 

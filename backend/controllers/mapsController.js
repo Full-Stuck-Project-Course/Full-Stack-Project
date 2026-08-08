@@ -14,7 +14,9 @@ const { forbidden, getDriverProfileForUser, getPassengerProfileForUser, isAdmin 
 const {
     clampNearbyDriverLimit,
     findNearbyAvailableDrivers,
+    normalizeAllowances,
     normalizeDriverGender,
+    normalizeMinRating,
     normalizeVehicleType
 } = require("../utils/driverDiscovery");
 const Vehicle = require("../db/models/Vehicle");
@@ -132,6 +134,12 @@ async function getNearbyDrivers(req, res) {
         const maxRadius = clampRadius(radius);
         const gender = normalizeDriverGender(req.query.gender);
         const vehicleType = normalizeVehicleType(req.query.vehicleType);
+        const minRating = normalizeMinRating(req.query.minRating);
+        const allowances = normalizeAllowances({
+            pets: req.query.allowsPets,
+            smoking: req.query.allowsSmoking,
+            food: req.query.allowsFood
+        });
 
         const nearbyDrivers = await findNearbyAvailableDrivers({
             location: origin,
@@ -139,7 +147,9 @@ async function getNearbyDrivers(req, res) {
             limit: clampNearbyDriverLimit(limit),
             populateUser: true,
             gender,
-            vehicleType
+            vehicleType,
+            minRating,
+            allowances
         });
 
         // Surface each driver's vehicle so the passenger can see what they filtered on.
@@ -157,6 +167,12 @@ async function getNearbyDrivers(req, res) {
                 ratingAverage: driver.ratingAverage,
                 totalRides: driver.totalRides,
                 gender: driver.gender,
+                // Surfaced so the passenger can see what each driver permits.
+                vehicleConditions: {
+                    noPets: Boolean(driver.vehicleConditions?.noPets),
+                    noSmoking: Boolean(driver.vehicleConditions?.noSmoking),
+                    noFood: Boolean(driver.vehicleConditions?.noFood)
+                },
                 vehicleType: vehicle?.vehicleType || null,
                 vehicleDescription: vehicle ? `${vehicle.company} ${vehicle.model}` : null,
                 currentLocation: {

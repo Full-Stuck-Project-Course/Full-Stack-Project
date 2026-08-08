@@ -171,13 +171,13 @@ export default function CompleteProfilePage() {
         setError("");
         setVerification({
             title: "מאשרים את תעודת הזהות שלך",
-            subtitle: "האישור אוטומטי ומתבצע מיד אחרי העלאת הצילום.",
+            subtitle: "האישור מתבצע מיד אחרי העלאת הצילום.",
             steps: [
                 { label: "מעלה תעודת זהות", detail: "הקובץ נשמר באזור פרטי ומאובטח" },
                 { label: "בודק איכות תמונה", detail: "מוודא שהצילום ברור וקריא" },
-                { label: "מאשר את המסמך", detail: "האישור אוטומטי — אין המתנה לנציג" }
+                { label: "מאשר את המסמך", detail: "האישור מיידי — אין המתנה לנציג" }
             ],
-            successTitle: "תעודת הזהות אושרה אוטומטית",
+            successTitle: "תעודת הזהות אושרה",
             successText: "אפשר להמשיך לשלב הבא."
         });
         const verificationDelay = waitForAutoVerification();

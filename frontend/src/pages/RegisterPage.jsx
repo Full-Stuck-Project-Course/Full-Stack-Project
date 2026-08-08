@@ -240,12 +240,12 @@ export default function RegisterPage() {
 
         setError("");
         setVerification({
-            title: "בודקים את תעודת הזהות שלך",
-            subtitle: "הבדיקה האוטומטית מתבצעת מיד אחרי ההעלאה.",
+            title: "מאשרים את תעודת הזהות שלך",
+            subtitle: "האישור מתבצע מיד אחרי ההעלאה.",
             steps: [
                 { label: "מעלה תעודת זהות", detail: "הקובץ נשמר בצורה מאובטחת" },
                 { label: "בודק איכות תמונה", detail: "מוודא שהצילום ברור וקריא" },
-                { label: "מאמת את המסמך", detail: "סטטוס המשתמש מתעדכן למאושר" }
+                { label: "מאשר את המסמך", detail: "סטטוס המשתמש מתעדכן למאושר" }
             ],
             successTitle: "תעודת הזהות אושרה",
             successText: form.role === "driver" || form.role === "both"
@@ -494,7 +494,7 @@ export default function RegisterPage() {
                     <div>
                         <div style={{ ...s.group, textAlign: "center", background: "#fef9c3", borderRadius: 10, padding: 12, marginBottom: 20 }}>
                             <span style={{ fontSize: 13, color: "#92400e" }}>
-                                🔒 המסמכים שלך נשמרים בצורה מאובטחת ויעברו בדיקה אוטומטית
+                                🔒 המסמכים שלך נשמרים בצורה מאובטחת ומאושרים מיד עם ההעלאה
                             </span>
                         </div>
 

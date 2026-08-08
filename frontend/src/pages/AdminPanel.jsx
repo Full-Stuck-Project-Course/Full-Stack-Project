@@ -621,10 +621,10 @@ export default function AdminPanel() {
                     <section style={s.grid}>
                         <div style={s.toolbar}>
                             <strong>אימות מסמכים</strong>
-                            <span style={s.meta}>מסמכים מאושרים אוטומטית בהעלאה · כאן אפשר לדחות מסמך ידנית</span>
+                            <span style={s.meta}>מסמכים מאושרים בהעלאה · כאן אפשר לדחות מסמך ידנית</span>
                         </div>
                         <div style={{ ...s.row, background: "#d1fae5", color: "#065f46", fontSize: 13, fontWeight: 700 }}>
-                            ✅ כל תעודות הזהות, הרישיונות ומסמכי הרכב מאושרים אוטומטית מיד עם ההעלאה — אין תור אישורים.
+                            ✅ כל תעודות הזהות, הרישיונות ומסמכי הרכב מאושרים מיד עם ההעלאה — אין תור אישורים.
                         </div>
                         {data.pendingIds.length === 0 && data.pendingLicenses.length === 0 && data.pendingVehicles.length === 0
                             ? <Empty text="אין מסמכים שממתינים לטיפול ידני" />
