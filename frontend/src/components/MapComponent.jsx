@@ -1,11 +1,14 @@
 // src/components/MapComponent.jsx
-// Requires VITE_GOOGLE_BROWSER_MAPS_API_KEY in frontend/.env
+// Requires VITE_GOOGLE_BROWSER_MAPS_API_KEY in frontend/.env.
+// VITE_GOOGLE_MAPS_KEY is kept as a local backwards-compatible alias.
 
 import React, { useRef, useState } from "react";
 import { GoogleMap, useLoadScript, Marker, InfoWindow, Autocomplete } from "@react-google-maps/api";
 
 const LIBRARIES = ["places"];
-const _rawKey = import.meta.env.VITE_GOOGLE_BROWSER_MAPS_API_KEY || "";
+const _rawKey = import.meta.env.VITE_GOOGLE_BROWSER_MAPS_API_KEY ||
+    import.meta.env.VITE_GOOGLE_MAPS_KEY ||
+    "";
 const MAPS_KEY = _rawKey.startsWith("your_") ? "" : _rawKey;
 
 const MAP_OPTIONS = {

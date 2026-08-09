@@ -37,6 +37,19 @@ function clampRadius(value) {
     return Math.min(25, Math.max(1, radius));
 }
 
+function isConfiguredGoogleMapsKey(key) {
+    return Boolean(key) &&
+        key !== "place_holder" &&
+        !key.startsWith("your_") &&
+        key !== "YOUR_GOOGLE_MAPS_API_KEY_HERE";
+}
+
+function getGoogleServerMapsApiKey() {
+    return process.env.GOOGLE_SERVER_MAPS_API_KEY ||
+        process.env.GOOGLE_MAPS_API_KEY ||
+        "";
+}
+
 // GET /api/maps/distance-price
 async function getDistanceAndPrice(req, res) {
     try {
@@ -55,9 +68,9 @@ async function getDistanceAndPrice(req, res) {
         let fare;
         let distanceText;
         let durationText;
-        const key = process.env.GOOGLE_SERVER_MAPS_API_KEY;
+        const key = getGoogleServerMapsApiKey();
 
-        if (key && key !== "place_holder" && !key.startsWith("your_") && key !== "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
+        if (isConfiguredGoogleMapsKey(key)) {
             const { data } = await axios.get(
                 "https://maps.googleapis.com/maps/api/distancematrix/json",
                 {
@@ -305,8 +318,8 @@ async function getDriverETA(req, res) {
             return res.status(400).json({ error: "Valid driver and passenger coordinates are required" });
         }
 
-        const key = process.env.GOOGLE_SERVER_MAPS_API_KEY;
-        if (!key || key === "place_holder" || key.startsWith("your_") || key === "YOUR_GOOGLE_MAPS_API_KEY_HERE") {
+        const key = getGoogleServerMapsApiKey();
+        if (!isConfiguredGoogleMapsKey(key)) {
             const distKm = haversineKm(
                 { lat: Number(driverLat), lng: Number(driverLng) },
                 { lat: Number(passengerLat), lng: Number(passengerLng) }
