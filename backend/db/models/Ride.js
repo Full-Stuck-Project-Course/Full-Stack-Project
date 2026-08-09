@@ -116,7 +116,12 @@ const rideSchema = new mongoose.Schema({
 
     startedAt:   { type: Date, default: null },
     completedAt: { type: Date, default: null },
-    cancelledAt: { type: Date, default: null }
+    cancelledAt: { type: Date, default: null },
+
+    // A ride only finishes once both sides say it did. Each side stores when it
+    // confirmed; the ride stays in_progress until neither is null.
+    driverCompletedAt:    { type: Date, default: null },
+    passengerCompletedAt: { type: Date, default: null }
 
 }, {
     timestamps: true

@@ -241,7 +241,9 @@ test("verified driver can claim, start, and complete a ride while payment/profil
     patchMethod(patches, DriverProfile, "findOne", async ({ userId }) => {
         return userId === "driver-user" ? driver : null;
     });
-    patchMethod(patches, PassengerProfile, "findOne", async () => null);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        return userId === "passenger-user" ? { _id: ride.passengerId } : null;
+    });
     // acceptRide awaits this directly; the payment notifier calls .select("userId").
     patchMethod(patches, DriverProfile, "findById", (id) => {
         const result = id === driver._id ? driver : null;
@@ -299,6 +301,8 @@ test("verified driver can claim, start, and complete a ride while payment/profil
         paymentNotifications = docs;
         return docs.map((doc, index) => ({ _id: `notification-${index}`, ...doc }));
     });
+    // The first side to confirm nudges the other one.
+    patchMethod(patches, Notification, "create", async (doc) => ({ _id: "notification-nudge", ...doc }));
 
     const acceptRes = makeRes();
     await acceptRide({
@@ -325,14 +329,31 @@ test("verified driver can claim, start, and complete a ride while payment/profil
     assert.equal(ride.status, "in_progress");
     assert.ok(ride.startedAt instanceof Date);
 
-    const completeRes = makeRes();
+    // The driver's word alone does not finish the ride.
+    const driverConfirmRes = makeRes();
     await completeRide({
         user: { userId: "driver-user", role: "driver" },
+        params: { id: ride._id },
+        body: {}
+    }, driverConfirmRes);
+
+    assert.equal(driverConfirmRes.statusCode, 200);
+    assert.equal(driverConfirmRes.body.awaiting, "passenger");
+    assert.equal(ride.status, "in_progress", "one side confirming must not finish the ride");
+    assert.ok(ride.driverCompletedAt instanceof Date);
+    assert.ok(!ride.passengerCompletedAt, "the passenger has not confirmed yet");
+    assert.equal(paymentUpsert, undefined, "no payment is opened until both sides confirm");
+
+    // The passenger agreeing is what closes it.
+    const completeRes = makeRes();
+    await completeRide({
+        user: { userId: "passenger-user", role: "passenger" },
         params: { id: ride._id },
         body: { paymentMethod: "not_real" }
     }, completeRes);
 
     assert.equal(completeRes.statusCode, 200);
+    assert.ok(ride.passengerCompletedAt instanceof Date);
     assert.equal(ride.status, "completed");
     assert.ok(ride.completedAt instanceof Date);
     assert.deepEqual(driverProfileUpdate.update, {

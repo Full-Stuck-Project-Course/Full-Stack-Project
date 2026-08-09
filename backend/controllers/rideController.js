@@ -3,6 +3,7 @@
 const mongoose = require("mongoose");
 const Ride = require("../db/models/Ride");
 const DriverProfile = require("../db/models/DriverProfile");
+const Notification = require("../db/models/Notification");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
@@ -100,6 +101,63 @@ function driverPreferenceMismatch(ride, driver, vehicle) {
     }
 
     return null;
+}
+
+// Which side of the ride is confirming completion. Admin outranks both so a
+// disputed ride can still be settled.
+async function completionSideFor(req, ride) {
+    if (isAdmin(req)) return "admin";
+
+    const [driver, passenger] = await Promise.all([
+        getDriverProfileForUser(req.user.userId),
+        getPassengerProfileForUser(req.user.userId)
+    ]);
+
+    if (driver && sameId(driver._id, ride.driverId)) return "driver";
+    if (passenger && sameId(passenger._id, ride.passengerId)) return "passenger";
+    return null;
+}
+
+// Nudges whoever still has to confirm. The confirmation is already saved, so a
+// failure here must not fail the request.
+async function notifyCompletionConfirmation(req, ride, confirmedBy) {
+    try {
+        const waitingOn = ride.driverCompletedAt ? "passenger" : "driver";
+        const [passenger, driver] = await Promise.all([
+            PassengerProfile.findById(ride.passengerId).select("userId"),
+            ride.driverId ? DriverProfile.findById(ride.driverId).select("userId") : null
+        ]);
+
+        const targetUserId = waitingOn === "passenger" ? passenger?.userId : driver?.userId;
+        if (!targetUserId) return;
+
+        const notification = await Notification.create({
+            userId: targetUserId,
+            type: "ride_completed",
+            title: "אישור סיום נסיעה",
+            body: confirmedBy === "driver"
+                ? "הנהג סימן שהנסיעה הסתיימה. אשר גם אתה כדי לסגור אותה."
+                : "הנוסע סימן שהנסיעה הסתיימה. אשר גם אתה כדי לסגור אותה.",
+            rideId: ride._id
+        });
+
+        const io = req.app?.get?.("io");
+        if (io) {
+            io.to(`ride:${ride._id}`).emit("completion-confirmation", {
+                rideId: ride._id,
+                confirmedBy,
+                awaiting: waitingOn
+            });
+            io.to(`user:${targetUserId}`).emit("completion-confirmation", {
+                rideId: ride._id,
+                confirmedBy,
+                awaiting: waitingOn,
+                notification
+            });
+        }
+    } catch (error) {
+        console.warn("Could not send completion confirmation notice:", error.message);
+    }
 }
 
 // Completing a ride opens the payment rather than settling it, so the passenger
@@ -560,14 +618,33 @@ async function completeRide(req, res) {
         const ride = await Ride.findById(req.params.id);
         if (!ride) return res.status(404).json({ error: "Ride not found" });
         if (!await canAccessRide(req, ride)) return forbidden(res);
-        if (!isAdmin(req)) {
-            const driver = await getDriverProfileForUser(req.user.userId);
-            if (!driver || !sameId(driver._id, ride.driverId)) return forbidden(res, "Only the assigned driver can complete the ride");
-        }
         if (ride.status !== "in_progress") return res.status(400).json({ error: "Ride is not in progress" });
 
+        const side = await completionSideFor(req, ride);
+        if (!side) return forbidden(res, "Only the ride passenger or the assigned driver can confirm completion");
+
+        const now = new Date();
+        if (side === "driver" && !ride.driverCompletedAt) ride.driverCompletedAt = now;
+        if (side === "passenger" && !ride.passengerCompletedAt) ride.passengerCompletedAt = now;
+        // An admin settles a disputed ride on behalf of both sides.
+        if (side === "admin") {
+            ride.driverCompletedAt = ride.driverCompletedAt || now;
+            ride.passengerCompletedAt = ride.passengerCompletedAt || now;
+        }
+
+        // Wait for the other side rather than finishing on one person's word.
+        if (!ride.driverCompletedAt || !ride.passengerCompletedAt) {
+            await ride.save();
+            await notifyCompletionConfirmation(req, ride, side);
+            return res.status(200).json({
+                message: "Completion confirmed; waiting for the other side",
+                awaiting: ride.driverCompletedAt ? "passenger" : "driver",
+                ride
+            });
+        }
+
         ride.status = "completed";
-        ride.completedAt = new Date();
+        ride.completedAt = now;
         if (isAdmin(req)) {
             if (finalPrice !== undefined && Number(finalPrice) >= 0) ride.finalPrice = Number(finalPrice);
             if (distanceKm !== undefined && Number(distanceKm) >= 0) ride.distanceKm = Number(distanceKm);

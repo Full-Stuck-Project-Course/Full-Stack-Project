@@ -273,6 +273,10 @@ export default function RideStatusPage() {
     );
     const chatPeer = getChatPeerInfo(ride, user);
     const participantInfo = getRideParticipantInfo(ride);
+    // Whether this viewer has already confirmed the ride ended.
+    const myCompletionConfirmed = isAssignedDriver
+        ? Boolean(ride.driverCompletedAt)
+        : Boolean(ride.passengerCompletedAt);
 
     // Map markers: nearby drivers for passenger
     const driverMarkers = ride.status === "searching"
@@ -413,10 +417,39 @@ export default function RideStatusPage() {
                     התחל נסיעה
                 </button>
             )}
-            {isAssignedDriver && ride.status === "in_progress" && (
-                <button className="btn-primary" onClick={() => updateRideStep("complete")} style={{ marginBottom: 10 }}>
-                    השלם נסיעה
-                </button>
+            {/* A ride ends only when both sides confirm it did. */}
+            {ride.status === "in_progress" && (
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 10 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>סיום הנסיעה</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                        הנסיעה נסגרת רק כששני הצדדים מאשרים.
+                    </div>
+
+                    <div style={{ display: "grid", gap: 6, marginBottom: 12, fontSize: 13 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span>🚗 הנהג</span>
+                            <span style={{ fontWeight: 700, color: ride.driverCompletedAt ? "var(--success)" : "var(--text-muted)" }}>
+                                {ride.driverCompletedAt ? "✅ אישר" : "⏳ ממתין לאישור"}
+                            </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span>🧍 הנוסע</span>
+                            <span style={{ fontWeight: 700, color: ride.passengerCompletedAt ? "var(--success)" : "var(--text-muted)" }}>
+                                {ride.passengerCompletedAt ? "✅ אישר" : "⏳ ממתין לאישור"}
+                            </span>
+                        </div>
+                    </div>
+
+                    {myCompletionConfirmed ? (
+                        <div role="status" style={{ background: "#d1fae5", color: "#065f46", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700 }}>
+                            ✅ אישרת. ממתינים לאישור {isAssignedDriver ? "הנוסע" : "הנהג"}.
+                        </div>
+                    ) : (
+                        <button className="btn-primary" onClick={() => updateRideStep("complete")} style={{ width: "100%" }}>
+                            אשר שהנסיעה הסתיימה
+                        </button>
+                    )}
+                </div>
             )}
             {["searching", "accepted", "driver_arriving"].includes(ride.status) && (
                 <button onClick={cancelRide}
