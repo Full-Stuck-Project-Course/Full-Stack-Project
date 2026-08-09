@@ -2,7 +2,7 @@
 // Requires VITE_GOOGLE_BROWSER_MAPS_API_KEY in frontend/.env.
 // VITE_GOOGLE_MAPS_KEY is kept as a local backwards-compatible alias.
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GoogleMap, useLoadScript, Marker, InfoWindow, Autocomplete } from "@react-google-maps/api";
 
 const LIBRARIES = ["places"];
@@ -23,6 +23,44 @@ const MAP_OPTIONS = {
 };
 
 const ISRAEL_CENTER = { lat: 31.7683, lng: 35.2137 };
+const GOOGLE_MAPS_AUTH_FAILURE_EVENT = "hailnow:google-maps-auth-failure";
+
+if (typeof window !== "undefined" && !window.__hailnowGoogleMapsAuthFailurePatched) {
+    const previousAuthFailure = window.gm_authFailure;
+    window.gm_authFailure = () => {
+        window.dispatchEvent(new Event(GOOGLE_MAPS_AUTH_FAILURE_EVENT));
+        if (typeof previousAuthFailure === "function") previousAuthFailure();
+    };
+    window.__hailnowGoogleMapsAuthFailurePatched = true;
+}
+
+function useGoogleMapsAuthFailure() {
+    const [authFailed, setAuthFailed] = useState(false);
+
+    useEffect(() => {
+        const onAuthFailure = () => setAuthFailed(true);
+        window.addEventListener(GOOGLE_MAPS_AUTH_FAILURE_EVENT, onAuthFailure);
+        return () => window.removeEventListener(GOOGLE_MAPS_AUTH_FAILURE_EVENT, onAuthFailure);
+    }, []);
+
+    return authFailed;
+}
+
+function MapStatus({ height, style, title, message, danger = false }) {
+    return (
+        <div style={{
+            height, background: danger ? "#fef2f2" : "#e8f4f8", borderRadius: 12,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            border: `2px dashed ${danger ? "#fca5a5" : "#94a3b8"}`, ...style
+        }}>
+            <div style={{ textAlign: "center", color: danger ? "var(--danger)" : "#64748b", maxWidth: 360, padding: 16 }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🗺️</div>
+                <div style={{ fontWeight: 700 }}>{title}</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>{message}</div>
+            </div>
+        </div>
+    );
+}
 
 export function AddressInput({ placeholder, onPlaceSelected, value, onChange }) {
     const { isLoaded } = useLoadScript({
@@ -86,6 +124,7 @@ function MapComponent({
         googleMapsApiKey: MAPS_KEY,
         libraries: LIBRARIES
     });
+    const authFailed = useGoogleMapsAuthFailure();
 
     const [selected, setSelected] = useState(null);
 
@@ -108,6 +147,18 @@ function MapComponent({
     }
 
     if (loadError) return <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--danger)" }}>שגיאה בטעינת המפה</div>;
+    if (authFailed) {
+        return (
+            <MapStatus
+                height={height}
+                style={style}
+                danger
+                title="Google דחה את מפתח המפות"
+                message="בדוק שמופעלים Maps JavaScript API ו-Places API, שה-Billing פעיל, ושהגבלת הדומיין כוללת http://localhost:3000/*."
+            />
+        );
+    }
+
     if (!isLoaded) return <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center" }}><div className="spinner" /></div>;
 
     return (
