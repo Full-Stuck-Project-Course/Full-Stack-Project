@@ -1,11 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const bcrypt = require("bcryptjs");
 const { OAuth2Client } = require("google-auth-library");
 
 const User = require("../db/models/User");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const DriverProfile = require("../db/models/DriverProfile");
-const { completeProfile, forgotPassword, googleLogin } = require("../controllers/userController");
+const { completeProfile, forgotPassword, googleLogin, login } = require("../controllers/userController");
 const {
     makeRes,
     patchMethod,
@@ -16,9 +19,22 @@ const patches = [];
 const originalEnv = {
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     VITE_GOOGLE_CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_ID_FILE_FALLBACK: process.env.GOOGLE_CLIENT_ID_FILE_FALLBACK,
     RETURN_RESET_TOKEN: process.env.RETURN_RESET_TOKEN,
     JWT_SECRET: process.env.JWT_SECRET
 };
+
+function readProductionGoogleClientId() {
+    const envPath = path.join(__dirname, "..", "..", "frontend", ".env.production");
+    const match = fs.readFileSync(envPath, "utf8").match(/^VITE_GOOGLE_CLIENT_ID\s*=\s*(.+)$/m);
+    return match?.[1]?.trim() || "";
+}
+
+function audienceIncludes(audience, clientId) {
+    return Array.isArray(audience)
+        ? audience.includes(clientId)
+        : audience === clientId;
+}
 
 test.afterEach(() => {
     restoreMethods(patches);
@@ -26,6 +42,8 @@ test.afterEach(() => {
     else process.env.GOOGLE_CLIENT_ID = originalEnv.GOOGLE_CLIENT_ID;
     if (originalEnv.VITE_GOOGLE_CLIENT_ID === undefined) delete process.env.VITE_GOOGLE_CLIENT_ID;
     else process.env.VITE_GOOGLE_CLIENT_ID = originalEnv.VITE_GOOGLE_CLIENT_ID;
+    if (originalEnv.GOOGLE_CLIENT_ID_FILE_FALLBACK === undefined) delete process.env.GOOGLE_CLIENT_ID_FILE_FALLBACK;
+    else process.env.GOOGLE_CLIENT_ID_FILE_FALLBACK = originalEnv.GOOGLE_CLIENT_ID_FILE_FALLBACK;
     if (originalEnv.RETURN_RESET_TOKEN === undefined) delete process.env.RETURN_RESET_TOKEN;
     else process.env.RETURN_RESET_TOKEN = originalEnv.RETURN_RESET_TOKEN;
     if (originalEnv.JWT_SECRET === undefined) delete process.env.JWT_SECRET;
@@ -131,6 +149,54 @@ test("google login ignores placeholder backend client ids and falls back to the 
     assert.equal(res.body.email, "fallback@example.com");
 });
 
+test("google login can verify against the public frontend production client id", async () => {
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.VITE_GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_ID_FILE_FALLBACK;
+    process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
+    const productionGoogleClientId = readProductionGoogleClientId();
+    assert.match(productionGoogleClientId, /^[0-9A-Za-z_-]+\.apps\.googleusercontent\.com$/);
+
+    const user = {
+        _id: "64f000000000000000000021",
+        fullName: "Production Fallback User",
+        email: "production-fallback@example.com",
+        phone: "0504445555",
+        role: "passenger",
+        preferredLanguage: "he",
+        profileImage: null,
+        idPhotoPath: "/uploads/ids/id.jpg",
+        referralCode: "PRODFALL",
+        loyaltyPoints: 0,
+        isActive: true,
+        async save() {
+            return this;
+        }
+    };
+
+    patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async (options) => {
+        assert.ok(audienceIncludes(options.audience, productionGoogleClientId));
+        return {
+            getPayload() {
+                return {
+                    email: "production-fallback@example.com",
+                    name: "Production Fallback User",
+                    email_verified: true
+                };
+            }
+        };
+    });
+    patchMethod(patches, User, "findOne", async () => user);
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-production-fallback" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await googleLogin({ body: { credential: "google-id-token" } }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.email, "production-fallback@example.com");
+});
+
 test("first-time google login creates a temporary phone and requires profile completion", async () => {
     process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
     process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
@@ -232,6 +298,77 @@ test("first-time google login persists an email that can receive password reset 
     assert.ok(createdUser.resetPasswordExpires instanceof Date);
 });
 
+test("email login tells Google-created users to reset a password first", async () => {
+    const user = {
+        _id: "64f000000000000000000031",
+        email: "google-first@example.com",
+        passwordHash: await bcrypt.hash("generated-password-user-never-saw", 10),
+        authProvider: "google",
+        isActive: true
+    };
+
+    patchMethod(patches, User, "findOne", async (filter) => {
+        assert.equal(filter.email, "google-first@example.com");
+        return user;
+    });
+
+    const res = makeRes();
+    await login({
+        body: {
+            email: "Google-First@Example.com",
+            password: "Password1"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.body.code, "GOOGLE_PASSWORD_RESET_REQUIRED");
+    assert.match(res.body.error, /Google/);
+    assert.match(res.body.error, /לאפס סיסמה/);
+});
+
+test("Google users can use email login after setting a password", async () => {
+    process.env.JWT_SECRET = "a-strong-test-secret-with-more-than-32-characters";
+
+    const user = {
+        _id: "64f000000000000000000032",
+        fullName: "Google Reset User",
+        email: "google-reset@example.com",
+        phone: "0505556677",
+        role: "passenger",
+        preferredLanguage: "he",
+        profileImage: null,
+        idPhotoPath: "/uploads/ids/google-reset.jpg",
+        referralCode: "GRESET1",
+        loyaltyPoints: 0,
+        passwordHash: await bcrypt.hash("Password1", 10),
+        authProvider: "google",
+        isActive: true,
+        async save() {
+            return this;
+        }
+    };
+
+    patchMethod(patches, User, "findOne", async (filter) => {
+        assert.equal(filter.email, "google-reset@example.com");
+        return user;
+    });
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-google-reset" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await login({
+        body: {
+            email: "Google-Reset@Example.com",
+            password: "Password1"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.email, "google-reset@example.com");
+    assert.equal(res.body.passengerId, "passenger-google-reset");
+    assert.ok(res.body.token);
+});
+
 test("google login rejects accounts whose email was not verified by Google", async () => {
     process.env.GOOGLE_CLIENT_ID = "client-a.apps.googleusercontent.com";
 
@@ -261,6 +398,7 @@ test("google login rejects accounts whose email was not verified by Google", asy
 test("google login returns a clear configuration error before calling Google", async () => {
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.VITE_GOOGLE_CLIENT_ID;
+    process.env.GOOGLE_CLIENT_ID_FILE_FALLBACK = "false";
 
     let verifyCalled = false;
     patchMethod(patches, OAuth2Client.prototype, "verifyIdToken", async () => {

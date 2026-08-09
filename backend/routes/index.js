@@ -43,12 +43,18 @@ router.post("/users/google-login", authLimiter, validate(googleLoginSchema), use
 router.post("/users/forgot-password", authLimiter, validate(forgotPasswordSchema), userController.forgotPassword);
 router.post("/users/reset-password", authLimiter, validate(resetPasswordSchema), userController.resetPassword);
 
-// Public registration helper. Do not reveal whether an email exists.
-router.post("/users/check-email", authLimiter, (req, res) => {
-    const email = String(req.body.email || "").trim();
-    if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "Invalid email" });
+// Public registration helper.
+router.post("/users/check-email", authLimiter, async (req, res) => {
+    try {
+        const email = String(req.body.email || "").trim().toLowerCase();
+        if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "Invalid email" });
 
-    res.json({ ok: true });
+        const User = require("../db/models/User");
+        const exists = await User.findOne({ email });
+        res.json({ exists: !!exists });
+    } catch {
+        res.status(500).json({ error: "Could not check email availability" });
+    }
 });
 
 router.post("/users/check-phone", authLimiter, async (req, res) => {

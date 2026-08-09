@@ -72,22 +72,27 @@ async function runRouteHandlers(handlers, body, ip = "203.0.113.10") {
     return res;
 }
 
-test("check-email does not disclose account existence or query users", async () => {
-    let lookupCalled = false;
-    patchMethod(patches, User, "findOne", async () => {
-        lookupCalled = true;
-        throw new Error("check-email must not query users");
+test("check-email reports whether a normalized email is already registered", async () => {
+    const lookups = [];
+    patchMethod(patches, User, "findOne", async (filter) => {
+        lookups.push(filter);
+        return filter.email === "existing@example.com"
+            ? { _id: "existing-user", email: "existing@example.com" }
+            : null;
     });
 
     const handlers = getPostHandlers("/users/check-email");
-    const existingEmailResponse = await runRouteHandlers(handlers, { email: "existing@example.com" });
+    const existingEmailResponse = await runRouteHandlers(handlers, { email: "Existing@Example.com" });
     const missingEmailResponse = await runRouteHandlers(handlers, { email: "missing@example.com" });
 
     assert.equal(existingEmailResponse.statusCode, 200);
-    assert.deepEqual(existingEmailResponse.body, { ok: true });
-    assert.deepEqual(missingEmailResponse.body, existingEmailResponse.body);
-    assert.equal(Object.hasOwn(existingEmailResponse.body, "exists"), false);
-    assert.equal(lookupCalled, false);
+    assert.deepEqual(existingEmailResponse.body, { exists: true });
+    assert.equal(missingEmailResponse.statusCode, 200);
+    assert.deepEqual(missingEmailResponse.body, { exists: false });
+    assert.deepEqual(lookups, [
+        { email: "existing@example.com" },
+        { email: "missing@example.com" }
+    ]);
 });
 
 test("register duplicate conflicts use a generic message and normalize email lookup", async () => {

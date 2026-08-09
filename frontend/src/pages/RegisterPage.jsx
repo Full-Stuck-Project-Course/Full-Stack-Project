@@ -112,6 +112,10 @@ export default function RegisterPage() {
                 errors.phone = "מספר הטלפון כבר בשימוש";
             if (!formData.email.match(/^\S+@\S+\.\S+$/))
                 errors.email = "כתובת אימייל לא תקינה";
+            else if (emailChecking)
+                errors.email = "בודקים אם האימייל פנוי...";
+            else if (emailInUse)
+                errors.email = "האימייל כבר בשימוש";
             if (formData.password.length < 8)
                 errors.password = "סיסמה חייבת להכיל לפחות 8 תווים";
             else if (!/[A-Z]/.test(formData.password))
@@ -148,6 +152,11 @@ export default function RegisterPage() {
     const [phoneChecking, setPhoneChecking] = useState(false);
     const [phoneInUse, setPhoneInUse] = useState(false);
     const [phoneChecked, setPhoneChecked] = useState(false);
+    const emailCheckSeq = useRef(0);
+    const [emailChecking, setEmailChecking] = useState(false);
+    const [emailInUse, setEmailInUse] = useState(false);
+    const [emailChecked, setEmailChecked] = useState(false);
+    const emailCheckTimer = useRef(null);
 
     const set = (k, v) => {
         setForm(f => ({ ...f, [k]: v }));
@@ -204,8 +213,31 @@ export default function RegisterPage() {
                 setErrors(er => ({ ...er, confirmPassword: "הסיסמאות אינן תואמות" }));
         }
         if (k === "email") {
-            if (v.length > 0 && !v.match(/^\S+@\S+\.\S+$/)) {
+            const email = v.trim().toLowerCase();
+            emailCheckSeq.current += 1;
+            const checkId = emailCheckSeq.current;
+            if (emailCheckTimer.current) clearTimeout(emailCheckTimer.current);
+            setEmailInUse(false);
+            setEmailChecked(false);
+
+            if (v.length > 0 && !email.match(/^\S+@\S+\.\S+$/)) {
+                setEmailChecking(false);
                 setErrors(er => ({ ...er, email: "כתובת אימייל לא תקינה" }));
+            } else if (email) {
+                setEmailChecking(true);
+                emailCheckTimer.current = setTimeout(async () => {
+                    try {
+                        const { data } = await api.post("/users/check-email", { email }, { skipAuthRedirect: true });
+                        if (emailCheckSeq.current !== checkId) return;
+                        setEmailChecked(true);
+                        setEmailInUse(Boolean(data.exists));
+                        if (data.exists) setErrors(er => ({ ...er, email: "האימייל כבר בשימוש" }));
+                    } catch {} finally {
+                        if (emailCheckSeq.current === checkId) setEmailChecking(false);
+                    }
+                }, 300);
+            } else {
+                setEmailChecking(false);
             }
         }
     };
@@ -213,6 +245,8 @@ export default function RegisterPage() {
     useEffect(() => {
         return () => {
             phoneCheckSeq.current += 1;
+            emailCheckSeq.current += 1;
+            if (emailCheckTimer.current) clearTimeout(emailCheckTimer.current);
         };
     }, []);
 
@@ -337,6 +371,14 @@ export default function RegisterPage() {
             : phoneChecked && phoneIsValid
                 ? "✅"
                 : "";
+    const emailIsValid = /^\S+@\S+\.\S+$/.test(form.email.trim());
+    const emailStatusIcon = emailChecking
+        ? "⏳"
+        : errors.email || emailInUse
+            ? "❌"
+            : emailChecked && emailIsValid
+                ? "✅"
+                : "";
 
     return (
         <div style={s.page}>
@@ -391,7 +433,7 @@ export default function RegisterPage() {
                                     style={{ borderColor: errors.email ? "var(--danger)" : undefined, paddingLeft: 36 }}
                                 />
                                 <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14 }}>
-                                    {errors.email ? "❌" : form.email.match(/^\S+@\S+\.\S+$/) ? "✅" : ""}
+                                    {emailStatusIcon}
                                 </span>
                             </div>
                             <FieldErr msg={errors.email} />

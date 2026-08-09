@@ -72,4 +72,27 @@ assert(
     ".env.example must not default browser-facing production settings to localhost."
 );
 
+const productionEnv = read(".env.production");
+const activeProductionEnvLines = productionEnv
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith("#"));
+const activeGoogleEnvValues = activeProductionEnvLines
+    .filter(line => /^VITE_GOOGLE_(?:CLIENT_ID|BROWSER_MAPS_API_KEY)\s*=/.test(line))
+    .map(line => line.split("=").slice(1).join("=").trim());
+assert(
+    activeGoogleEnvValues.every(value => value && !/^your_|placeholder|replace|example/i.test(value)),
+    ".env.production must not define blank or placeholder Google values; omit them or set real deployment values."
+);
+const productionGoogleClientId = activeProductionEnvLines
+    .find(line => /^VITE_GOOGLE_CLIENT_ID\s*=/.test(line))
+    ?.split("=")
+    .slice(1)
+    .join("=")
+    .trim();
+assert(
+    /^[0-9A-Za-z_-]+\.apps\.googleusercontent\.com$/.test(productionGoogleClientId || ""),
+    ".env.production must define a valid VITE_GOOGLE_CLIENT_ID so production Google login is available."
+);
+
 console.log("Production frontend config check passed: client defaults are same-origin and env-driven.");

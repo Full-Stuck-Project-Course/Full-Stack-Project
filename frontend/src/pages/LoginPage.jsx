@@ -26,8 +26,12 @@ export default function LoginPage() {
     const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     const [form, setF] = useState({ email: "", password: "" });
     const [error, setE] = useState("");
+    const [errorCode, setErrorCode] = useState("");
     const [loading, setL] = useState(false);
     const [showPw, setShow] = useState(false);
+    const forgotPasswordPath = form.email.trim()
+        ? `/forgot-password?email=${encodeURIComponent(form.email.trim())}`
+        : "/forgot-password";
 
     const userFromAuthResponse = (data) => ({
         userId: data.userId,
@@ -50,6 +54,7 @@ export default function LoginPage() {
 
     const handleGoogleSuccess = async (credentialResponse) => {
         setE("");
+        setErrorCode("");
         setL(true);
         try {
             const { data } = await api.post("/users/google-login", {
@@ -58,6 +63,7 @@ export default function LoginPage() {
             login(userFromAuthResponse(data), data.token);
             navigate(nextPathFromAuthResponse(data));
         } catch (err) {
+            setErrorCode(err.response?.data?.code || "");
             setE(err.response?.data?.error || "שגיאה בהתחברות עם Google");
         } finally {
             setL(false);
@@ -65,12 +71,14 @@ export default function LoginPage() {
     };
 
     const handleGoogleError = () => {
+        setErrorCode("");
         setE("שגיאה בהתחברות עם Google");
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setE("");
+        setErrorCode("");
         if (!form.email) return setE("נא להזין אימייל");
         if (!form.password) return setE("נא להזין סיסמה");
 
@@ -80,6 +88,7 @@ export default function LoginPage() {
             login(userFromAuthResponse(data), data.token);
             navigate(nextPathFromAuthResponse(data));
         } catch (err) {
+            setErrorCode(err.response?.data?.code || "");
             setE(err.response?.data?.error || "שגיאה בהתחברות");
         } finally {
             setL(false);
@@ -133,11 +142,21 @@ export default function LoginPage() {
                             </button>
                         </div>
                         <div style={s.forgot}>
-                            <Link to="/forgot-password" style={s.link}>{"שכחת סיסמה?"}</Link>
+                            <Link to={forgotPasswordPath} style={s.link}>{"שכחת סיסמה?"}</Link>
                         </div>
                     </div>
 
-                    {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
+                    {error && (
+                        <p className="error-msg" role="alert">
+                            ⚠️ {error}
+                            {errorCode === "GOOGLE_PASSWORD_RESET_REQUIRED" && (
+                                <>
+                                    {" "}
+                                    <Link to={forgotPasswordPath} style={s.link}>{"לאיפוס סיסמה"}</Link>
+                                </>
+                            )}
+                        </p>
+                    )}
 
                     <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: 8 }}>
                         {loading ? "טוען..." : "התחבר"}
@@ -158,7 +177,7 @@ export default function LoginPage() {
                                 onError={handleGoogleError}
                                 shape="rectangular"
                                 size="large"
-                                width="100%"
+                                width="320"
                             />
                         </div>
                     </>

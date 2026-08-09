@@ -4,6 +4,8 @@ const User             = require("../db/models/User");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const bcrypt           = require("bcryptjs");
 const crypto           = require("crypto");
+const fs               = require("fs");
+const path             = require("path");
 const axios            = require("axios");
 const { OAuth2Client } = require("google-auth-library");
 const DriverProfile    = require("../db/models/DriverProfile");
@@ -20,18 +22,51 @@ const googleClient = new OAuth2Client();
 const RESET_EXPIRES_MINUTES = 60;
 const RESET_MAX_CODE_ATTEMPTS = 5;
 const SAFE_USER_SELECT = "-passwordHash -resetPasswordToken -resetPasswordCodeHash -resetPasswordExpires -resetPasswordCodeAttempts";
+const FRONTEND_GOOGLE_ENV_FILES = [
+    path.join(__dirname, "..", "..", "frontend", ".env.production"),
+    path.join(__dirname, "..", "..", "frontend", ".env")
+];
 
 function isPlaceholderGoogleClientId(clientId) {
     return /^your_/i.test(clientId) || /placeholder|replace|example/i.test(clientId);
 }
 
+function readGoogleClientIdsFromEnvFile(filePath) {
+    try {
+        return fs.readFileSync(filePath, "utf8")
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line && !line.startsWith("#"))
+            .map(line => line.match(/^(?:VITE_)?GOOGLE_CLIENT_ID\s*=\s*(.+)$/))
+            .filter(Boolean)
+            .map(match => match[1].trim().replace(/^["']|["']$/g, ""));
+    } catch {
+        return [];
+    }
+}
+
+function getGoogleClientIdsFromFrontendEnvFiles(env = process.env) {
+    if (env.GOOGLE_CLIENT_ID_FILE_FALLBACK === "false") return [];
+    return FRONTEND_GOOGLE_ENV_FILES.flatMap(readGoogleClientIdsFromEnvFile);
+}
+
 function getGoogleClientIdsFromEnv(env = process.env) {
-    return [env.GOOGLE_CLIENT_ID, env.VITE_GOOGLE_CLIENT_ID]
+    const envClientIds = [env.GOOGLE_CLIENT_ID, env.VITE_GOOGLE_CLIENT_ID]
         .filter(Boolean)
         .join(",")
         .split(",")
         .map(clientId => clientId.trim())
         .filter(clientId => clientId && !isPlaceholderGoogleClientId(clientId));
+    const clientIds = envClientIds.length > 0
+        ? envClientIds
+        : getGoogleClientIdsFromFrontendEnvFiles(env);
+
+    return clientIds
+        .join(",")
+        .split(",")
+        .map(clientId => clientId.trim())
+        .filter(clientId => clientId && !isPlaceholderGoogleClientId(clientId))
+        .filter((clientId, index, clientIds) => clientIds.indexOf(clientId) === index);
 }
 
 function isGoogleVerificationNetworkError(error) {
@@ -179,8 +214,18 @@ async function login(req, res) {
         if (!user) return res.status(404).json({ error: "User not found" });
         if (!user.isActive) return res.status(403).json({ error: "Account is disabled" });
 
-        const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+        const valid = user.passwordHash
+            ? await bcrypt.compare(password, user.passwordHash)
+            : false;
+        if (!valid) {
+            if (user.authProvider === "google") {
+                return res.status(409).json({
+                    code: "GOOGLE_PASSWORD_RESET_REQUIRED",
+                    error: "חשבון זה נוצר באמצעות Google. כדי להתחבר עם אימייל וסיסמה, יש לאפס סיסמה תחילה."
+                });
+            }
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
 
         const token = signAuthToken(user);
 

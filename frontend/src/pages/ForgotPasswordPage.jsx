@@ -1,7 +1,7 @@
 // src/pages/ForgotPasswordPage.jsx
 
 import { useState } from "react";
-import { Link } from "../routing";
+import { Link, useSearchParams } from "../routing";
 import api from "../api/axios";
 
 const s = {
@@ -39,7 +39,8 @@ function forgotPasswordErrorMessage(message) {
 }
 
 export default function ForgotPasswordPage() {
-    const [email,    setEmail]    = useState("");
+    const [params] = useSearchParams();
+    const [email,    setEmail]    = useState(params.get("email") || "");
     const [error,    setError]    = useState("");
     const [loading,  setLoading]  = useState(false);
     const [resetLink, setResetLink] = useState("");
