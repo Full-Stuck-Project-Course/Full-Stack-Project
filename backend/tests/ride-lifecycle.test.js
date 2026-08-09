@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const axios = require("axios");
 const mongoose = require("mongoose");
 
 const DriverProfile = require("../db/models/DriverProfile");
@@ -9,6 +10,7 @@ const Payment = require("../db/models/payment");
 const Ride = require("../db/models/Ride");
 const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
+const { calculateFare } = require("../utils/pricing");
 const {
     createRide,
     acceptRide,
@@ -205,6 +207,76 @@ test("transaction retries do not apply loyalty redemption twice", async () => {
     assert.equal(res.statusCode, 201);
     assert.equal(finalPrices.length, 2);
     assert.equal(finalPrices[0], finalPrices[1]);
+});
+
+test("ride creation uses the same routed fare as the price preview when Google Maps is configured", async () => {
+    const originalGoogleServerKey = process.env.GOOGLE_SERVER_MAPS_API_KEY;
+    const originalGoogleKey = process.env.GOOGLE_MAPS_API_KEY;
+    let rideCreate;
+    let googleRequest;
+
+    process.env.GOOGLE_SERVER_MAPS_API_KEY = "test-google-key";
+    delete process.env.GOOGLE_MAPS_API_KEY;
+
+    patchMethod(patches, axios, "get", async (url, options) => {
+        googleRequest = { url, options };
+        return {
+            data: {
+                status: "OK",
+                rows: [{
+                    elements: [{
+                        status: "OK",
+                        distance: { value: 30000, text: "30 km" },
+                        duration: { value: 1800, text: "30 mins" }
+                    }]
+                }]
+            }
+        };
+    });
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        assert.equal(userId, "passenger-user");
+        return { _id: "passenger-1", userId: "user-1" };
+    });
+    patchMethod(patches, Ride, "create", async (payload) => {
+        rideCreate = payload;
+        return { _id: "ride-1", ...payload };
+    });
+
+    try {
+        const res = makeRes();
+        await createRide({
+            user: { userId: "passenger-user", role: "passenger" },
+            body: {
+                pickupLocation,
+                destinationLocation,
+                vehicleType: "comfort",
+                passengerCount: 1
+            }
+        }, res);
+
+        const expectedFare = calculateFare({
+            pickupLocation,
+            destinationLocation,
+            vehicleType: "comfort",
+            distanceKm: 30,
+            durationMinutes: 30
+        });
+
+        assert.equal(res.statusCode, 201);
+        assert.equal(googleRequest.url, "https://maps.googleapis.com/maps/api/distancematrix/json");
+        assert.equal(googleRequest.options.params.origins, `${pickupLocation.lat},${pickupLocation.lng}`);
+        assert.equal(googleRequest.options.params.destinations, `${destinationLocation.lat},${destinationLocation.lng}`);
+        assert.equal(googleRequest.options.params.key, "test-google-key");
+        assert.equal(rideCreate.distanceKm, expectedFare.distanceKm);
+        assert.equal(rideCreate.estimatedDurationMinutes, expectedFare.estimatedDurationMinutes);
+        assert.equal(rideCreate.basePrice, expectedFare.basePrice);
+        assert.equal(rideCreate.finalPrice, expectedFare.finalPrice);
+    } finally {
+        if (originalGoogleServerKey === undefined) delete process.env.GOOGLE_SERVER_MAPS_API_KEY;
+        else process.env.GOOGLE_SERVER_MAPS_API_KEY = originalGoogleServerKey;
+        if (originalGoogleKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
+        else process.env.GOOGLE_MAPS_API_KEY = originalGoogleKey;
+    }
 });
 
 test("verified driver can claim, start, and complete a ride while payment/profile side effects are created", async () => {

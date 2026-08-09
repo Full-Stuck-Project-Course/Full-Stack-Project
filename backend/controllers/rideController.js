@@ -8,7 +8,8 @@ const PassengerProfile = require("../db/models/PassengerProfile");
 const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
-const { calculateFare, haversineKm, hasValidCoordinates } = require("../utils/pricing");
+const { haversineKm, hasValidCoordinates } = require("../utils/pricing");
+const { calculateFareForRoute } = require("../utils/routePricing");
 const {
     normalizeAllowances,
     normalizeDriverGender,
@@ -315,7 +316,7 @@ async function createRide(req, res) {
             return res.status(400).json({ error: "Carpool rides support up to 4 seats" });
         }
 
-        const fare = calculateFare({
+        const { fare } = await calculateFareForRoute({
             pickupLocation: req.body.pickupLocation,
             destinationLocation: req.body.destinationLocation,
             vehicleType: req.body.vehicleType,

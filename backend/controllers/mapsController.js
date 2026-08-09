@@ -1,15 +1,14 @@
 // controllers/mapsController.js
 
-const axios = require("axios");
 const Ride = require("../db/models/Ride");
 const {
     calcSurge,
-    calculateFare,
     getLocalHour,
     hasValidCoordinates,
     haversineKm,
     estimateDurationMinutes
 } = require("../utils/pricing");
+const { calculateFareForRoute } = require("../utils/routePricing");
 const { forbidden, getDriverProfileForUser, getPassengerProfileForUser, isAdmin } = require("../utils/authz");
 const {
     clampNearbyDriverLimit,
@@ -37,19 +36,6 @@ function clampRadius(value) {
     return Math.min(25, Math.max(1, radius));
 }
 
-function isConfiguredGoogleMapsKey(key) {
-    return Boolean(key) &&
-        key !== "place_holder" &&
-        !key.startsWith("your_") &&
-        key !== "YOUR_GOOGLE_MAPS_API_KEY_HERE";
-}
-
-function getGoogleServerMapsApiKey() {
-    return process.env.GOOGLE_SERVER_MAPS_API_KEY ||
-        process.env.GOOGLE_MAPS_API_KEY ||
-        "";
-}
-
 // GET /api/maps/distance-price
 async function getDistanceAndPrice(req, res) {
     try {
@@ -65,52 +51,17 @@ async function getDistanceAndPrice(req, res) {
             return res.status(400).json({ error: "Valid coordinate origins and destinations are required" });
         }
 
-        let fare;
-        let distanceText;
-        let durationText;
-        const key = getGoogleServerMapsApiKey();
-
-        if (isConfiguredGoogleMapsKey(key)) {
-            const { data } = await axios.get(
-                "https://maps.googleapis.com/maps/api/distancematrix/json",
-                {
-                    params: {
-                        origins,
-                        destinations,
-                        key,
-                        language: "he",
-                        mode: "driving"
-                    }
-                }
-            );
-
-            if (data.status !== "OK") {
-                return res.status(400).json({ error: "Google Maps API error: " + data.status });
-            }
-
-            const element = data.rows[0]?.elements[0];
-            if (!element || element.status !== "OK") {
-                return res.status(400).json({ error: "No route found between locations" });
-            }
-
-            const distanceKm = element.distance.value / 1000;
-            const durationMinutes = Math.ceil(element.duration.value / 60);
-            fare = calculateFare({
-                pickupLocation,
-                destinationLocation,
-                vehicleType,
-                rideType,
-                passengerCount,
-                distanceKm,
-                durationMinutes
-            });
-            distanceText = element.distance.text;
-            durationText = element.duration.text;
-        } else {
-            fare = calculateFare({ pickupLocation, destinationLocation, vehicleType, rideType, passengerCount });
-            distanceText = `${fare.distanceKm} ק"מ`;
-            durationText = `${fare.estimatedDurationMinutes} דקות`;
-        }
+        const { fare, route } = await calculateFareForRoute({
+            pickupLocation,
+            destinationLocation,
+            origins,
+            destinations,
+            vehicleType,
+            rideType,
+            passengerCount
+        });
+        const distanceText = route?.distanceText || `${fare.distanceKm} ק"מ`;
+        const durationText = route?.durationText || `${fare.estimatedDurationMinutes} דקות`;
 
         res.json({
             distanceKm: fare.distanceKm,
@@ -127,7 +78,9 @@ async function getDistanceAndPrice(req, res) {
         });
 
     } catch (error) {
-        res.status(500).json({ error: "Price calculation failed: " + error.message });
+        res.status(error.statusCode || 500).json({
+            error: error.statusCode ? error.message : "Price calculation failed: " + error.message
+        });
     }
 }
 
