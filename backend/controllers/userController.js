@@ -26,7 +26,7 @@ function isPlaceholderGoogleClientId(clientId) {
 }
 
 function getGoogleClientIdsFromEnv(env = process.env) {
-    return [env.GOOGLE_SERVER_CLIENT_ID, env.VITE_GOOGLE_BROWSER_CLIENT_ID]
+    return [env.GOOGLE_CLIENT_ID, env.VITE_GOOGLE_CLIENT_ID]
         .filter(Boolean)
         .join(",")
         .split(",")
@@ -528,7 +528,7 @@ async function googleLogin(req, res) {
 
         const googleClientIds = getGoogleClientIdsFromEnv();
         if (googleClientIds.length === 0) {
-            return res.status(503).json({ error: "Google login is not configured. Set GOOGLE_SERVER_CLIENT_ID in backend/.env." });
+            return res.status(503).json({ error: "Google login is not configured. Set GOOGLE_CLIENT_ID in backend/.env." });
         }
 
         const ticket = await googleClient.verifyIdToken({
@@ -561,7 +561,9 @@ async function googleLogin(req, res) {
             });
 
             await PassengerProfile.create({ userId: user._id });
-        } else if (user.authProvider !== "google") {
+        } else {
+            user.email = email;
+            user.isEmailVerified = true;
             user.authProvider = "google";
         }
         if (!user.isActive) return res.status(403).json({ error: "Account is disabled" });
