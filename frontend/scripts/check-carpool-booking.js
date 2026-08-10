@@ -20,7 +20,7 @@ assert(branchStart >= 0, "BookRidePage submit flow must branch when rideType is 
 assert(carpoolPost > branchStart, "Carpool bookings must be submitted to /carpool.");
 assert(ridesPost > carpoolPost, "Regular ride creation should remain after the carpool branch.");
 assert(carpoolReturn > carpoolPost && carpoolReturn < ridesPost, "Carpool submit must return before falling through to /rides.");
-assert(/requestedTime:\s*scheduledTime\s*\|\|\s*new Date\(\)\.toISOString\(\)/.test(handleSubmit), "Carpool requests must send requestedTime.");
+assert(/requestedTime:\s*toScheduledInstant\(scheduledTime\)\s*\|\|\s*new Date\(\)\.toISOString\(\)/.test(handleSubmit), "Carpool requests must send requestedTime as an absolute instant.");
 assert(/seatsNeeded:\s*passengerCount/.test(handleSubmit), "Carpool requests must send seatsNeeded from passengerCount.");
 assert(/pricePerSeat:\s*Number\.isFinite\(pricePerSeat\)\s*\?\s*pricePerSeat\s*:\s*0/.test(handleSubmit), "Carpool requests must send a safe pricePerSeat.");
 assert(/userPoints\s*>\s*0\s*&&\s*rideType\s*!==\s*"carpool"/.test(bookRidePage), "Point redemption controls must not appear for pending carpool requests.");

@@ -90,6 +90,16 @@ function toLocalDateTimeInputValue(date = new Date()) {
     return local.toISOString().slice(0, 16);
 }
 
+// A datetime-local input yields "YYYY-MM-DDTHH:mm" with no timezone. Sent as-is
+// the server reads it in *its* own timezone, so a ride booked for 14:30 came
+// back as a different time on every dashboard. Pin it to an absolute instant
+// while it is still in the browser, where the passenger's timezone is known.
+export function toScheduledInstant(localValue) {
+    if (!localValue) return null;
+    const picked = new Date(localValue);
+    return Number.isNaN(picked.getTime()) ? null : picked.toISOString();
+}
+
 function hasCoordinates(loc) {
     return loc?.lat != null && loc?.lng != null && !(Number(loc.lat) === 0 && Number(loc.lng) === 0);
 }
@@ -318,7 +328,7 @@ export default function BookRidePage() {
                 await api.post("/carpool", {
                     pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
                     destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
-                    requestedTime: scheduledTime || new Date().toISOString(),
+                    requestedTime: toScheduledInstant(scheduledTime) || new Date().toISOString(),
                     seatsNeeded: passengerCount,
                     maxDetourMinutes: 10,
                     pricePerSeat: Number.isFinite(pricePerSeat) ? pricePerSeat : 0
@@ -338,7 +348,7 @@ export default function BookRidePage() {
                 pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
                 destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                 passengerCount,
-                scheduledTime: scheduledTime || null,
+                scheduledTime: toScheduledInstant(scheduledTime),
                 pointsToRedeem: redeemPoints ? activePointsToUse : 0
             });
             if (data.remainingPoints !== undefined) {
