@@ -44,6 +44,14 @@ const DRIVER_HEARTBEAT_INTERVAL_MS = 30_000;
 
 const ACTIVE_RIDE_STATUSES = ["searching", "accepted", "driver_arriving", "in_progress"];
 
+// A scheduled booking needs its date as well as its time — a bare time reads as
+// "today" and hides that the passenger asked for another day.
+function formatScheduledTime(value) {
+    return new Date(value).toLocaleString("he-IL", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+    });
+}
+
 export default function DriverDashboard() {
     const { user }      = useAuth();
     const userId        = user?.userId;
@@ -425,7 +433,7 @@ export default function DriverDashboard() {
                                 <span>👥 {ride.passengerCount} נוסעים</span>
                                 <span>{ride.rideType === "carpool" ? "🤝 קרפול" : "🚕 נסיעה"}</span>
                                 {ride.finalPrice > 0 && <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{ride.finalPrice}</span>}
-                                {ride.scheduledTime && <span>🕐 {new Date(ride.scheduledTime).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</span>}
+                                {ride.scheduledTime && <span>🕐 {formatScheduledTime(ride.scheduledTime)}</span>}
                             </div>
                         </div>
                         {driver.status === "available" && (
@@ -470,7 +478,7 @@ export default function DriverDashboard() {
                                         <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{request.pricePerSeat} למושב</span>
                                     )}
                                     {request.requestedTime && (
-                                        <span>🕐 {new Date(request.requestedTime).toLocaleString("he-IL", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</span>
+                                        <span>🕐 {formatScheduledTime(request.requestedTime)}</span>
                                     )}
                                 </div>
                                 {request.notes && (

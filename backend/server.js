@@ -9,12 +9,15 @@ const { validateJwtSecretForStartup } = require("./utils/jwtConfig");
 const app    = require("./app");
 const connectMongo = require("./db/mongo");
 const Ride = require("./db/models/Ride");
+const CarpoolRequest = require("./db/models/CarpoolRequest");
+const Notification = require("./db/models/Notification");
 const PassengerProfile = require("./db/models/PassengerProfile");
 const DriverProfile = require("./db/models/DriverProfile");
 const { sameId } = require("./utils/authz");
 const { hasValidCoordinates } = require("./utils/pricing");
 const { configuredOrigins, isAllowedOrigin } = require("./utils/corsOrigins");
 const { findNearbyAvailableDrivers } = require("./utils/driverDiscovery");
+const { expiredCarpoolRequestFilter, expiredRideFilter } = require("./utils/bookingExpiry");
 const {
     getDriverDisconnectGraceMs,
     staleAvailableDriverFilter
@@ -278,39 +281,32 @@ io.on("connection", (socket) => {
     });
 });
 
-// Auto-cancel rides after 30 minutes with no activity
-async function autoCancelStaleRides() {
+// Cancel rides no driver approved within 30 minutes of the time the passenger
+// asked to travel. A scheduled ride is measured from its scheduled time, so
+// booking next week's ride today does not make it stale today.
+async function autoCancelStaleRides(date = new Date()) {
     try {
-        const Ride = require("./db/models/Ride");
-        const Notification = require("./db/models/Notification");
-        const cutoff = new Date(Date.now() - 30 * 60 * 1000);
-
-        const staleRides = await Ride.find({
-            status: "searching",
-            createdAt: { $lt: cutoff },
-            $or: [
-                { scheduledTime: null },
-                { scheduledTime: { $lt: new Date() } }
-            ]
-        });
+        const staleRides = await Ride.find(expiredRideFilter(date));
 
         for (const ride of staleRides) {
             ride.status = "cancelled";
             ride.cancelledBy = "system";
             ride.cancelledAt = new Date();
-            ride.cancellationReason = "בוטלה אוטומטית - לא נמצא נהג תוך 30 דקות";
+            ride.cancellationReason = "בוטלה אוטומטית - נהג לא אישר את הנסיעה תוך 30 דקות מהמועד המבוקש";
             await ride.save();
 
-            const passenger = await PassengerProfile.findById(ride.passengerId);
-            if (!passenger) continue;
+            await settleCarpoolSeatsForCancelledRide(ride);
 
-            await Notification.create({
-                userId: passenger.userId,
-                type: "ride_cancelled",
-                title: "הנסיעה בוטלה",
-                body: "הנסיעה בוטלה אוטומטית כי לא נמצא נהג תוך 30 דקות. אנא נסה שוב.",
-                rideId: ride._id
-            });
+            const passenger = await PassengerProfile.findById(ride.passengerId);
+            if (passenger) {
+                await Notification.create({
+                    userId: passenger.userId,
+                    type: "ride_cancelled",
+                    title: "הנסיעה בוטלה",
+                    body: "הנסיעה בוטלה אוטומטית כי אף נהג לא אישר אותה תוך 30 דקות מהמועד המבוקש. אפשר להזמין נסיעה חדשה.",
+                    rideId: ride._id
+                });
+            }
 
             io.to(`ride:${ride._id}`).emit("ride-cancelled", {
                 rideId: ride._id,
@@ -321,8 +317,60 @@ async function autoCancelStaleRides() {
         if (staleRides.length > 0) {
             console.log(`🕐 Auto-cancelled ${staleRides.length} stale rides`);
         }
+        return staleRides;
     } catch (err) {
         console.error("Auto-cancel error:", err.message);
+        return [];
+    }
+}
+
+// A cancelled carpool ride must release the riders who joined it, or they keep
+// holding their one active booking.
+async function settleCarpoolSeatsForCancelledRide(ride) {
+    if (ride.rideType !== "carpool") return;
+    try {
+        await CarpoolRequest.updateMany(
+            { rideId: ride._id, status: { $in: ["matched", "confirmed"] } },
+            { status: "cancelled" }
+        );
+    } catch (err) {
+        console.error("Could not release carpool seats:", err.message);
+    }
+}
+
+// The same 30-minute rule for carpool passengers still waiting in the queue.
+// Once a driver has approved one it belongs to a ride and expires with it.
+async function autoCancelStaleCarpoolRequests(date = new Date()) {
+    try {
+        const staleRequests = await CarpoolRequest.find(expiredCarpoolRequestFilter(date));
+
+        for (const request of staleRequests) {
+            const cancelled = await CarpoolRequest.findOneAndUpdate(
+                { _id: request._id, status: "pending" },
+                { status: "cancelled" },
+                { new: true }
+            );
+            if (!cancelled) continue;
+
+            const passenger = await PassengerProfile.findById(request.passengerId);
+            if (!passenger) continue;
+
+            await Notification.create({
+                userId: passenger.userId,
+                type: "ride_cancelled",
+                title: "בקשת הקרפול בוטלה",
+                body: "בקשת הקרפול בוטלה אוטומטית כי אף נהג לא אישר אותה תוך 30 דקות מהמועד המבוקש. אפשר לשלוח בקשה חדשה.",
+                rideId: null
+            });
+        }
+
+        if (staleRequests.length > 0) {
+            console.log(`🕐 Auto-cancelled ${staleRequests.length} stale carpool requests`);
+        }
+        return staleRequests;
+    } catch (err) {
+        console.error("Carpool auto-cancel error:", err.message);
+        return [];
     }
 }
 
@@ -402,11 +450,19 @@ function startScheduledTasks() {
 
     const ownerId = createInstanceId(process.env);
     return [
+        // Once a minute, so "30 minutes" is not rounded up by the sweep.
         startClusterSafeInterval({
             lockName: "auto-cancel-stale-rides",
-            intervalMs: 5 * 60 * 1000,
-            leaseTtlMs: 15 * 60 * 1000,
+            intervalMs: 60 * 1000,
+            leaseTtlMs: 5 * 60 * 1000,
             task: autoCancelStaleRides,
+            ownerId
+        }),
+        startClusterSafeInterval({
+            lockName: "auto-cancel-stale-carpool-requests",
+            intervalMs: 60 * 1000,
+            leaseTtlMs: 5 * 60 * 1000,
+            task: autoCancelStaleCarpoolRequests,
             ownerId
         }),
         startClusterSafeInterval({
@@ -475,6 +531,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    autoCancelStaleCarpoolRequests,
     autoCancelStaleRides,
     io,
     markStaleAvailableDriversOffline,
