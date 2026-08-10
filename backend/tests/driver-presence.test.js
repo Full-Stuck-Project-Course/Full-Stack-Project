@@ -5,7 +5,7 @@ process.env.JWT_SECRET = "test-driver-presence-secret-with-more-than-32-chars";
 
 const DriverProfile = require("../db/models/DriverProfile");
 const { updateDriverStatus } = require("../controllers/driverController");
-const { markStaleAvailableDriversOffline } = require("../server");
+const { io, markStaleAvailableDriversOffline } = require("../server");
 const {
     makeRes,
     patchMethod,
@@ -50,6 +50,7 @@ test("stale available driver cleanup marks inactive drivers offline", async () =
     let cleanup;
 
     process.env.DRIVER_ACTIVE_WINDOW_MS = "60000";
+    patchMethod(patches, io, "fetchSockets", async () => []);
     patchMethod(patches, DriverProfile, "updateMany", async (filter, update) => {
         cleanup = { filter, update };
         return { modifiedCount: 2 };
@@ -59,6 +60,38 @@ test("stale available driver cleanup marks inactive drivers offline", async () =
         const result = await markStaleAvailableDriversOffline(new Date("2026-08-10T12:00:00Z"));
 
         assert.equal(result.modifiedCount, 2);
+        assert.equal(cleanup.filter.status, "available");
+        assert.deepEqual(cleanup.filter.$or, [
+            { lastActiveAt: null },
+            { lastActiveAt: { $lt: new Date("2026-08-10T11:59:00Z") } }
+        ]);
+        assert.deepEqual(cleanup.update, { $set: { status: "offline" } });
+    } finally {
+        if (originalWindow === undefined) delete process.env.DRIVER_ACTIVE_WINDOW_MS;
+        else process.env.DRIVER_ACTIVE_WINDOW_MS = originalWindow;
+    }
+});
+
+test("stale cleanup keeps connected available drivers online", async () => {
+    const originalWindow = process.env.DRIVER_ACTIVE_WINDOW_MS;
+    let cleanup;
+
+    process.env.DRIVER_ACTIVE_WINDOW_MS = "60000";
+    patchMethod(patches, io, "fetchSockets", async () => [
+        { data: { driverId: "driver-connected" } },
+        { data: { driverId: "driver-connected" } },
+        { data: {} }
+    ]);
+    patchMethod(patches, DriverProfile, "updateMany", async (filter, update) => {
+        cleanup = { filter, update };
+        return { modifiedCount: 1 };
+    });
+
+    try {
+        const result = await markStaleAvailableDriversOffline(new Date("2026-08-10T12:00:00Z"));
+
+        assert.equal(result.modifiedCount, 1);
+        assert.deepEqual(cleanup.filter._id, { $nin: ["driver-connected"] });
         assert.equal(cleanup.filter.status, "available");
         assert.deepEqual(cleanup.filter.$or, [
             { lastActiveAt: null },

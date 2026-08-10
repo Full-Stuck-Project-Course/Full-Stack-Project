@@ -14,6 +14,8 @@ const { notifyDocumentApproved } = require("../utils/approvalNotifications");
 const upload = require("../middleware/upload");
 
 const VALID_DRIVER_GENDERS = new Set(["male", "female"]);
+const DRIVER_LICENSE_NUMBER_RE = /^\d{5,9}$/;
+const LICENSE_PLATE_RE = /^\d{7,8}$/;
 
 const DRIVER_UPDATE_FIELDS = [
     "licenseNumber",
@@ -71,6 +73,16 @@ function duplicateError(field) {
     const error = new Error(`${field} already exists`);
     error.statusCode = 409;
     return error;
+}
+
+function availabilityResult(value, pattern, exists = false) {
+    const valid = pattern.test(value);
+    return {
+        value,
+        valid,
+        exists: valid ? exists : false,
+        available: valid && !exists
+    };
 }
 
 async function updateUserRoleAfterDriverSetup(userId) {
@@ -272,6 +284,54 @@ async function completeDriverSetup(req, res) {
             const field = Object.keys(error.keyValue || {})[0] || "field";
             return res.status(409).json({ error: `${field} already exists` });
         }
+        res.status(400).json({ error: error.message });
+    }
+}
+
+// GET /drivers/check-setup
+async function checkDriverSetupAvailability(req, res) {
+    try {
+        const userId = isAdmin(req) && req.query.userId ? req.query.userId : req.user.userId;
+        const hasLicenseNumber = req.query.licenseNumber !== undefined;
+        const hasLicensePlate = req.query.licensePlate !== undefined;
+        if (!hasLicenseNumber && !hasLicensePlate) {
+            return res.status(400).json({ error: "licenseNumber or licensePlate is required" });
+        }
+
+        const existingDriver = await DriverProfile.findOne({ userId });
+        const existingVehicle = existingDriver
+            ? await Vehicle.findOne({ driverId: existingDriver._id })
+            : null;
+        const result = {};
+
+        if (hasLicenseNumber) {
+            const licenseNumber = String(req.query.licenseNumber || "").trim();
+            let exists = false;
+            if (DRIVER_LICENSE_NUMBER_RE.test(licenseNumber)) {
+                const licenseOwner = await DriverProfile.findOne({
+                    licenseNumber,
+                    ...(existingDriver ? { _id: { $ne: existingDriver._id } } : {})
+                });
+                exists = Boolean(licenseOwner);
+            }
+            result.licenseNumber = availabilityResult(licenseNumber, DRIVER_LICENSE_NUMBER_RE, exists);
+        }
+
+        if (hasLicensePlate) {
+            const licensePlate = String(req.query.licensePlate || "").trim();
+            let exists = false;
+            if (LICENSE_PLATE_RE.test(licensePlate)) {
+                const plateOwner = await Vehicle.findOne({
+                    licensePlate,
+                    ...(existingVehicle ? { _id: { $ne: existingVehicle._id } } : {})
+                });
+                exists = Boolean(plateOwner);
+            }
+            result.licensePlate = availabilityResult(licensePlate, LICENSE_PLATE_RE, exists);
+        }
+
+        res.status(200).json(result);
+    } catch (error) {
         res.status(400).json({ error: error.message });
     }
 }
@@ -482,6 +542,6 @@ async function deleteDriver(req, res) {
 }
 
 module.exports = {
-    registerDriver, completeDriverSetup, getAllDrivers, getAvailableDrivers,
+    registerDriver, completeDriverSetup, checkDriverSetupAvailability, getAllDrivers, getAvailableDrivers,
     getDriverById, updateDriver, updateDriverStatus, updateLocation, verifyDriver, deleteDriver
 };

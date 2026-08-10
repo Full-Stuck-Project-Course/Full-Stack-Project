@@ -133,6 +133,7 @@ router.post("/drivers/setup", uploadLimiter, upload.fields([
 ]), driverController.completeDriverSetup);
 router.get("/drivers", driverController.getAllDrivers);
 router.get("/drivers/available", driverController.getAvailableDrivers);
+router.get("/drivers/check-setup", driverController.checkDriverSetupAvailability);
 router.get("/drivers/:id", driverController.getDriverById);
 router.put("/drivers/:id", driverController.updateDriver);
 router.put("/drivers/:id/status", driverController.updateDriverStatus);

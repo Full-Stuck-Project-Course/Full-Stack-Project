@@ -1,6 +1,6 @@
 // src/pages/DriverSetupPage.jsx
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
@@ -12,6 +12,25 @@ const VEHICLE_TYPES = ["regular", "comfort", "luxury", "van"];
 const LANGS = ["עברית", "אנגלית", "ערבית", "רוסית", "אמהרית", "צרפתית"];
 const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 const ALLOWED_DOCUMENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const DRIVER_LICENSE_NUMBER_RE = /^\d{5,9}$/;
+const LICENSE_PLATE_RE = /^\d{7,8}$/;
+
+const AVAILABILITY_MESSAGES = {
+    licenseNumber: {
+        invalid: "מספר רישיון חייב להכיל 5-9 ספרות בלבד",
+        checking: "בודקים אם מספר הרישיון פנוי...",
+        duplicate: "מספר רישיון הנהיגה כבר קיים במערכת",
+        available: "מספר הרישיון תקין ופנוי",
+        failed: "לא ניתן לבדוק כרגע את מספר הרישיון"
+    },
+    licensePlate: {
+        invalid: "לוחית רישוי חייבת להכיל 7-8 ספרות",
+        checking: "בודקים אם לוחית הרישוי פנויה...",
+        duplicate: "לוחית הרישוי כבר קיימת במערכת",
+        available: "לוחית הרישוי תקינה ופנויה",
+        failed: "לא ניתן לבדוק כרגע את לוחית הרישוי"
+    }
+};
 
 const CAR_BRANDS = {
     "טויוטה":   ["קורולה", "יאריס", "קאמרי", "RAV4", "לנד קרוזר", "היילקס", "C-HR", "אחר"],
@@ -59,6 +78,12 @@ const s = {
 function FieldErr({ msg }) {
     if (!msg) return null;
     return <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {msg}</p>;
+}
+
+function FieldHint({ msg, tone = "muted" }) {
+    if (!msg) return null;
+    const color = tone === "success" ? "var(--success)" : "var(--text-muted)";
+    return <p role="status" style={{ color, fontSize: 12, marginTop: 4 }}>{msg}</p>;
 }
 
 function validateDocumentFile(file) {
@@ -125,6 +150,16 @@ export default function DriverSetupPage() {
     const [error, setError] = useState("");
     const [fieldErrors, setFieldErrors] = useState({});
     const [verification, setVerification] = useState(null);
+    const licenseNumberCheckSeq = useRef(0);
+    const licenseNumberCheckTimer = useRef(null);
+    const licensePlateCheckSeq = useRef(0);
+    const licensePlateCheckTimer = useRef(null);
+    const [licenseNumberChecking, setLicenseNumberChecking] = useState(false);
+    const [licenseNumberInUse, setLicenseNumberInUse] = useState(false);
+    const [licenseNumberChecked, setLicenseNumberChecked] = useState(false);
+    const [licensePlateChecking, setLicensePlateChecking] = useState(false);
+    const [licensePlateInUse, setLicensePlateInUse] = useState(false);
+    const [licensePlateChecked, setLicensePlateChecked] = useState(false);
 
     useEffect(() => {
         api.get("/drivers").then(r => {
@@ -163,6 +198,81 @@ export default function DriverSetupPage() {
         }).catch(() => {});
     }, [userId]);
 
+    useEffect(() => {
+        return () => {
+            licenseNumberCheckSeq.current += 1;
+            licensePlateCheckSeq.current += 1;
+            if (licenseNumberCheckTimer.current) clearTimeout(licenseNumberCheckTimer.current);
+            if (licensePlateCheckTimer.current) clearTimeout(licensePlateCheckTimer.current);
+        };
+    }, []);
+
+    const checkSetupAvailability = (field, rawValue) => {
+        const isLicenseNumber = field === "licenseNumber";
+        const value = String(rawValue || "").trim();
+        const pattern = isLicenseNumber ? DRIVER_LICENSE_NUMBER_RE : LICENSE_PLATE_RE;
+        const messages = AVAILABILITY_MESSAGES[field];
+        const seqRef = isLicenseNumber ? licenseNumberCheckSeq : licensePlateCheckSeq;
+        const timerRef = isLicenseNumber ? licenseNumberCheckTimer : licensePlateCheckTimer;
+        const setChecking = isLicenseNumber ? setLicenseNumberChecking : setLicensePlateChecking;
+        const setInUse = isLicenseNumber ? setLicenseNumberInUse : setLicensePlateInUse;
+        const setChecked = isLicenseNumber ? setLicenseNumberChecked : setLicensePlateChecked;
+        const existingValue = isLicenseNumber
+            ? existingDriver?.licenseNumber
+            : existingVehicle?.licensePlate;
+
+        seqRef.current += 1;
+        const checkId = seqRef.current;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setInUse(false);
+        setChecked(false);
+
+        if (!value) {
+            setChecking(false);
+            return;
+        }
+
+        if (!pattern.test(value)) {
+            setChecking(false);
+            setFieldErrors(current => ({ ...current, [field]: messages.invalid }));
+            return;
+        }
+
+        if (value === String(existingValue || "")) {
+            setChecking(false);
+            setChecked(true);
+            return;
+        }
+
+        setChecking(true);
+        timerRef.current = setTimeout(async () => {
+            try {
+                const { data } = await api.get("/drivers/check-setup", {
+                    params: { [field]: value }
+                });
+                if (seqRef.current !== checkId) return;
+
+                const info = data?.[field];
+                setChecked(true);
+                setInUse(Boolean(info?.exists));
+                setFieldErrors(current => ({
+                    ...current,
+                    [field]: info?.valid === false
+                        ? messages.invalid
+                        : info?.exists
+                            ? messages.duplicate
+                            : undefined
+                }));
+            } catch {
+                if (seqRef.current === checkId) {
+                    setFieldErrors(current => ({ ...current, [field]: messages.failed }));
+                }
+            } finally {
+                if (seqRef.current === checkId) setChecking(false);
+            }
+        }, 300);
+    };
+
     const setD = (k, v) => setDF(f => ({ ...f, [k]: v }));
     const setV = (k, v) => setVF(f => ({ ...f, [k]: v }));
     const toggleLang = (lang) => setDF(f => ({
@@ -179,7 +289,10 @@ export default function DriverSetupPage() {
         if (step === 0) {
             const lic = driverForm.licenseNumber.trim();
             if (!lic) errs.licenseNumber = "שדה חובה";
-            else if (!/^\d{5,9}$/.test(lic)) errs.licenseNumber = "מספר רישיון חייב להכיל 5-9 ספרות בלבד";
+            else if (!DRIVER_LICENSE_NUMBER_RE.test(lic)) errs.licenseNumber = AVAILABILITY_MESSAGES.licenseNumber.invalid;
+            else if (licenseNumberChecking) errs.licenseNumber = AVAILABILITY_MESSAGES.licenseNumber.checking;
+            else if (licenseNumberInUse) errs.licenseNumber = AVAILABILITY_MESSAGES.licenseNumber.duplicate;
+            else if (fieldErrors.licenseNumber === AVAILABILITY_MESSAGES.licenseNumber.failed) errs.licenseNumber = fieldErrors.licenseNumber;
 
             if (driverForm.licenseExpiry) {
                 if (new Date(driverForm.licenseExpiry) < new Date()) errs.licenseExpiry = "תאריך תפוגה עבר";
@@ -211,7 +324,10 @@ export default function DriverSetupPage() {
 
             const plate = vehicleForm.licensePlate.trim();
             if (!plate) errs.licensePlate = "שדה חובה";
-            else if (!/^\d{7,8}$/.test(plate)) errs.licensePlate = "לוחית רישוי חייבת להכיל 7-8 ספרות";
+            else if (!LICENSE_PLATE_RE.test(plate)) errs.licensePlate = AVAILABILITY_MESSAGES.licensePlate.invalid;
+            else if (licensePlateChecking) errs.licensePlate = AVAILABILITY_MESSAGES.licensePlate.checking;
+            else if (licensePlateInUse) errs.licensePlate = AVAILABILITY_MESSAGES.licensePlate.duplicate;
+            else if (fieldErrors.licensePlate === AVAILABILITY_MESSAGES.licensePlate.failed) errs.licensePlate = fieldErrors.licensePlate;
         }
         if (step === 2) {
             if (!licensePreview) errs.licensePhoto = "יש להעלות צילום רישיון נהיגה";
@@ -315,6 +431,19 @@ export default function DriverSetupPage() {
         setStep(s => s + 1);
     };
 
+    const licenseNumberAvailable = licenseNumberChecked &&
+        !licenseNumberChecking &&
+        !licenseNumberInUse &&
+        !fieldErrors.licenseNumber &&
+        DRIVER_LICENSE_NUMBER_RE.test(driverForm.licenseNumber.trim());
+    const licensePlateAvailable = licensePlateChecked &&
+        !licensePlateChecking &&
+        !licensePlateInUse &&
+        !fieldErrors.licensePlate &&
+        LICENSE_PLATE_RE.test(vehicleForm.licensePlate.trim());
+    const currentStepChecking = (step === 0 && licenseNumberChecking) ||
+        (step === 1 && licensePlateChecking);
+
     return (
         <div style={s.page} className="fade-in">
             <AutoVerificationOverlay open={Boolean(verification)} {...(verification || {})} />
@@ -331,10 +460,22 @@ export default function DriverSetupPage() {
                     <div style={s.group}>
                         <label style={s.label}>מספר רישיון נהיגה * <span style={{ color: "var(--danger)" }}>חובה</span></label>
                         <input placeholder="12345678" value={driverForm.licenseNumber}
-                            onChange={e => { setD("licenseNumber", e.target.value.replace(/[^\d]/g, "")); setFieldErrors(f => ({ ...f, licenseNumber: undefined })); }}
+                            onChange={e => {
+                                const digits = e.target.value.replace(/[^\d]/g, "").slice(0, 9);
+                                setD("licenseNumber", digits);
+                                setFieldErrors(f => ({ ...f, licenseNumber: undefined }));
+                                checkSetupAvailability("licenseNumber", digits);
+                            }}
+                            inputMode="numeric"
                             maxLength={9}
-                            style={{ borderColor: fieldErrors.licenseNumber ? "var(--danger)" : undefined }} />
+                            style={{ borderColor: fieldErrors.licenseNumber ? "var(--danger)" : licenseNumberAvailable ? "var(--success)" : undefined }} />
                         <FieldErr msg={fieldErrors.licenseNumber} />
+                        {!fieldErrors.licenseNumber && licenseNumberChecking && (
+                            <FieldHint msg={AVAILABILITY_MESSAGES.licenseNumber.checking} />
+                        )}
+                        {licenseNumberAvailable && (
+                            <FieldHint tone="success" msg={AVAILABILITY_MESSAGES.licenseNumber.available} />
+                        )}
                     </div>
                     <div style={s.group}>
                         <label style={s.label}>תפוגת רישיון</label>
@@ -495,11 +636,22 @@ export default function DriverSetupPage() {
                                     const digits = e.target.value.replace(/[^\d]/g, "").slice(0, 8);
                                     setV("licensePlate", digits);
                                     setFieldErrors(f => ({ ...f, licensePlate: undefined }));
+                                    checkSetupAvailability("licensePlate", digits);
                                 }}
                                 inputMode="numeric"
                                 maxLength={8}
-                                style={{ borderColor: fieldErrors.licensePlate ? "var(--danger)" : undefined, letterSpacing: 2, fontWeight: 600 }} />
+                                style={{
+                                    borderColor: fieldErrors.licensePlate ? "var(--danger)" : licensePlateAvailable ? "var(--success)" : undefined,
+                                    letterSpacing: 2,
+                                    fontWeight: 600
+                                }} />
                             <FieldErr msg={fieldErrors.licensePlate} />
+                            {!fieldErrors.licensePlate && licensePlateChecking && (
+                                <FieldHint msg={AVAILABILITY_MESSAGES.licensePlate.checking} />
+                            )}
+                            {licensePlateAvailable && (
+                                <FieldHint tone="success" msg={AVAILABILITY_MESSAGES.licensePlate.available} />
+                            )}
                         </div>
                         <div style={s.group}>
                             <label style={s.label}>מושבים</label>
@@ -568,7 +720,7 @@ export default function DriverSetupPage() {
                     </button>
                 )}
                 {step < 2 ? (
-                    <button type="button" className="btn-primary" style={{ flex: 2 }} onClick={goNext}>
+                    <button type="button" className="btn-primary" style={{ flex: 2 }} disabled={currentStepChecking} onClick={goNext}>
                         הבא →
                     </button>
                 ) : (

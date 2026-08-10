@@ -1,5 +1,5 @@
-const DEFAULT_DRIVER_ACTIVE_WINDOW_MS = 120_000;
-const DEFAULT_DRIVER_DISCONNECT_GRACE_MS = 30_000;
+const DEFAULT_DRIVER_ACTIVE_WINDOW_MS = 180_000;
+const DEFAULT_DRIVER_DISCONNECT_GRACE_MS = 180_000;
 
 function positiveMs(value, fallback) {
     const number = Number(value);
