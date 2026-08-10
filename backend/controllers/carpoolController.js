@@ -7,6 +7,7 @@ const PassengerProfile = require("../db/models/PassengerProfile");
 const Ride = require("../db/models/Ride");
 const Vehicle = require("../db/models/Vehicle");
 const { activeBookingConflict, findActiveBookingForPassenger } = require("../utils/activeBooking");
+const { findUnresolvedPaymentForPassenger, unresolvedPaymentConflict } = require("../utils/unresolvedPayments");
 const { calculateFareForRoute } = require("../utils/routePricing");
 const {
     canAccessPassenger,
@@ -108,6 +109,9 @@ async function createCarpoolRequest(req, res) {
         // A carpool request is a booking like any other, so it competes with an
         // open ride for the passenger's single active slot.
         if (!isAdmin(req)) {
+            const pendingPayment = await findUnresolvedPaymentForPassenger(passengerId);
+            if (pendingPayment) return unresolvedPaymentConflict(res, pendingPayment);
+
             const activeBooking = await findActiveBookingForPassenger(passengerId);
             if (activeBooking) return activeBookingConflict(res, activeBooking);
         }

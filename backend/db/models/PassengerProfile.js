@@ -2,6 +2,37 @@
 
 const mongoose = require("mongoose");
 
+const paymentMethodSchema = new mongoose.Schema({
+    cardholderName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+
+    cardBrand: {
+        type: String,
+        enum: ["visa", "mastercard", "amex", "other"],
+        default: "other"
+    },
+
+    cardLast4: {
+        type: String,
+        required: true,
+        match: /^\d{4}$/
+    },
+
+    expiry: {
+        type: String,
+        required: true,
+        match: /^\d{4}-\d{2}$/
+    },
+
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, { _id: false });
+
 const passengerProfileSchema = new mongoose.Schema({
 
     userId: {
@@ -41,6 +72,11 @@ const passengerProfileSchema = new mongoose.Schema({
         lat:     { type: Number },
         lng:     { type: Number }
     }],
+
+    defaultPaymentMethod: {
+        type: paymentMethodSchema,
+        default: null
+    },
 
     totalSpent: {
         type: Number,

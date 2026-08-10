@@ -39,6 +39,7 @@ const destinationLocation = { address: "Destination", lat: 31.7683, lng: 35.2137
 // createRide refuses a second booking, so every creation test has to say the
 // passenger has nothing open yet.
 function stubNoActiveBooking() {
+    patchMethod(patches, Payment, "findOne", async () => null);
     patchMethod(patches, Ride, "findOne", async () => null);
     patchMethod(patches, CarpoolRequest, "findOne", async () => null);
 }

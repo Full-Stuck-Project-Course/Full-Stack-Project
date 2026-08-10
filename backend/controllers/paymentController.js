@@ -1,8 +1,15 @@
 // controllers/paymentController.js
 
 const Payment = require("../db/models/payment");
+const PassengerProfile = require("../db/models/PassengerProfile");
 const Ride = require("../db/models/Ride");
 const { notifyPaymentApproved } = require("../utils/approvalNotifications");
+const {
+    normalizeSavedPaymentMethod,
+    validateSimulatedCard,
+    validateStoredPaymentMethod
+} = require("../utils/simulatedPaymentMethod");
+const { findUnresolvedPaymentForPassenger } = require("../utils/unresolvedPayments");
 const {
     sameId,
     isAdmin,
@@ -21,41 +28,6 @@ async function canAccessPayment(req, payment) {
         (passenger && sameId(passenger._id, payment.passengerId)) ||
         (driver && sameId(driver._id, payment.driverId))
     );
-}
-
-function digitsOnly(value) {
-    return String(value || "").replace(/\D/g, "");
-}
-
-function isValidFutureExpiry(expiry) {
-    if (!/^\d{4}-\d{2}$/.test(expiry)) return false;
-    const [year, month] = expiry.split("-").map(Number);
-    if (month < 1 || month > 12) return false;
-
-    const now = new Date();
-    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const expiryMonth = new Date(year, month - 1, 1);
-    return expiryMonth >= currentMonth;
-}
-
-function validateSimulatedCard(body) {
-    const cardholderName = String(body.cardholderName || "").trim();
-    const cardNumber = digitsOnly(body.cardNumber);
-    const cvv = digitsOnly(body.cvv);
-    const expiry = String(body.expiry || "").trim();
-
-    if (!cardholderName) return { error: "Cardholder name is required" };
-    if (cardNumber.length < 12 || cardNumber.length > 19) {
-        return { error: "Card number must contain 12 to 19 digits" };
-    }
-    if (!isValidFutureExpiry(expiry)) return { error: "Expiry month must be current or future" };
-    if (!/^\d{3,4}$/.test(cvv)) return { error: "CVV must contain 3 or 4 digits" };
-
-    return {
-        cardLast4: cardNumber.slice(-4),
-        cardholderName,
-        expiry
-    };
 }
 
 // POST /payments
@@ -156,6 +128,19 @@ async function getPaymentByRide(req, res) {
     }
 }
 
+// GET /payments/unresolved
+async function getUnresolvedPaymentForCurrentPassenger(req, res) {
+    try {
+        const passenger = await getPassengerProfileForUser(req.user.userId);
+        if (!passenger) return res.status(200).json({ payment: null });
+
+        const payment = await findUnresolvedPaymentForPassenger(passenger._id, { populateRide: true });
+        res.status(200).json({ payment: payment || null });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
 // POST /payments/ride/:rideId/simulate
 async function simulatePayment(req, res) {
     try {
@@ -171,7 +156,11 @@ async function simulatePayment(req, res) {
             return forbidden(res, "Only the ride passenger can approve payment");
         }
 
-        const card = validateSimulatedCard(req.body);
+        const useSavedPaymentMethod = req.body.useSavedPaymentMethod === true || req.body.useSavedPaymentMethod === "true";
+        const savePaymentMethod = req.body.savePaymentMethod === true || req.body.savePaymentMethod === "true";
+        const card = useSavedPaymentMethod
+            ? validateStoredPaymentMethod(passenger.defaultPaymentMethod)
+            : validateSimulatedCard(req.body);
         if (card.error) return res.status(400).json({ error: card.error });
 
         const existing = await Payment.findOne({ rideId: ride._id });
@@ -196,6 +185,7 @@ async function simulatePayment(req, res) {
                     paymentStatus: "paid",
                     paymentProvider: "simulated",
                     cardLast4: card.cardLast4,
+                    cardBrand: card.cardBrand,
                     transactionId,
                     paidAt
                 },
@@ -206,9 +196,28 @@ async function simulatePayment(req, res) {
             { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
         );
 
+        let updatedPassenger = null;
+        if (!useSavedPaymentMethod && savePaymentMethod) {
+            const paymentMethod = normalizeSavedPaymentMethod(req.body);
+            if (paymentMethod.error) return res.status(400).json({ error: paymentMethod.error });
+            try {
+                updatedPassenger = await PassengerProfile.findByIdAndUpdate(
+                    passenger._id,
+                    { defaultPaymentMethod: { ...paymentMethod, updatedAt: paidAt } },
+                    { new: true, runValidators: true }
+                );
+            } catch (saveError) {
+                console.warn("Could not save passenger payment method:", saveError.message);
+            }
+        }
+
         await notifyPaymentApproved(req, { ride, payment });
 
-        res.status(200).json({ message: "Simulated payment approved", payment });
+        res.status(200).json({
+            message: "Simulated payment approved",
+            payment,
+            ...(updatedPassenger ? { passenger: updatedPassenger } : {})
+        });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -267,6 +276,7 @@ async function refundPayment(req, res) {
 
 module.exports = {
     createPayment, getAllPayments, getPaymentById,
-    getPaymentByRide, updatePaymentStatus, refundPayment,
+    getPaymentByRide, getUnresolvedPaymentForCurrentPassenger,
+    updatePaymentStatus, refundPayment,
     simulatePayment
 };

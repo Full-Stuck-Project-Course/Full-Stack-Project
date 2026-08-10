@@ -80,6 +80,22 @@ const s = {
         color: "var(--text)",
         marginTop: 8
     },
+    savedCardBox: {
+        border: "1px solid #bfdbfe",
+        background: "#eff6ff",
+        borderRadius: 12,
+        padding: "14px 16px",
+        marginBottom: 14
+    },
+    checkRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        color: "var(--text-muted)",
+        fontSize: 13,
+        fontWeight: 700,
+        marginTop: 12
+    },
     receipt: {
         textAlign: "start",
         border: "1px solid var(--border)",
@@ -133,15 +149,32 @@ function validateForm(form, minExpiry) {
     return "";
 }
 
+function cardBrandLabel(brand) {
+    const labels = {
+        visa: "Visa",
+        mastercard: "Mastercard",
+        amex: "American Express",
+        other: "כרטיס אשראי"
+    };
+    return labels[brand] || labels.other;
+}
+
+function hasSavedPaymentMethod(method) {
+    return Boolean(method?.cardLast4 && method?.expiry);
+}
+
 export default function PaymentSimulationPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const [ride, setRide] = useState(null);
     const [payment, setPayment] = useState(null);
+    const [passenger, setPassenger] = useState(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [phase, setPhase] = useState(PHASES.form);
     const [error, setError] = useState("");
+    const [showManualCard, setShowManualCard] = useState(false);
+    const [savePaymentMethod, setSavePaymentMethod] = useState(false);
     const [form, setForm] = useState({
         cardholderName: "",
         cardNumber: "",
@@ -162,6 +195,13 @@ export default function PaymentSimulationPage() {
                 const rideRes = await api.get(`/rides/${id}`);
                 if (!active.current) return;
                 setRide(rideRes.data);
+
+                const passengerRes = await api.get("/passengers").catch(() => ({ data: [] }));
+                if (!active.current) return;
+                const ridePassengerId = String(rideRes.data?.passengerId?._id || rideRes.data?.passengerId || "");
+                const passengerProfile = (passengerRes.data || []).find(p => String(p._id) === ridePassengerId) || null;
+                setPassenger(passengerProfile);
+                setShowManualCard(!hasSavedPaymentMethod(passengerProfile?.defaultPaymentMethod));
 
                 try {
                     const paymentRes = await api.get(`/payments/ride/${id}`);
@@ -191,6 +231,9 @@ export default function PaymentSimulationPage() {
     const disabled = submitting || phase !== PHASES.form;
     const isApproved = phase === PHASES.approved || payment?.paymentStatus === "paid";
     const canPay = ride?.status === "completed";
+    const savedPaymentMethod = passenger?.defaultPaymentMethod;
+    const hasSavedCard = hasSavedPaymentMethod(savedPaymentMethod);
+    const useSavedCard = hasSavedCard && !showManualCard;
 
     const updateField = (field, value) => {
         setForm(prev => ({
@@ -201,10 +244,12 @@ export default function PaymentSimulationPage() {
 
     const submit = async (event) => {
         event.preventDefault();
-        const validationError = validateForm(form, minExpiry);
-        if (validationError) {
-            setError(validationError);
-            return;
+        if (!useSavedCard) {
+            const validationError = validateForm(form, minExpiry);
+            if (validationError) {
+                setError(validationError);
+                return;
+            }
         }
 
         setError("");
@@ -217,14 +262,23 @@ export default function PaymentSimulationPage() {
 
         timers.current.push(window.setTimeout(async () => {
             try {
-                const res = await api.post(`/payments/ride/${id}/simulate`, {
-                    cardholderName: form.cardholderName,
-                    cardNumber: form.cardNumber,
-                    expiry: form.expiry,
-                    cvv: form.cvv
-                });
+                const payload = useSavedCard
+                    ? { useSavedPaymentMethod: true }
+                    : {
+                        cardholderName: form.cardholderName,
+                        cardNumber: form.cardNumber,
+                        expiry: form.expiry,
+                        cvv: form.cvv,
+                        savePaymentMethod
+                    };
+                const res = await api.post(`/payments/ride/${id}/simulate`, payload);
                 if (!active.current) return;
                 setPayment(res.data.payment);
+                if (res.data.passenger) {
+                    setPassenger(res.data.passenger);
+                    setShowManualCard(false);
+                    setSavePaymentMethod(false);
+                }
                 setPhase(PHASES.approved);
             } catch (submitError) {
                 if (!active.current) return;
@@ -330,6 +384,25 @@ export default function PaymentSimulationPage() {
                     </div>
                 )}
 
+                {useSavedCard ? (
+                    <div style={s.savedCardBox}>
+                        <div style={{ fontWeight: 800, marginBottom: 4 }}>כרטיס שמור בפרופיל</div>
+                        <div style={{ fontSize: 14 }}>
+                            {cardBrandLabel(savedPaymentMethod.cardBrand)} · <strong dir="ltr">•••• {savedPaymentMethod.cardLast4}</strong>
+                        </div>
+                        <div style={s.helper}>בתוקף עד {savedPaymentMethod.expiry}</div>
+                        <button type="button" style={s.secondaryBtn} onClick={() => setShowManualCard(true)} disabled={disabled}>
+                            השתמש בכרטיס אחר
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        {hasSavedCard && (
+                            <button type="button" style={s.secondaryBtn} onClick={() => setShowManualCard(false)} disabled={disabled}>
+                                חזור לכרטיס השמור
+                            </button>
+                        )}
+
                 <label style={s.label}>
                     <span>שם בעל הכרטיס</span>
                     <input
@@ -380,10 +453,22 @@ export default function PaymentSimulationPage() {
                     </label>
                 </div>
 
+                        <label style={s.checkRow}>
+                            <input
+                                type="checkbox"
+                                checked={savePaymentMethod}
+                                onChange={e => setSavePaymentMethod(e.target.checked)}
+                                disabled={disabled}
+                            />
+                            שמור את הכרטיס בפרופיל לתשלומים הבאים
+                        </label>
+                    </>
+                )}
+
                 {error && <p className="error-msg" role="alert">{error}</p>}
 
                 <button className="btn-primary" type="submit" disabled={disabled} style={{ marginTop: 16 }}>
-                    {submitting ? "מאמת..." : "אשר תשלום"}
+                    {submitting ? "מאמת..." : useSavedCard ? "שלם עם הכרטיס השמור" : "אשר תשלום"}
                 </button>
             </form>
         </div>

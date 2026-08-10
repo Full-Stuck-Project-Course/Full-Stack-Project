@@ -6,6 +6,7 @@ const Ride = require("../db/models/Ride");
 const Vehicle = require("../db/models/Vehicle");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const CarpoolRequest = require("../db/models/CarpoolRequest");
+const Payment = require("../db/models/payment");
 const { createRide } = require("../controllers/rideController");
 const {
     acceptCarpoolRequest,
@@ -18,6 +19,7 @@ const originals = {
     rideFindById: Ride.findById,
     rideFindOne: Ride.findOne,
     rideFindByIdAndUpdate: Ride.findByIdAndUpdate,
+    paymentFindOne: Payment.findOne,
     passengerFindOne: PassengerProfile.findOne,
     passengerFindById: PassengerProfile.findById,
     driverFindOne: DriverProfile.findOne,
@@ -37,6 +39,7 @@ const originals = {
 // The booking guard runs before anything is created, so every scenario that
 // creates a booking needs the "nothing open yet" answer.
 function stubNoActiveBooking() {
+    Payment.findOne = async () => null;
     Ride.findOne = async () => null;
     CarpoolRequest.findOne = async () => null;
 }
@@ -321,6 +324,7 @@ async function assertSecondBookingIsRefusedWhileOneIsOpen() {
     PassengerProfile.findOne = async ({ userId }) => (
         userId === "passenger-user" ? { _id: "passenger-profile", userId } : null
     );
+    Payment.findOne = async () => null;
     Ride.findOne = async () => ({ _id: "open-ride", status: "in_progress" });
     CarpoolRequest.findOne = async () => null;
     Ride.create = async () => {
@@ -364,6 +368,53 @@ async function assertSecondBookingIsRefusedWhileOneIsOpen() {
     assert.strictEqual(blockedByCarpool.body.activeBooking.type, "carpool", "the conflict must name the carpool request");
 }
 
+async function assertPendingPaymentBlocksNewBookings() {
+    PassengerProfile.findOne = async ({ userId }) => (
+        userId === "passenger-user" ? { _id: "passenger-profile", userId } : null
+    );
+    Payment.findOne = async () => ({
+        _id: "payment-id",
+        rideId: "ride-id",
+        passengerId: "passenger-profile",
+        paymentStatus: "pending",
+        amount: 50,
+        currency: "ILS"
+    });
+    Ride.findOne = async () => {
+        throw new Error("active bookings must not be checked before the pending payment gate");
+    };
+    CarpoolRequest.findOne = async () => {
+        throw new Error("active carpool bookings must not be checked before the pending payment gate");
+    };
+    Ride.create = async () => {
+        throw new Error("a ride must not be created while payment is pending");
+    };
+    CarpoolRequest.create = async () => {
+        throw new Error("a carpool request must not be created while payment is pending");
+    };
+
+    const rideRes = makeRes();
+    await createRide(
+        passengerRequest({ pickupLocation, destinationLocation, passengerCount: 1 }),
+        rideRes
+    );
+    assert.strictEqual(rideRes.statusCode, 409, "pending payment must block a new ride");
+    assert.strictEqual(rideRes.body.code, "PENDING_PAYMENT_REQUIRED", "payment conflicts must be identifiable by the client");
+
+    const carpoolRes = makeRes();
+    await createCarpoolRequest(
+        passengerRequest({
+            pickupLocation,
+            destinationLocation,
+            requestedTime: new Date(Date.now() + 60_000).toISOString(),
+            seatsNeeded: 1
+        }),
+        carpoolRes
+    );
+    assert.strictEqual(carpoolRes.statusCode, 409, "pending payment must block a new carpool request");
+    assert.strictEqual(carpoolRes.body.pendingPayment.rideId, "ride-id", "the client needs the ride id to reopen payment");
+}
+
 (async () => {
     try {
         await assertCarpoolPostCreatesPendingRequest();
@@ -373,6 +424,7 @@ async function assertSecondBookingIsRefusedWhileOneIsOpen() {
         await assertDriverApprovalOpensCarpoolRide();
         await assertDriversWhoOptedOutSeeNoApproval();
         await assertSecondBookingIsRefusedWhileOneIsOpen();
+        await assertPendingPaymentBlocksNewBookings();
 
         console.log("Carpool flow check passed: drivers approve waiting passengers and a passenger can only hold one booking.");
     } finally {
@@ -380,6 +432,7 @@ async function assertSecondBookingIsRefusedWhileOneIsOpen() {
         Ride.findById = originals.rideFindById;
         Ride.findOne = originals.rideFindOne;
         Ride.findByIdAndUpdate = originals.rideFindByIdAndUpdate;
+        Payment.findOne = originals.paymentFindOne;
         Vehicle.findById = originals.vehicleFindById;
         Vehicle.findOne = originals.vehicleFindOne;
         PassengerProfile.findOne = originals.passengerFindOne;

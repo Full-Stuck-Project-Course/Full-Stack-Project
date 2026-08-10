@@ -10,6 +10,7 @@ const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
 const { activeBookingConflict, findActiveBookingForPassenger } = require("../utils/activeBooking");
+const { findUnresolvedPaymentForPassenger, unresolvedPaymentConflict } = require("../utils/unresolvedPayments");
 const { haversineKm, hasValidCoordinates } = require("../utils/pricing");
 const { calculateFareForRoute } = require("../utils/routePricing");
 const {
@@ -341,6 +342,9 @@ async function createRide(req, res) {
         // One booking at a time. Admins keep the override so support can still
         // place a ride for someone who is mid-trip.
         if (!isAdmin(req)) {
+            const pendingPayment = await findUnresolvedPaymentForPassenger(passengerId);
+            if (pendingPayment) return unresolvedPaymentConflict(res, pendingPayment);
+
             const activeBooking = await findActiveBookingForPassenger(passengerId);
             if (activeBooking) return activeBookingConflict(res, activeBooking);
         }

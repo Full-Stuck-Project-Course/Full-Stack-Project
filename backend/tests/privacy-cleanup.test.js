@@ -107,7 +107,7 @@ test("deleteUser removes identity files, clears verification paths, and drops ow
     });
     assert.deepEqual(passengerUpdate, {
         id: passenger._id,
-        update: { savedLocations: [] }
+        update: { savedLocations: [], defaultPaymentMethod: null }
     });
     assert.deepEqual(driverUpdate, {
         id: driver._id,

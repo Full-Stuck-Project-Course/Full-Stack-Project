@@ -80,6 +80,12 @@ const paymentSchema = new mongoose.Schema({
         default: ""
     },
 
+    cardBrand: {
+        type: String,
+        enum: ["visa", "mastercard", "amex", "other", ""],
+        default: ""
+    },
+
     refundAmount: {
         type: Number,
         default: 0

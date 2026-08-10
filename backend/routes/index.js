@@ -161,6 +161,7 @@ router.delete("/vehicles/:id", vehicleController.deleteVehicle);
 // Payments.
 router.post("/payments", paymentController.createPayment);
 router.get("/payments", paymentController.getAllPayments);
+router.get("/payments/unresolved", paymentController.getUnresolvedPaymentForCurrentPassenger);
 router.get("/payments/ride/:rideId", paymentController.getPaymentByRide);
 router.post("/payments/ride/:rideId/simulate", paymentController.simulatePayment);
 router.get("/payments/:id", paymentController.getPaymentById);

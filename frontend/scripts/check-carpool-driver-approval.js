@@ -63,7 +63,7 @@ assert(
 );
 
 assert(
-    /disabled=\{loading\s*\|\|\s*Boolean\(activeBooking\)\}/.test(bookRidePage),
+    /disabled=\{loading\s*\|\|\s*Boolean\(activeBooking\)[^}]*\}/.test(bookRidePage),
     "BookRidePage must disable the submit button while a booking is open."
 );
 

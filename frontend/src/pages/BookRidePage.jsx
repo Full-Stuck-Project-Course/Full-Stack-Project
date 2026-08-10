@@ -145,8 +145,15 @@ const OPEN_CARPOOL_STATUSES = ["pending", "matched", "confirmed"];
 export const ACTIVE_BOOKING_MESSAGE =
     "לא ניתן להזמין כמה נסיעות במקביל. יש לך כבר נסיעה פעילה או בקשה שממתינה לנהג — סיים או בטל אותה כדי להזמין נסיעה חדשה.";
 
+export const PENDING_PAYMENT_MESSAGE =
+    "יש לך תשלום שממתין על נסיעה קודמת. צריך להשלים אותו לפני הזמנת נסיעה חדשה.";
+
 function ownsBooking(record, passengerId) {
     return Boolean(passengerId) && (record.passengerId?._id || record.passengerId) === passengerId;
+}
+
+function paymentRideId(payment) {
+    return payment?.rideId?._id || payment?.rideId || null;
 }
 
 // Mirrors the server rule so the page can warn before the request is sent. The
@@ -218,6 +225,7 @@ export default function BookRidePage() {
 
     // The one booking the passenger is allowed to have open at a time
     const [activeBooking, setActiveBooking] = useState(null);
+    const [pendingPayment, setPendingPayment] = useState(null);
 
     // Get user location
     useEffect(() => {
@@ -282,12 +290,14 @@ export default function BookRidePage() {
 
                 // Both are scoped to the passenger: a user who also drives would
                 // otherwise get their driving rides and the whole carpool queue.
-                const [ridesRes, carpoolRes] = await Promise.all([
+                const [ridesRes, carpoolRes, paymentRes] = await Promise.all([
                     api.get("/rides", { params: { passengerId } }),
-                    api.get("/carpool", { params: { passengerId } }).catch(() => ({ data: [] }))
+                    api.get("/carpool", { params: { passengerId } }).catch(() => ({ data: [] })),
+                    api.get("/payments/unresolved").catch(() => ({ data: { payment: null } }))
                 ]);
                 if (cancelled) return;
                 setActiveBooking(findActiveBooking(extractItems(ridesRes.data), carpoolRes.data, passengerId));
+                setPendingPayment(paymentRes.data?.payment || null);
             } catch { /* the server still refuses a second booking */ }
         })();
 
@@ -375,6 +385,7 @@ export default function BookRidePage() {
         e.preventDefault();
         setError("");
         setSuccess("");
+        if (pendingPayment) return setError(PENDING_PAYMENT_MESSAGE);
         if (activeBooking) return setError(ACTIVE_BOOKING_MESSAGE);
         if (!pickup.address) return setError("נא להזין כתובת איסוף");
         if (!dest.address)   return setError("נא להזין כתובת יעד");
@@ -431,7 +442,10 @@ export default function BookRidePage() {
             }
             navigate(`/ride/${data.ride._id}`);
         } catch (err) {
-            if (err.response?.data?.code === "ACTIVE_BOOKING_EXISTS") {
+            if (err.response?.data?.code === "PENDING_PAYMENT_REQUIRED") {
+                setPendingPayment(err.response.data.pendingPayment || null);
+                setError(PENDING_PAYMENT_MESSAGE);
+            } else if (err.response?.data?.code === "ACTIVE_BOOKING_EXISTS") {
                 setActiveBooking(err.response.data.activeBooking || { type: "ride", status: "searching" });
                 setError(ACTIVE_BOOKING_MESSAGE);
             } else {
@@ -448,6 +462,24 @@ export default function BookRidePage() {
     return (
         <div style={s.page}>
             <h1 style={s.title}>{"הזמן נסיעה"}</h1>
+
+            {pendingPayment && (
+                <div role="alert" style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 14, color: "#991b1b" }}>
+                    יש לך תשלום שממתין על נסיעה קודמת. אחרי התשלום תוכל להזמין נסיעה חדשה.
+                    <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {paymentRideId(pendingPayment) && (
+                            <button type="button" onClick={() => navigate(`/payment/${paymentRideId(pendingPayment)}`)}
+                                style={{ background: "var(--danger)", color: "#fff", padding: "7px 14px", borderRadius: 8, fontSize: 13 }}>
+                                לתשלום עכשיו
+                            </button>
+                        )}
+                        <button type="button" onClick={() => navigate("/passenger")}
+                            style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)", padding: "7px 14px", borderRadius: 8, fontSize: 13 }}>
+                            ללוח הנוסע
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* One booking at a time */}
             {activeBooking && (
@@ -720,7 +752,7 @@ export default function BookRidePage() {
 
                 {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
                 {success && <p role="status" style={{ color: "var(--success)", fontWeight: 700, marginTop: 8 }}>{success}</p>}
-                <button type="submit" className="btn-primary" disabled={loading || Boolean(activeBooking)} style={{ marginTop: 8 }}>
+                <button type="submit" className="btn-primary" disabled={loading || Boolean(activeBooking) || Boolean(pendingPayment)} style={{ marginTop: 8 }}>
                     {loading ? (rideType === "carpool" ? "שולח בקשה..." : "מחפש נהג...") : (rideType === "carpool" ? "שלח בקשת קרפול 🤝" : `${"הזמן עכשיו"} 🚕`)}
                 </button>
             </form>
