@@ -147,6 +147,7 @@ async function buildUserResponse(user) {
         phone: user.phone,
         role: user.role,
         preferredLanguage: user.preferredLanguage,
+        gender: user.gender || null,
         profileImage: user.profileImage,
         referralCode: user.referralCode,
         loyaltyPoints: user.loyaltyPoints || 0,
@@ -161,7 +162,7 @@ async function buildUserResponse(user) {
 // POST /users/register
 async function register(req, res) {
     try {
-        const { fullName, email, password, phone, preferredLanguage, role, referralCode } = req.body;
+        const { fullName, email, password, phone, preferredLanguage, role, gender, referralCode } = req.body;
         const normalizedEmail = email.toLowerCase();
 
         const existing = await User.findOne({ $or: [{ email: normalizedEmail }, { phone }] });
@@ -179,7 +180,7 @@ async function register(req, res) {
 
         const user = await User.create({
             fullName, email: normalizedEmail, passwordHash, phone,
-            preferredLanguage, role, referredBy
+            preferredLanguage, role, gender: gender || null, referredBy
         });
 
         // Give referrer bonus points
@@ -377,7 +378,7 @@ async function updateUser(req, res) {
             return res.status(403).json({ error: "Cannot update another user" });
         }
 
-        const ALLOWED_FIELDS = ["fullName", "phone", "preferredLanguage", "profileImage"];
+        const ALLOWED_FIELDS = ["fullName", "phone", "preferredLanguage", "gender", "profileImage"];
         const ADMIN_FIELDS = ["role", "isActive"];
         const update = {};
         for (const key of ALLOWED_FIELDS) {
@@ -389,6 +390,7 @@ async function updateUser(req, res) {
             }
         }
         if (update.profileImage === "") update.profileImage = null;
+        if (update.gender === "") update.gender = null;
 
         if (update.profileImage === null) {
             const existing = await User.findById(req.params.id).select("profileImage");

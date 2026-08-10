@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 
 const routes = require("../routes");
 const User = require("../db/models/User");
+const PassengerProfile = require("../db/models/PassengerProfile");
+const DriverProfile = require("../db/models/DriverProfile");
 const { register } = require("../controllers/userController");
 const {
     makeRes,
@@ -11,6 +13,7 @@ const {
 } = require("./helpers/controllerTestUtils");
 
 const patches = [];
+process.env.JWT_SECRET = process.env.JWT_SECRET || "email-enumeration-test-secret-with-more-than-32-chars";
 
 test.afterEach(() => {
     restoreMethods(patches);
@@ -142,4 +145,41 @@ test("register duplicate key errors use the same generic conflict response", asy
 
     assert.equal(res.statusCode, 409);
     assert.deepEqual(res.body, { error: "Registration details already in use" });
+});
+
+test("register stores and returns an optional user gender", async () => {
+    let createdUser;
+
+    patchMethod(patches, User, "findOne", async () => null);
+    patchMethod(patches, User, "create", async (payload) => {
+        createdUser = payload;
+        return {
+            _id: "user-gender-1",
+            profileImage: null,
+            idPhotoPath: "/uploads/ids/id.jpg",
+            idVerificationStatus: "approved",
+            referralCode: "GENDER1",
+            loyaltyPoints: 0,
+            ...payload
+        };
+    });
+    patchMethod(patches, PassengerProfile, "findOneAndUpdate", async () => ({ _id: "passenger-gender-1" }));
+    patchMethod(patches, DriverProfile, "findOne", async () => null);
+
+    const res = makeRes();
+    await register({
+        body: {
+            fullName: "Gender User",
+            email: "Gender@Example.com",
+            password: "Password1",
+            phone: "0501112222",
+            preferredLanguage: "he",
+            role: "passenger",
+            gender: "female"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 201);
+    assert.equal(createdUser.gender, "female");
+    assert.equal(res.body.gender, "female");
 });

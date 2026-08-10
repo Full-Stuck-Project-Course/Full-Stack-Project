@@ -14,6 +14,8 @@ const { notifyDocumentApproved } = require("../utils/approvalNotifications");
 const upload = require("../middleware/upload");
 
 const VALID_DRIVER_GENDERS = new Set(["male", "female"]);
+const DRIVER_LICENSE_NUMBER_PATTERN = /^\d{5,9}$/;
+const LICENSE_PLATE_PATTERN = /^\d{7,8}$/;
 
 const DRIVER_UPDATE_FIELDS = [
     "licenseNumber",
@@ -73,7 +75,24 @@ function duplicateError(field) {
     return error;
 }
 
-async function updateUserRoleAfterDriverSetup(userId) {
+function isValidDriverLicenseNumber(value) {
+    return DRIVER_LICENSE_NUMBER_PATTERN.test(String(value || "").trim());
+}
+
+function isValidLicensePlate(value) {
+    return LICENSE_PLATE_PATTERN.test(String(value || "").trim());
+}
+
+function invalidAvailabilityResponse(res, message) {
+    return res.status(200).json({
+        valid: false,
+        exists: false,
+        available: false,
+        message
+    });
+}
+
+async function updateUserRoleAfterDriverSetup(userId, gender) {
     const existingUser = await User.findById(userId);
     let newRole = "driver";
     if (existingUser?.role === "admin") {
@@ -81,7 +100,9 @@ async function updateUserRoleAfterDriverSetup(userId) {
     } else if (existingUser?.role === "passenger" || existingUser?.role === "both") {
         newRole = "both";
     }
-    await User.findByIdAndUpdate(userId, { role: newRole });
+    const update = { role: newRole };
+    if (VALID_DRIVER_GENDERS.has(gender)) update.gender = gender;
+    await User.findByIdAndUpdate(userId, update);
 }
 
 function assertValidSetupUpload(file) {
@@ -106,6 +127,9 @@ async function registerDriver(req, res) {
         if (!VALID_DRIVER_GENDERS.has(gender)) {
             return res.status(400).json({ error: "Driver gender must be male or female" });
         }
+        if (!isValidDriverLicenseNumber(licenseNumber)) {
+            return res.status(400).json({ error: "Driver license number must contain 5-9 digits" });
+        }
 
         const existing = await DriverProfile.findOne({ userId });
         if (existing) return res.status(409).json({ error: "Driver profile already exists for this user" });
@@ -122,14 +146,7 @@ async function registerDriver(req, res) {
             vehicleConditions
         });
 
-        const existingUser = await User.findById(userId);
-        let newRole = "driver";
-        if (existingUser?.role === "admin") {
-            newRole = "admin";
-        } else if (existingUser?.role === "passenger" || existingUser?.role === "both") {
-            newRole = "both";
-        }
-        await User.findByIdAndUpdate(userId, { role: newRole });
+        await updateUserRoleAfterDriverSetup(userId, gender);
 
         res.status(201).json({ message: "Driver registered successfully", driver });
     } catch (error) {
@@ -176,6 +193,14 @@ async function completeDriverSetup(req, res) {
 
         const licenseNumber = String(req.body.licenseNumber || "").trim();
         const licensePlate = String(req.body.licensePlate || "").trim();
+        if (!isValidDriverLicenseNumber(licenseNumber)) {
+            cleanupSetupUploads(req);
+            return res.status(400).json({ error: "Driver license number must contain 5-9 digits" });
+        }
+        if (!isValidLicensePlate(licensePlate)) {
+            cleanupSetupUploads(req);
+            return res.status(400).json({ error: "License plate must contain 7-8 digits" });
+        }
         const licenseOwner = await DriverProfile.findOne({
             licenseNumber,
             ...(existingDriver ? { _id: { $ne: existingDriver._id } } : {})
@@ -250,7 +275,7 @@ async function completeDriverSetup(req, res) {
             });
         }
 
-        await updateUserRoleAfterDriverSetup(userId);
+        await updateUserRoleAfterDriverSetup(userId, gender);
 
         // Every document submitted in this request was approved automatically.
         for (const kind of [licensePath && "licenses", (testPath || insurancePath) && "vehicle-docs"]) {
@@ -273,6 +298,55 @@ async function completeDriverSetup(req, res) {
             return res.status(409).json({ error: `${field} already exists` });
         }
         res.status(400).json({ error: error.message });
+    }
+}
+
+// POST /drivers/check-license-number
+async function checkLicenseNumber(req, res) {
+    try {
+        const licenseNumber = String(req.body.licenseNumber || "").trim();
+        if (!isValidDriverLicenseNumber(licenseNumber)) {
+            return invalidAvailabilityResponse(res, "Driver license number must contain 5-9 digits");
+        }
+
+        const existingDriver = await DriverProfile.findOne({ userId: req.user.userId });
+        const conflict = await DriverProfile.findOne({
+            licenseNumber,
+            ...(existingDriver ? { _id: { $ne: existingDriver._id } } : {})
+        });
+
+        res.status(200).json({
+            valid: true,
+            exists: Boolean(conflict),
+            available: !conflict
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Could not check driver license availability" });
+    }
+}
+
+// POST /vehicles/check-license-plate
+async function checkLicensePlate(req, res) {
+    try {
+        const licensePlate = String(req.body.licensePlate || "").trim();
+        if (!isValidLicensePlate(licensePlate)) {
+            return invalidAvailabilityResponse(res, "License plate must contain 7-8 digits");
+        }
+
+        const existingDriver = await DriverProfile.findOne({ userId: req.user.userId });
+        const existingVehicle = existingDriver ? await Vehicle.findOne({ driverId: existingDriver._id }) : null;
+        const conflict = await Vehicle.findOne({
+            licensePlate,
+            ...(existingVehicle ? { _id: { $ne: existingVehicle._id } } : {})
+        });
+
+        res.status(200).json({
+            valid: true,
+            exists: Boolean(conflict),
+            available: !conflict
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Could not check license plate availability" });
     }
 }
 
@@ -351,6 +425,9 @@ async function updateDriver(req, res) {
         }
         if (update.gender !== undefined && !VALID_DRIVER_GENDERS.has(update.gender)) {
             return res.status(400).json({ error: "Driver gender must be male or female" });
+        }
+        if (update.licenseNumber !== undefined && !isValidDriverLicenseNumber(update.licenseNumber)) {
+            return res.status(400).json({ error: "Driver license number must contain 5-9 digits" });
         }
         if (req.body.licenseNumber !== undefined && String(req.body.licenseNumber) !== String(existing.licenseNumber)) {
             // A new licence number needs a new licence photo, which will be
@@ -482,6 +559,6 @@ async function deleteDriver(req, res) {
 }
 
 module.exports = {
-    registerDriver, completeDriverSetup, getAllDrivers, getAvailableDrivers,
+    registerDriver, completeDriverSetup, checkLicenseNumber, checkLicensePlate, getAllDrivers, getAvailableDrivers,
     getDriverById, updateDriver, updateDriverStatus, updateLocation, verifyDriver, deleteDriver
 };

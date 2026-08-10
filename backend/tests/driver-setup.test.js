@@ -5,7 +5,11 @@ const DriverProfile = require("../db/models/DriverProfile");
 const User = require("../db/models/User");
 const Vehicle = require("../db/models/Vehicle");
 const upload = require("../middleware/upload");
-const { completeDriverSetup } = require("../controllers/driverController");
+const {
+    completeDriverSetup,
+    checkLicenseNumber,
+    checkLicensePlate
+} = require("../controllers/driverController");
 const {
     makeRes,
     patchMethod,
@@ -119,7 +123,7 @@ test("driver setup creates driver and vehicle together only after valid document
     assert.equal(vehiclePayload.testImagePath, "/uploads/vehicle-docs/test.jpg");
     assert.equal(vehiclePayload.insuranceImagePath, "/uploads/vehicle-docs/insurance.jpg");
     assert.equal(vehiclePayload.documentsVerificationStatus, "approved");
-    assert.deepEqual(roleUpdate, { id: "user-1", update: { role: "both" } });
+    assert.deepEqual(roleUpdate, { id: "user-1", update: { role: "both", gender: "male" } });
 });
 
 test("driver setup removes a newly-created driver if vehicle creation fails", async () => {
@@ -153,4 +157,88 @@ test("driver setup removes a newly-created driver if vehicle creation fails", as
     assert.equal(res.statusCode, 409);
     assert.match(res.body.error, /licensePlate already exists/);
     assert.equal(deletedDriverId, "driver-created");
+});
+
+test("driver setup availability endpoints validate format before database lookup", async () => {
+    let driverLookup = false;
+    let vehicleLookup = false;
+
+    patchMethod(patches, DriverProfile, "findOne", async () => {
+        driverLookup = true;
+        return null;
+    });
+    patchMethod(patches, Vehicle, "findOne", async () => {
+        vehicleLookup = true;
+        return null;
+    });
+
+    const licenseRes = makeRes();
+    await checkLicenseNumber({
+        user: { userId: "user-1", role: "driver" },
+        body: { licenseNumber: "1234" }
+    }, licenseRes);
+
+    const plateRes = makeRes();
+    await checkLicensePlate({
+        user: { userId: "user-1", role: "driver" },
+        body: { licensePlate: "12-34567" }
+    }, plateRes);
+
+    assert.equal(licenseRes.statusCode, 200);
+    assert.deepEqual(licenseRes.body, {
+        valid: false,
+        exists: false,
+        available: false,
+        message: "Driver license number must contain 5-9 digits"
+    });
+    assert.equal(plateRes.statusCode, 200);
+    assert.deepEqual(plateRes.body, {
+        valid: false,
+        exists: false,
+        available: false,
+        message: "License plate must contain 7-8 digits"
+    });
+    assert.equal(driverLookup, false);
+    assert.equal(vehicleLookup, false);
+});
+
+test("driver setup availability endpoints detect duplicates except the current driver vehicle", async () => {
+    const driverLookups = [];
+    const vehicleLookups = [];
+
+    patchMethod(patches, DriverProfile, "findOne", async (filter) => {
+        driverLookups.push(filter);
+        if (filter.userId === "user-1") return { _id: "driver-current" };
+        if (filter.licenseNumber === "12345678") return { _id: "driver-other" };
+        return null;
+    });
+    patchMethod(patches, Vehicle, "findOne", async (filter) => {
+        vehicleLookups.push(filter);
+        if (filter.driverId === "driver-current") return { _id: "vehicle-current" };
+        if (filter.licensePlate === "1234567") return { _id: "vehicle-other" };
+        return null;
+    });
+
+    const licenseRes = makeRes();
+    await checkLicenseNumber({
+        user: { userId: "user-1", role: "driver" },
+        body: { licenseNumber: "12345678" }
+    }, licenseRes);
+
+    const plateRes = makeRes();
+    await checkLicensePlate({
+        user: { userId: "user-1", role: "driver" },
+        body: { licensePlate: "1234567" }
+    }, plateRes);
+
+    assert.deepEqual(licenseRes.body, { valid: true, exists: true, available: false });
+    assert.deepEqual(plateRes.body, { valid: true, exists: true, available: false });
+    assert.deepEqual(driverLookups[1], {
+        licenseNumber: "12345678",
+        _id: { $ne: "driver-current" }
+    });
+    assert.deepEqual(vehicleLookups[1], {
+        licensePlate: "1234567",
+        _id: { $ne: "vehicle-current" }
+    });
 });

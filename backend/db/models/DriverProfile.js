@@ -16,7 +16,8 @@ const driverProfileSchema = new mongoose.Schema({
         type: String,
         required: true,
         trim: true,
-        unique: true
+        unique: true,
+        match: /^\d{5,9}$/
     },
 
     licenseImagePath: {

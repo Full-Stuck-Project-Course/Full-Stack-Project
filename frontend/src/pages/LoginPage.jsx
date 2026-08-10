@@ -39,6 +39,7 @@ export default function LoginPage() {
         fullName: data.fullName,
         email: data.email,
         phone: data.phone,
+        gender: data.gender,
         preferredLanguage: data.preferredLanguage,
         referralCode: data.referralCode,
         loyaltyPoints: data.loyaltyPoints,
