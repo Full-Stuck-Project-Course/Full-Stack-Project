@@ -1,5 +1,6 @@
 // controllers/mapsController.js
 
+const axios = require("axios");
 const Ride = require("../db/models/Ride");
 const {
     calcSurge,
@@ -8,7 +9,11 @@ const {
     haversineKm,
     estimateDurationMinutes
 } = require("../utils/pricing");
-const { calculateFareForRoute } = require("../utils/routePricing");
+const {
+    calculateFareForRoute,
+    getGoogleServerMapsApiKey,
+    isConfiguredGoogleMapsKey
+} = require("../utils/routePricing");
 const { forbidden, getDriverProfileForUser, getPassengerProfileForUser, isAdmin } = require("../utils/authz");
 const {
     clampNearbyDriverLimit,
@@ -115,7 +120,8 @@ async function getNearbyDrivers(req, res) {
             gender,
             vehicleType,
             minRating,
-            allowances
+            allowances,
+            excludeUserId: isAdmin(req) ? null : req.user.userId
         });
 
         // Surface each driver's vehicle so the passenger can see what they filtered on.

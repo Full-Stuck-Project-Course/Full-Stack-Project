@@ -77,6 +77,11 @@ const driverProfileSchema = new mongoose.Schema({
         updatedAt: { type: Date, default: null }
     },
 
+    lastActiveAt: {
+        type: Date,
+        default: null
+    },
+
     geoLocation: {
         type: {
             type: String,
@@ -129,6 +134,6 @@ driverProfileSchema.pre("validate", function syncGeoLocation(next) {
     next();
 });
 
-driverProfileSchema.index({ status: 1, isVerified: 1, geoLocation: "2dsphere" });
+driverProfileSchema.index({ status: 1, isVerified: 1, lastActiveAt: 1, geoLocation: "2dsphere" });
 
 module.exports = mongoose.model("DriverProfile", driverProfileSchema);

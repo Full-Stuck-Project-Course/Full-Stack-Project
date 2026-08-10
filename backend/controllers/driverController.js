@@ -8,6 +8,7 @@ const Vehicle = require("../db/models/Vehicle");
 const { isAdmin, canAccessDriver, forbidden } = require("../utils/authz");
 const { hasValidCoordinates } = require("../utils/pricing");
 const { toGeoPoint } = require("../utils/geoLocation");
+const { activeDriverFilter } = require("../utils/driverPresence");
 const { deleteStoredUploads } = require("../utils/privacyCleanup");
 const { notifyDocumentApproved } = require("../utils/approvalNotifications");
 const upload = require("../middleware/upload");
@@ -294,7 +295,11 @@ async function getAllDrivers(req, res) {
 // GET /drivers/available
 async function getAvailableDrivers(req, res) {
     try {
-        const drivers = await DriverProfile.find({ status: "available", isVerified: true })
+        const drivers = await DriverProfile.find({
+            status: "available",
+            isVerified: true,
+            ...activeDriverFilter()
+        })
             .select("userId ratingAverage totalRides currentLocation status")
             .populate("userId", "fullName");
         const sanitized = drivers.map(driver => ({
@@ -377,8 +382,11 @@ async function updateDriverStatus(req, res) {
                 return res.status(403).json({ error: "Driver must be verified before becoming available" });
             }
         }
+        const update = { status };
+        if (status === "available") update.lastActiveAt = new Date();
+
         const driver = await DriverProfile.findByIdAndUpdate(
-            req.params.id, { status }, { new: true, runValidators: true }
+            req.params.id, update, { new: true, runValidators: true }
         );
         if (!driver) return res.status(404).json({ error: "Driver not found" });
         res.status(200).json({ message: "Status updated", driver });
@@ -402,7 +410,8 @@ async function updateLocation(req, res) {
             {
                 $set: {
                     currentLocation: { lat: Number(lat), lng: Number(lng), updatedAt: new Date() },
-                    geoLocation: toGeoPoint(lat, lng)
+                    geoLocation: toGeoPoint(lat, lng),
+                    lastActiveAt: new Date()
                 }
             },
             { new: true }

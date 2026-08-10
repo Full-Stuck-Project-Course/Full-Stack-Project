@@ -15,6 +15,10 @@ const { sameId } = require("./utils/authz");
 const { hasValidCoordinates } = require("./utils/pricing");
 const { configuredOrigins, isAllowedOrigin } = require("./utils/corsOrigins");
 const { findNearbyAvailableDrivers } = require("./utils/driverDiscovery");
+const {
+    getDriverDisconnectGraceMs,
+    staleAvailableDriverFilter
+} = require("./utils/driverPresence");
 const { configureSocketIoAdapter } = require("./utils/socketScaling");
 const {
     createInstanceId,
@@ -105,6 +109,50 @@ function safeSocketHandler(socket, handler) {
     };
 }
 
+async function getDriverForSocket(socket, driverId) {
+    if (!isValidObjectId(driverId)) return null;
+    if (socket.user.role === "admin") return DriverProfile.findById(driverId);
+
+    const driver = await DriverProfile.findOne({ userId: socket.user.userId });
+    return driver && sameId(driver._id, driverId) ? driver : null;
+}
+
+async function touchDriverActivity(driverId, date = new Date()) {
+    return DriverProfile.findByIdAndUpdate(
+        driverId,
+        { $set: { lastActiveAt: date } },
+        { new: true }
+    );
+}
+
+function rememberDriverSocket(socket, driver) {
+    socket.data.driverId = String(driver._id);
+    socket.data.driverUserId = String(driver.userId?._id || driver.userId);
+}
+
+async function hasDriverOwnerSocket(driverId, driverUserId) {
+    const sockets = await io.in(`driver:${driverId}`).fetchSockets();
+    return sockets.some(activeSocket => (
+        String(activeSocket.data?.driverId || "") === String(driverId) &&
+        String(activeSocket.data?.userId || "") === String(driverUserId)
+    ));
+}
+
+function scheduleDriverOfflineIfDisconnected(driverId, driverUserId) {
+    const timer = setTimeout(async () => {
+        try {
+            if (await hasDriverOwnerSocket(driverId, driverUserId)) return;
+            await DriverProfile.findOneAndUpdate(
+                { _id: driverId, status: "available" },
+                { $set: { status: "offline" } }
+            );
+        } catch (error) {
+            console.error("Could not mark disconnected driver offline:", error.message);
+        }
+    }, getDriverDisconnectGraceMs());
+    timer.unref?.();
+}
+
 io.on("connection", (socket) => {
     socket.data.userId = String(socket.user.userId);
     socket.data.role = socket.user.role;
@@ -146,12 +194,25 @@ io.on("connection", (socket) => {
     }));
 
     socket.on("join-driver", safeSocketHandler(socket, async (driverId) => {
-        if (!isValidObjectId(driverId)) return socketError(socket, "Invalid driver ID");
-        if (socket.user.role !== "admin") {
-            const driver = await DriverProfile.findOne({ userId: socket.user.userId });
-            if (!driver || !sameId(driver._id, driverId)) return socketError(socket, "Access denied");
-        }
+        const driver = await getDriverForSocket(socket, driverId);
+        if (!driver) return socketError(socket, isValidObjectId(driverId) ? "Access denied" : "Invalid driver ID");
+
         socket.join(`driver:${driverId}`);
+        if (sameId(driver.userId, socket.user.userId)) {
+            rememberDriverSocket(socket, driver);
+            await touchDriverActivity(driver._id);
+        }
+    }));
+
+    socket.on("driver-heartbeat", safeSocketHandler(socket, async ({ driverId } = {}) => {
+        if (!isValidObjectId(driverId)) return socketError(socket, "Invalid driver ID");
+
+        const driver = await DriverProfile.findOne({ userId: socket.user.userId });
+        if (!driver || !sameId(driver._id, driverId)) return socketError(socket, "Access denied");
+
+        socket.join(`driver:${driver._id}`);
+        rememberDriverSocket(socket, driver);
+        await touchDriverActivity(driver._id);
     }));
 
     socket.on("sos", safeSocketHandler(socket, async (payload = {}, acknowledge) => {
@@ -200,7 +261,11 @@ io.on("connection", (socket) => {
         console.warn("SOS ALERT from ride:", rideId, "at", lat, lng, "recipients:", recipients.length);
     }));
 
-    socket.on("disconnect", () => {});
+    socket.on("disconnect", () => {
+        if (socket.data.driverId && socket.data.driverUserId) {
+            scheduleDriverOfflineIfDisconnected(socket.data.driverId, socket.data.driverUserId);
+        }
+    });
 });
 
 // Auto-cancel rides after 30 minutes with no activity
@@ -297,6 +362,22 @@ async function notifyNearbyDrivers() {
     }
 }
 
+async function markStaleAvailableDriversOffline(date = new Date()) {
+    try {
+        const result = await DriverProfile.updateMany(
+            staleAvailableDriverFilter(date),
+            { $set: { status: "offline" } }
+        );
+        if (result.modifiedCount > 0) {
+            console.log(`Marked ${result.modifiedCount} stale available drivers offline`);
+        }
+        return result;
+    } catch (err) {
+        console.error("Stale driver cleanup error:", err.message);
+        return null;
+    }
+}
+
 function startScheduledTasks() {
     if (!shouldRunScheduledTasks(process.env)) {
         console.log("Scheduled background tasks disabled by ENABLE_SCHEDULED_TASKS=false");
@@ -317,6 +398,13 @@ function startScheduledTasks() {
             intervalMs: 20 * 1000,
             leaseTtlMs: 60 * 1000,
             task: notifyNearbyDrivers,
+            ownerId
+        }),
+        startClusterSafeInterval({
+            lockName: "mark-stale-available-drivers-offline",
+            intervalMs: 60 * 1000,
+            leaseTtlMs: 2 * 60 * 1000,
+            task: markStaleAvailableDriversOffline,
             ownerId
         })
     ];
@@ -373,6 +461,7 @@ if (require.main === module) {
 module.exports = {
     autoCancelStaleRides,
     io,
+    markStaleAvailableDriversOffline,
     notifyNearbyDrivers,
     server,
     formatListenError,

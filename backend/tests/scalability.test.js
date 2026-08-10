@@ -78,8 +78,8 @@ test("GET /rides applies capped pagination and returns pagination metadata", asy
 test("DriverProfile stores a 2dsphere index and updateLocation writes GeoJSON", async () => {
     const indexes = DriverProfile.schema.indexes();
     assert.ok(
-        indexes.some(([spec]) => spec.geoLocation === "2dsphere"),
-        "DriverProfile must index geoLocation as 2dsphere"
+        indexes.some(([spec]) => spec.geoLocation === "2dsphere" && spec.lastActiveAt === 1),
+        "DriverProfile must index recent activity with geoLocation"
     );
 
     let updatePayload;
@@ -104,6 +104,7 @@ test("DriverProfile stores a 2dsphere index and updateLocation writes GeoJSON", 
         type: "Point",
         coordinates: [34.7818, 32.0853]
     });
+    assert.ok(updatePayload.update.$set.lastActiveAt instanceof Date);
 });
 
 test("nearby driver lookup uses indexed $near instead of scanning all available drivers", async () => {
@@ -142,6 +143,7 @@ test("nearby driver lookup uses indexed $near instead of scanning all available 
     assert.equal(capture.filter.status, "available");
     assert.equal(capture.filter.isVerified, true);
     assert.equal(capture.filter.acceptsCarpoolRides, true);
+    assert.ok(capture.filter.lastActiveAt.$gte instanceof Date);
     assert.deepEqual(capture.filter.geoLocation.$near.$geometry, {
         type: "Point",
         coordinates: [34.7818, 32.0853]

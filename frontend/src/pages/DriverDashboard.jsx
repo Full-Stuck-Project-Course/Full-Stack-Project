@@ -40,6 +40,8 @@ const s = {
     }
 };
 
+const DRIVER_HEARTBEAT_INTERVAL_MS = 30_000;
+
 export default function DriverDashboard() {
     const { user }      = useAuth();
     const userId        = user?.userId;
@@ -118,7 +120,11 @@ export default function DriverDashboard() {
     useEffect(() => {
         const socket = createSocket();
         socketRef.current = socket;
-        if (driverId) socket.emit("join-driver", driverId);
+        const joinDriverRoom = () => {
+            if (driverId) socket.emit("join-driver", driverId);
+        };
+        socket.on("connect", joinDriverRoom);
+        joinDriverRoom();
 
         socket.on("nearby-ride-request", (data) => {
             setPopup(data);
@@ -130,8 +136,24 @@ export default function DriverDashboard() {
             }
         });
 
-        return () => socket.disconnect();
+        return () => {
+            socket.off("connect", joinDriverRoom);
+            socket.disconnect();
+            if (socketRef.current === socket) socketRef.current = null;
+        };
     }, [driverId, navigate]);
+
+    useEffect(() => {
+        if (!driverId || driver?.status !== "available") return;
+
+        const sendHeartbeat = () => {
+            socketRef.current?.emit("driver-heartbeat", { driverId });
+        };
+
+        sendHeartbeat();
+        const heartbeat = setInterval(sendHeartbeat, DRIVER_HEARTBEAT_INTERVAL_MS);
+        return () => clearInterval(heartbeat);
+    }, [driverId, driver?.status]);
 
     const setStatus = async (status) => {
         if (!driver) return;
@@ -143,8 +165,11 @@ export default function DriverDashboard() {
         try {
             setStatusError("");
             setStatusSaving(true);
-            await api.put(`/drivers/${driver._id}/status`, { status });
-            setDriver(d => ({ ...d, status }));
+            const { data } = await api.put(`/drivers/${driver._id}/status`, { status });
+            setDriver(d => ({ ...d, ...(data.driver || {}), status }));
+            if (status === "available") {
+                socketRef.current?.emit("driver-heartbeat", { driverId: driver._id });
+            }
         } catch (err) {
             const serverMessage = err.response?.data?.error;
             setStatusError(

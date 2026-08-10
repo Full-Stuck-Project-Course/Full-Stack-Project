@@ -2,6 +2,7 @@ const DriverProfile = require("../db/models/DriverProfile");
 const Vehicle = require("../db/models/Vehicle");
 const { nearGeoLocationFilter } = require("./geoLocation");
 const { haversineKm } = require("./pricing");
+const { activeDriverFilter } = require("./driverPresence");
 
 const DEFAULT_NEARBY_DRIVER_LIMIT = 50;
 const MAX_NEARBY_DRIVER_LIMIT = 100;
@@ -80,7 +81,10 @@ async function findNearbyAvailableDrivers({
     gender = null,
     vehicleType = null,
     minRating = null,
-    allowances = {}
+    allowances = {},
+    excludeUserId = null,
+    requireRecentActivity = true,
+    activityDate = new Date()
 }) {
     const nearFilter = nearGeoLocationFilter(location, radiusKm);
     if (!nearFilter) return [];
@@ -91,6 +95,8 @@ async function findNearbyAvailableDrivers({
         geoLocation: nearFilter
     };
     if (carpoolOnly) filter.acceptsCarpoolRides = true;
+    if (excludeUserId) filter.userId = { $ne: excludeUserId };
+    if (requireRecentActivity) Object.assign(filter, activeDriverFilter(activityDate));
 
     const requestedGender = normalizeDriverGender(gender);
     if (requestedGender) filter.gender = requestedGender;

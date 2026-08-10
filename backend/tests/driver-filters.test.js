@@ -172,6 +172,50 @@ test("nearby driver search ignores unrecognised filter values instead of hiding 
     assert.equal(driverFilter._id, undefined);
 });
 
+test("nearby driver search can exclude the passenger's own driver profile", async () => {
+    let driverFilter;
+
+    patchMethod(patches, DriverProfile, "find", (filter) => {
+        driverFilter = filter;
+        return driverQuery([]);
+    });
+
+    await findNearbyAvailableDrivers({
+        location: TEL_AVIV,
+        radiusKm: 8,
+        excludeUserId: "passenger-user"
+    });
+
+    assert.deepEqual(driverFilter.userId, { $ne: "passenger-user" });
+});
+
+test("nearby driver search requires recent driver activity by default", async () => {
+    const originalWindow = process.env.DRIVER_ACTIVE_WINDOW_MS;
+    const now = new Date("2026-08-10T12:00:00Z");
+    let driverFilter;
+
+    process.env.DRIVER_ACTIVE_WINDOW_MS = "60000";
+    patchMethod(patches, DriverProfile, "find", (filter) => {
+        driverFilter = filter;
+        return driverQuery([]);
+    });
+
+    try {
+        await findNearbyAvailableDrivers({
+            location: TEL_AVIV,
+            radiusKm: 8,
+            activityDate: now
+        });
+
+        assert.deepEqual(driverFilter.lastActiveAt, {
+            $gte: new Date("2026-08-10T11:59:00Z")
+        });
+    } finally {
+        if (originalWindow === undefined) delete process.env.DRIVER_ACTIVE_WINDOW_MS;
+        else process.env.DRIVER_ACTIVE_WINDOW_MS = originalWindow;
+    }
+});
+
 function patchAcceptRideDependencies({ driver, vehicle, ride }) {
     patchMethod(patches, DriverProfile, "findById", async () => driver);
     patchMethod(patches, Ride, "findOne", async () => ride);
