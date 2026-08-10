@@ -2,12 +2,14 @@
 
 const mongoose = require("mongoose");
 const Ride = require("../db/models/Ride");
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const DriverProfile = require("../db/models/DriverProfile");
 const Notification = require("../db/models/Notification");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
+const { activeBookingConflict, findActiveBookingForPassenger } = require("../utils/activeBooking");
 const { haversineKm, hasValidCoordinates } = require("../utils/pricing");
 const { calculateFareForRoute } = require("../utils/routePricing");
 const {
@@ -184,6 +186,21 @@ async function openPaymentForRide(ride) {
     );
 }
 
+// Carpool seats outlive the request queue, so a ride that ends has to release
+// the riders who joined it — otherwise their booking stays open forever and
+// they can never book again.
+async function settleCarpoolSeats(ride, status) {
+    if (ride?.rideType !== "carpool") return;
+    try {
+        await CarpoolRequest.updateMany(
+            { rideId: ride._id, status: { $in: ["matched", "confirmed"] } },
+            { status }
+        );
+    } catch (error) {
+        console.warn("Could not settle carpool seats:", error.message);
+    }
+}
+
 function readyForDispatchFilter(date = new Date()) {
     return {
         $or: [
@@ -201,10 +218,21 @@ async function canAccessRide(req, ride) {
         getDriverProfileForUser(req.user.userId)
     ]);
 
-    return Boolean(
-        (passenger && sameId(passenger._id, ride.passengerId)) ||
-        (driver && sameId(driver._id, ride.driverId))
-    );
+    if (passenger && sameId(passenger._id, ride.passengerId)) return true;
+    if (driver && sameId(driver._id, ride.driverId)) return true;
+
+    // A carpool ride carries one passengerId but can seat several passengers.
+    // The riders who joined through a carpool request must see it too.
+    if (passenger && ride.rideType === "carpool") {
+        const seat = await CarpoolRequest.findOne({
+            rideId: ride._id,
+            passengerId: passenger._id,
+            status: { $in: ["matched", "confirmed", "completed"] }
+        });
+        if (seat) return true;
+    }
+
+    return false;
 }
 
 async function getPopulatedRide(id) {
@@ -308,6 +336,13 @@ async function createRide(req, res) {
                 { upsert: true, new: true, setDefaultsOnInsert: true }
             );
             passengerId = passengerProfile._id;
+        }
+
+        // One booking at a time. Admins keep the override so support can still
+        // place a ride for someone who is mid-trip.
+        if (!isAdmin(req)) {
+            const activeBooking = await findActiveBookingForPassenger(passengerId);
+            if (activeBooking) return activeBookingConflict(res, activeBooking);
         }
 
         const passengerCount = Number(req.body.passengerCount || 1);
@@ -665,6 +700,7 @@ async function completeRide(req, res) {
         });
 
         await openPaymentForRide(ride);
+        await settleCarpoolSeats(ride, "completed");
 
         res.status(200).json({ message: "Ride completed", ride });
     } catch (error) {
@@ -738,6 +774,8 @@ async function cancelRide(req, res) {
                 await DriverProfile.findByIdAndUpdate(ride.driverId, { status: "available" });
             }
         }
+
+        await settleCarpoolSeats(cancelledRide, "cancelled");
 
         res.status(200).json({ message: "Ride cancelled", ride: cancelledRide, remainingPoints });
     } catch (error) {
@@ -831,6 +869,7 @@ async function adminUpdateRide(req, res) {
                 await session.endSession();
             }
 
+            await settleCarpoolSeats(ride, "cancelled");
             return res.status(200).json({ message: "Ride updated by admin", ride, remainingPoints });
         }
 
@@ -845,6 +884,9 @@ async function adminUpdateRide(req, res) {
         }
         if (existing.driverId && ["completed", "cancelled", "searching"].includes(ride.status)) {
             await DriverProfile.findByIdAndUpdate(existing.driverId, { status: "available" });
+        }
+        if (["completed", "cancelled"].includes(update.status)) {
+            await settleCarpoolSeats(ride, update.status);
         }
 
         res.status(200).json({ message: "Ride updated by admin", ride, remainingPoints });

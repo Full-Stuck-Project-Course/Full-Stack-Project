@@ -200,6 +200,7 @@ router.get("/carpool", carpoolController.getAllCarpoolRequests);
 router.get("/carpool/pending", carpoolController.getPendingRequests);
 router.get("/carpool/:id", carpoolController.getCarpoolRequestById);
 router.put("/carpool/:id/match", carpoolController.matchCarpoolRequest);
+router.put("/carpool/:id/accept", carpoolController.acceptCarpoolRequest);
 router.put("/carpool/:id/cancel", carpoolController.cancelCarpoolRequest);
 
 module.exports = router;

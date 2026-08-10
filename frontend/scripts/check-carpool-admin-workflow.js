@@ -55,8 +55,9 @@ assert(
 
 assert(
     passengerDashboard.includes('api.put(`/carpool/${requestId}/cancel`)') &&
-    /\["pending",\s*"matched"\]\.includes\(request\.status\)/.test(passengerDashboard),
-    "PassengerDashboard must let passengers cancel open carpool requests."
+    /const\s+OPEN_CARPOOL_STATUSES\s*=\s*\["pending",\s*"matched",\s*"confirmed"\]/.test(passengerDashboard) &&
+    /OPEN_CARPOOL_STATUSES\.includes\(request\.status\)\s*&&\s*\(/.test(passengerDashboard),
+    "PassengerDashboard must let passengers give up any carpool seat that still holds their booking slot."
 );
 
 console.log("Carpool workflow check passed: admins can match/approve requests and passengers can track matched carpools.");

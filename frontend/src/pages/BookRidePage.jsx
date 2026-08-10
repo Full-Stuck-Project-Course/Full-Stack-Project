@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
+import { extractItems } from "../api/pagination";
 import MapComponent, { AddressInput } from "../components/MapComponent";
 
 const s = {
@@ -93,6 +94,37 @@ function hasCoordinates(loc) {
     return loc?.lat != null && loc?.lng != null && !(Number(loc.lat) === 0 && Number(loc.lng) === 0);
 }
 
+// A passenger may only have one booking in flight. These mirror the statuses
+// the server refuses a second booking for.
+const ACTIVE_RIDE_STATUSES = ["searching", "accepted", "driver_arriving", "in_progress"];
+const OPEN_CARPOOL_STATUSES = ["pending", "matched", "confirmed"];
+
+export const ACTIVE_BOOKING_MESSAGE =
+    "לא ניתן להזמין כמה נסיעות במקביל. יש לך כבר נסיעה פעילה או בקשה שממתינה לנהג — סיים או בטל אותה כדי להזמין נסיעה חדשה.";
+
+function ownsBooking(record, passengerId) {
+    return Boolean(passengerId) && (record.passengerId?._id || record.passengerId) === passengerId;
+}
+
+// Mirrors the server rule so the page can warn before the request is sent. The
+// 409 from the API stays the authority.
+export function findActiveBooking(rides, carpoolRequests, passengerId) {
+    const ride = (rides || []).find(r => ACTIVE_RIDE_STATUSES.includes(r.status) && ownsBooking(r, passengerId));
+    if (ride) return { type: "ride", status: ride.status, rideId: ride._id, requestId: null };
+
+    const request = (carpoolRequests || []).find(r => OPEN_CARPOOL_STATUSES.includes(r.status) && ownsBooking(r, passengerId));
+    if (request) {
+        return {
+            type: "carpool",
+            status: request.status,
+            rideId: request.rideId?._id || request.rideId || null,
+            requestId: request._id
+        };
+    }
+
+    return null;
+}
+
 const LOYALTY_POINT_VALUE_ILS = 0.1;
 
 export function getMaxRedeemablePoints(availablePoints, ridePrice) {
@@ -139,6 +171,9 @@ export default function BookRidePage() {
 
     // Saved addresses
     const [savedAddresses, setSavedAddresses] = useState([]);
+
+    // The one booking the passenger is allowed to have open at a time
+    const [activeBooking, setActiveBooking] = useState(null);
 
     // Get user location
     useEffect(() => {
@@ -189,6 +224,31 @@ export default function BookRidePage() {
         // Price prediction
         api.get("/maps/price-prediction").then(r => setPricePrediction(r.data)).catch(() => {});
     }, [userLoc, userId]);
+
+    // Warn about an open booking before the passenger fills the form in.
+    useEffect(() => {
+        if (!userId) return;
+        let cancelled = false;
+
+        (async () => {
+            try {
+                const { data: passengers } = await api.get("/passengers");
+                const passengerId = passengers.find(p => p.userId === userId || p.userId?._id === userId)?._id;
+                if (!passengerId) return;
+
+                // Both are scoped to the passenger: a user who also drives would
+                // otherwise get their driving rides and the whole carpool queue.
+                const [ridesRes, carpoolRes] = await Promise.all([
+                    api.get("/rides", { params: { passengerId } }),
+                    api.get("/carpool", { params: { passengerId } }).catch(() => ({ data: [] }))
+                ]);
+                if (cancelled) return;
+                setActiveBooking(findActiveBooking(extractItems(ridesRes.data), carpoolRes.data, passengerId));
+            } catch { /* the server still refuses a second booking */ }
+        })();
+
+        return () => { cancelled = true; };
+    }, [userId]);
 
     // Calculate price
     const calcPrice = useCallback(async () => {
@@ -241,6 +301,7 @@ export default function BookRidePage() {
         e.preventDefault();
         setError("");
         setSuccess("");
+        if (activeBooking) return setError(ACTIVE_BOOKING_MESSAGE);
         if (!pickup.address) return setError("נא להזין כתובת איסוף");
         if (!dest.address)   return setError("נא להזין כתובת יעד");
 
@@ -262,7 +323,8 @@ export default function BookRidePage() {
                     maxDetourMinutes: 10,
                     pricePerSeat: Number.isFinite(pricePerSeat) ? pricePerSeat : 0
                 });
-                setSuccess("בקשת הקרפול נשלחה ותמתין להתאמה עם נוסעים נוספים.");
+                setSuccess("בקשת הקרפול נשלחה וממתינה לאישור נהג.");
+                setActiveBooking({ type: "carpool", status: "pending", rideId: null, requestId: null });
                 return;
             }
 
@@ -295,7 +357,12 @@ export default function BookRidePage() {
             }
             navigate(`/ride/${data.ride._id}`);
         } catch (err) {
-            setError(err.response?.data?.error || "שגיאה ביצירת הנסיעה");
+            if (err.response?.data?.code === "ACTIVE_BOOKING_EXISTS") {
+                setActiveBooking(err.response.data.activeBooking || { type: "ride", status: "searching" });
+                setError(ACTIVE_BOOKING_MESSAGE);
+            } else {
+                setError(err.response?.data?.error || "שגיאה ביצירת הנסיעה");
+            }
         } finally { setLoading(false); }
     };
 
@@ -307,6 +374,25 @@ export default function BookRidePage() {
     return (
         <div style={s.page}>
             <h1 style={s.title}>{"הזמן נסיעה"}</h1>
+
+            {/* One booking at a time */}
+            {activeBooking && (
+                <div role="alert" style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 14, color: "#92400e" }}>
+                    ⚠️ {ACTIVE_BOOKING_MESSAGE}
+                    <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {activeBooking.rideId && (
+                            <button type="button" onClick={() => navigate(`/ride/${activeBooking.rideId}`)}
+                                style={{ background: "var(--primary)", color: "#fff", padding: "7px 14px", borderRadius: 8, fontSize: 13 }}>
+                                לנסיעה הפעילה
+                            </button>
+                        )}
+                        <button type="button" onClick={() => navigate("/passenger")}
+                            style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)", padding: "7px 14px", borderRadius: 8, fontSize: 13 }}>
+                            {activeBooking.type === "carpool" ? "לבקשת הקרפול שלי" : "ללוח הנוסע"}
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Best departure + price prediction */}
             {bestTime && bestTime.currentDemand === "high" && (
@@ -550,7 +636,7 @@ export default function BookRidePage() {
 
                 {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
                 {success && <p role="status" style={{ color: "var(--success)", fontWeight: 700, marginTop: 8 }}>{success}</p>}
-                <button type="submit" className="btn-primary" disabled={loading} style={{ marginTop: 8 }}>
+                <button type="submit" className="btn-primary" disabled={loading || Boolean(activeBooking)} style={{ marginTop: 8 }}>
                     {loading ? (rideType === "carpool" ? "שולח בקשה..." : "מחפש נהג...") : (rideType === "carpool" ? "שלח בקשת קרפול 🤝" : `${"הזמן עכשיו"} 🚕`)}
                 </button>
             </form>

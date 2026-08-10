@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const axios = require("axios");
 const mongoose = require("mongoose");
 
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const DriverProfile = require("../db/models/DriverProfile");
 const Notification = require("../db/models/Notification");
 const PassengerProfile = require("../db/models/PassengerProfile");
@@ -35,6 +36,13 @@ test.afterEach(() => {
 const pickupLocation = { address: "Pickup", lat: 32.0853, lng: 34.7818 };
 const destinationLocation = { address: "Destination", lat: 31.7683, lng: 35.2137 };
 
+// createRide refuses a second booking, so every creation test has to say the
+// passenger has nothing open yet.
+function stubNoActiveBooking() {
+    patchMethod(patches, Ride, "findOne", async () => null);
+    patchMethod(patches, CarpoolRequest, "findOne", async () => null);
+}
+
 function makeSession(events) {
     return {
         async withTransaction(callback) {
@@ -59,6 +67,7 @@ test("point redemption and ride creation are committed in one Mongo transaction"
     let userUpdate;
     let rideCreate;
 
+    stubNoActiveBooking();
     patchMethod(patches, mongoose, "startSession", async () => session);
     patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
         assert.equal(userId, "passenger-user");
@@ -104,6 +113,7 @@ test("loyalty redemption is capped at the ride price value in points before user
     let userUpdate;
     let rideCreate;
 
+    stubNoActiveBooking();
     patchMethod(patches, mongoose, "startSession", async () => session);
     patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
         assert.equal(userId, "passenger-user");
@@ -145,6 +155,7 @@ test("insufficient loyalty points aborts the transaction before ride creation", 
     const session = makeSession(events);
     let rideCreateCalls = 0;
 
+    stubNoActiveBooking();
     patchMethod(patches, mongoose, "startSession", async () => session);
     patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => (
         userId === "passenger-user" ? { _id: "passenger-1", userId: "user-1" } : null
@@ -184,6 +195,7 @@ test("transaction retries do not apply loyalty redemption twice", async () => {
     };
     const finalPrices = [];
 
+    stubNoActiveBooking();
     patchMethod(patches, mongoose, "startSession", async () => session);
     patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => (
         userId === "passenger-user" ? { _id: "passenger-1", userId: "user-1" } : null
@@ -218,6 +230,7 @@ test("ride creation uses the same routed fare as the price preview when Google M
     process.env.GOOGLE_SERVER_MAPS_API_KEY = "test-google-key";
     delete process.env.GOOGLE_MAPS_API_KEY;
 
+    stubNoActiveBooking();
     patchMethod(patches, axios, "get", async (url, options) => {
         googleRequest = { url, options };
         return {

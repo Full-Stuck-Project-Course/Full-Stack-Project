@@ -20,11 +20,15 @@ const s = {
 };
 
 const carpoolStatusText = {
-    pending: "ממתין להתאמה",
+    pending: "ממתין לאישור נהג",
     matched: "הותאם לנסיעה",
-    confirmed: "אושר",
+    confirmed: "אושר על ידי נהג",
     completed: "הושלם"
 };
+
+// Statuses that still hold the passenger's single booking slot, so giving one
+// up has to stay possible.
+const OPEN_CARPOOL_STATUSES = ["pending", "matched", "confirmed"];
 
 export default function PassengerDashboard() {
     const { user }       = useAuth();
@@ -58,7 +62,7 @@ export default function PassengerDashboard() {
                 setPastRides(allRides.filter(r => r.status === "completed").slice(0, 8));
                 setCarpoolRequests((carpoolRes.data || [])
                     .filter(request => (request.passengerId?._id || request.passengerId) === p?._id)
-                    .filter(request => ["pending", "matched", "confirmed"].includes(request.status))
+                    .filter(request => OPEN_CARPOOL_STATUSES.includes(request.status))
                     .slice(0, 5));
             } finally { setLoading(false); }
         })();
@@ -165,6 +169,12 @@ export default function PassengerDashboard() {
                                         {carpoolStatusText[request.status] || request.status} · {request.seatsNeeded || 1} מושבים
                                         {request.requestedTime && ` · ${new Date(request.requestedTime).toLocaleString("he-IL")}`}
                                     </div>
+                                    {request.driverId?.userId?.fullName && (
+                                        <div style={{ fontSize: 12, color: "var(--success)", marginTop: 3 }}>
+                                            🚗 {request.driverId.userId.fullName}
+                                            {request.driverId.ratingAverage ? ` · ⭐ ${request.driverId.ratingAverage.toFixed(1)}` : ""}
+                                        </div>
+                                    )}
                                 </div>
                                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                                     {rideId && (
@@ -173,7 +183,7 @@ export default function PassengerDashboard() {
                                             פרטים
                                         </button>
                                     )}
-                                    {["pending", "matched"].includes(request.status) && (
+                                    {OPEN_CARPOOL_STATUSES.includes(request.status) && (
                                         <button onClick={() => cancelCarpoolRequest(request._id)}
                                             style={{ background: "#fee2e2", color: "var(--danger)", padding: "7px 10px", borderRadius: 8, fontSize: 13 }}>
                                             ✕

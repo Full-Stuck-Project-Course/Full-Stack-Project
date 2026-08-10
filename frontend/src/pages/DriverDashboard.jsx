@@ -42,6 +42,8 @@ const s = {
 
 const DRIVER_HEARTBEAT_INTERVAL_MS = 30_000;
 
+const ACTIVE_RIDE_STATUSES = ["searching", "accepted", "driver_arriving", "in_progress"];
+
 export default function DriverDashboard() {
     const { user }      = useAuth();
     const userId        = user?.userId;
@@ -54,6 +56,10 @@ export default function DriverDashboard() {
     const navigate      = useNavigate();
     const [driver,      setDriver]      = useState(null);
     const [openRides,   setOpenRides]   = useState([]);
+    const [carpoolRequests, setCarpoolRequests] = useState([]);
+    const [activeCarpoolRide, setActiveCarpoolRide] = useState(null);
+    const [carpoolError, setCarpoolError] = useState("");
+    const [approvingRequestId, setApprovingRequestId] = useState("");
     const [completedRides, setCompletedRides] = useState([]);
     const [alerts,      setAlerts]      = useState([]);
     const [ratings,     setRatings]     = useState([]);
@@ -81,14 +87,23 @@ export default function DriverDashboard() {
                 api.get(`/vehicles/driver/${found._id}`).then(r => {
                     if (r.data?.length > 0) setVehicle(r.data[0]);
                 }).catch(() => {});
-                const [alertRes, ratingRes, completedRes] = await Promise.all([
+                const [alertRes, ratingRes, completedRes, carpoolRes, ownRidesRes] = await Promise.all([
                     api.get(`/driver-alerts/driver/${found._id}`).catch(() => ({ data: [] })),
                     api.get(`/ratings/driver/${found._id}`).catch(() => ({ data: [] })),
-                    api.get("/rides", { params: { driverId: found._id, status: "completed", limit: 5 } }).catch(() => ({ data: { items: [] } }))
+                    api.get("/rides", { params: { driverId: found._id, status: "completed", limit: 5 } }).catch(() => ({ data: { items: [] } })),
+                    api.get("/carpool/pending").catch(() => ({ data: [] })),
+                    api.get("/rides", { params: { driverId: found._id, limit: 20 } }).catch(() => ({ data: { items: [] } }))
                 ]);
                 setAlerts(alertRes.data || []);
                 setRatings(ratingRes.data?.slice(0, 5) || []);
                 setCompletedRides(extractItems(completedRes.data).slice(0, 5));
+                setCarpoolRequests(carpoolRes.data || []);
+                // A carpool the driver is already running: further passengers
+                // join it instead of opening a second ride.
+                setActiveCarpoolRide(extractItems(ownRidesRes.data).find(ride =>
+                    ride.rideType === "carpool" &&
+                    ACTIVE_RIDE_STATUSES.includes(ride.status)
+                ) || null);
             }
 
             api.get("/maps/demand").then(r => setDemand(r.data)).catch(() => {});
@@ -190,6 +205,25 @@ export default function DriverDashboard() {
             navigate(`/ride/${rideId}`);
         } catch (err) {
             alert(err.response?.data?.error || "שגיאה");
+        }
+    };
+
+    // Approving a waiting carpool passenger. Without an open carpool ride this
+    // opens one; with one the passenger joins the ride already under way.
+    const approveCarpoolRequest = async (requestId) => {
+        if (!driver) return;
+        setCarpoolError("");
+        setApprovingRequestId(requestId);
+        try {
+            const { data } = await api.put(`/carpool/${requestId}/accept`,
+                activeCarpoolRide ? { rideId: activeCarpoolRide._id } : {});
+            setCarpoolRequests(requests => requests.filter(request => request._id !== requestId));
+            if (data.ride) setActiveCarpoolRide(data.ride);
+            if (data.ride?._id) navigate(`/ride/${data.ride._id}`);
+        } catch (err) {
+            setCarpoolError(err.response?.data?.error || "לא ניתן לאשר את בקשת הקרפול כרגע.");
+        } finally {
+            setApprovingRequestId("");
         }
     };
 
@@ -403,6 +437,66 @@ export default function DriverDashboard() {
                     </div>
                 ))}
             </div>
+
+            {/* Waiting carpool passengers — approved by the driver, one seat group at a time */}
+            {driver.acceptsCarpoolRides !== false && (
+                <div style={s.card}>
+                    <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 15 }}>
+                        🤝 בקשות קרפול ממתינות ({carpoolRequests.length})
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                        {activeCarpoolRide
+                            ? "אישור נוסע יצרף אותו לנסיעת הקרפול הפעילה שלך."
+                            : "אישור נוסע יפתח נסיעת קרפול חדשה שתוכל לצרף אליה נוסעים נוספים."}
+                    </div>
+                    {carpoolError && <div className="error-msg" style={{ marginBottom: 10 }}>{carpoolError}</div>}
+                    {carpoolRequests.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)" }}>
+                            אין בקשות קרפול כרגע
+                        </div>
+                    ) : carpoolRequests.map(request => (
+                        <div key={request._id} style={s.rideReq}>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+                                    📍 {request.pickupLocation?.address}
+                                </div>
+                                <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4 }}>
+                                    🏁 {request.destinationLocation?.address}
+                                </div>
+                                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap" }}>
+                                    <span>👤 {request.passengerId?.userId?.fullName || "נוסע"}</span>
+                                    <span>💺 {request.seatsNeeded || 1} מושבים</span>
+                                    {request.pricePerSeat > 0 && (
+                                        <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{request.pricePerSeat} למושב</span>
+                                    )}
+                                    {request.requestedTime && (
+                                        <span>🕐 {new Date(request.requestedTime).toLocaleString("he-IL", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</span>
+                                    )}
+                                </div>
+                                {request.notes && (
+                                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>📝 {request.notes}</div>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                disabled={approvingRequestId === request._id || (!activeCarpoolRide && driver.status !== "available")}
+                                onClick={() => approveCarpoolRequest(request._id)}
+                                style={{
+                                    background: "var(--success)", color: "#fff", padding: "10px 18px",
+                                    borderRadius: 10, fontSize: 14, fontWeight: 700, flexShrink: 0,
+                                    opacity: approvingRequestId === request._id || (!activeCarpoolRide && driver.status !== "available") ? 0.55 : 1
+                                }}>
+                                {approvingRequestId === request._id ? "מאשר..." : "אשר נוסע ✓"}
+                            </button>
+                        </div>
+                    ))}
+                    {!activeCarpoolRide && driver.status !== "available" && carpoolRequests.length > 0 && (
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                            עבור לסטטוס "זמין" כדי לפתוח נסיעת קרפול חדשה.
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Map — driver location + all request locations + demand hotspots */}
             <div style={s.card}>

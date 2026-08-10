@@ -16,6 +16,14 @@ const carpoolRequestSchema = new mongoose.Schema({
         default: null
     },
 
+    // The driver who approved this passenger. Null while the request is still
+    // waiting in the queue.
+    driverId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "DriverProfile",
+        default: null
+    },
+
     pickupLocation: {
         address: { type: String, required: true },
         lat:     { type: Number, required: true },
@@ -73,5 +81,7 @@ const carpoolRequestSchema = new mongoose.Schema({
 
 carpoolRequestSchema.index({ status: 1, requestedTime: 1 });
 carpoolRequestSchema.index({ passengerId: 1, status: 1 });
+carpoolRequestSchema.index({ driverId: 1, status: 1 });
+carpoolRequestSchema.index({ rideId: 1, status: 1 });
 
 module.exports = mongoose.model("CarpoolRequest", carpoolRequestSchema);
