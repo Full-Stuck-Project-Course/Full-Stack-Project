@@ -39,7 +39,17 @@ const s = {
         background: sel ? "rgba(79,70,229,0.06)" : "var(--surface)",
         fontSize: 13, fontWeight: sel ? 700 : 400,
         color: sel ? "var(--primary)" : "var(--text-muted)"
-    })
+    }),
+    pickupActions: { display: "flex", justifyContent: "flex-end", marginTop: 8 },
+    currentLocationBtn: {
+        background: "var(--surface)",
+        color: "var(--primary)",
+        border: "1px solid var(--primary)",
+        padding: "7px 12px",
+        borderRadius: 8,
+        fontSize: 13,
+        fontWeight: 700
+    }
 };
 
 const RIDE_TYPES = [
@@ -63,6 +73,7 @@ const DRIVER_GENDERS = [
 const DEFAULT_DRIVER_RADIUS_KM = 15;
 const MIN_DRIVER_RADIUS_KM = 1;
 const MAX_DRIVER_RADIUS_KM = 25;
+const CURRENT_LOCATION_PICKUP_LABEL = "המיקום הנוכחי שלי";
 
 const MIN_RATING_OPTIONS = [
     { value: 0,   label: "כל דירוג" },
@@ -102,6 +113,28 @@ export function toScheduledInstant(localValue) {
 
 function hasCoordinates(loc) {
     return loc?.lat != null && loc?.lng != null && !(Number(loc.lat) === 0 && Number(loc.lng) === 0);
+}
+
+function geolocationErrorMessage(error) {
+    if (error?.code === error?.PERMISSION_DENIED) return "יש לאפשר גישה למיקום כדי להשתמש במיקום הנוכחי כנקודת איסוף";
+    if (error?.code === error?.POSITION_UNAVAILABLE) return "לא ניתן למצוא את המיקום הנוכחי כרגע";
+    if (error?.code === error?.TIMEOUT) return "בדיקת המיקום לקחה יותר מדי זמן. נסה שוב";
+    return "לא ניתן להשתמש במיקום הנוכחי כרגע";
+}
+
+function reverseGeocodeLocation(loc) {
+    if (typeof window === "undefined" || !window.google?.maps?.Geocoder) return Promise.resolve("");
+
+    return new Promise(resolve => {
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat: loc.lat, lng: loc.lng } }, (results, status) => {
+            if (status === "OK" && results?.[0]?.formatted_address) {
+                resolve(results[0].formatted_address);
+            } else {
+                resolve("");
+            }
+        });
+    });
 }
 
 // A passenger may only have one booking in flight. These mirror the statuses
@@ -167,6 +200,7 @@ export default function BookRidePage() {
     const [priceLoading, setPriceLoading] = useState(false);
     const [nearbyDrivers, setNearbyDrivers] = useState([]);
     const [userLoc,       setUserLoc]     = useState(null);
+    const [pickupLocating, setPickupLocating] = useState(false);
     const [bestTime,      setBestTime]    = useState(null);
     const [pricePrediction, setPricePrediction] = useState(null);
 
@@ -305,6 +339,36 @@ export default function BookRidePage() {
         const loc = { address: addr.address || addr.name, lat: addr.lat, lng: addr.lng };
         if (target === "pickup") setPickup(loc);
         else setDest(loc);
+    };
+
+    const useCurrentLocationAsPickup = () => {
+        setError("");
+        setSuccess("");
+
+        if (!navigator.geolocation) {
+            setError("הדפדפן לא תומך בזיהוי מיקום");
+            return;
+        }
+
+        setPickupLocating(true);
+        navigator.geolocation.getCurrentPosition(
+            async pos => {
+                const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                const address = await reverseGeocodeLocation(loc);
+                setUserLoc(loc);
+                setPickup({
+                    address: address || CURRENT_LOCATION_PICKUP_LABEL,
+                    lat: loc.lat,
+                    lng: loc.lng
+                });
+                setPickupLocating(false);
+            },
+            locationError => {
+                setPickupLocating(false);
+                setError(geolocationErrorMessage(locationError));
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        );
     };
 
     const handleSubmit = async (e) => {
@@ -452,6 +516,16 @@ export default function BookRidePage() {
                         <AddressInput placeholder={"הכנס כתובת איסוף"} value={pickup.address}
                             onChange={v => setPickup(p => ({ ...p, address: v }))}
                             onPlaceSelected={loc => setPickup(loc)} />
+                        <div style={s.pickupActions}>
+                            <button
+                                type="button"
+                                onClick={useCurrentLocationAsPickup}
+                                disabled={pickupLocating}
+                                style={{ ...s.currentLocationBtn, opacity: pickupLocating ? 0.65 : 1 }}
+                            >
+                                {pickupLocating ? "מאתר מיקום..." : "השתמש במיקום הנוכחי"}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Stops */}
