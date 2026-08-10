@@ -34,4 +34,19 @@ assert(
     "RideStatusPage chat sender fallback must match driver/passenger context."
 );
 
+assert(
+    rideStatusPage.includes("unreadMessages") &&
+        rideStatusPage.includes("chatBadge") &&
+        rideStatusPage.includes("chatNotice") &&
+        rideStatusPage.includes("מחכה לך הודעה חדשה"),
+    "RideStatusPage must show an unread chat badge and in-app toast for incoming messages."
+);
+
+assert(
+    rideStatusPage.includes("chatOpenRef.current") &&
+        rideStatusPage.includes("setUnreadMessages(0)") &&
+        rideStatusPage.includes("openChat"),
+    "RideStatusPage must clear unread chat indicators when the chat is opened."
+);
+
 console.log("Ride chat role labels check passed: drivers see passenger chat labels and passengers see driver chat labels.");

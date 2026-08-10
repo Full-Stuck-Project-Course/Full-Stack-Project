@@ -16,6 +16,15 @@ const s = {
     val: { fontWeight: 600, fontSize: 14 },
     sosBtn: { width: "100%", background: "var(--danger)", color: "#fff", padding: 14, borderRadius: 10, fontSize: 16, fontWeight: 800, marginBottom: 10 },
     chatBox: { background: "#f8fafc", borderRadius: 10, padding: 12, maxHeight: 200, overflowY: "auto", marginBottom: 10 },
+    chatToggle: { position: "relative", display: "inline-flex", alignItems: "center", gap: 8, background: "none", padding: 0, color: "var(--primary)", fontWeight: 700, fontSize: 14 },
+    chatBadge: { minWidth: 20, height: 20, borderRadius: 999, background: "var(--danger)", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, padding: "0 6px" },
+    chatUnreadLine: { color: "var(--danger)", fontSize: 13, fontWeight: 700, marginBottom: 12 },
+    chatToast: { position: "fixed", top: 18, right: 18, zIndex: 50, width: "min(360px, calc(100vw - 32px))", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: 14, display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 12, alignItems: "start", direction: "rtl" },
+    chatToastIcon: { width: 34, height: 34, borderRadius: "50%", background: "rgba(79,70,229,0.10)", color: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 },
+    chatToastTitle: { fontWeight: 800, fontSize: 14, marginBottom: 3 },
+    chatToastPreview: { color: "var(--text-muted)", fontSize: 12, lineHeight: 1.4, marginBottom: 10 },
+    chatToastButton: { background: "var(--primary)", color: "#fff", borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 800 },
+    chatToastClose: { background: "none", color: "var(--text-muted)", padding: 0, fontSize: 20, lineHeight: 1 },
     etaBanner: {
         background: "linear-gradient(135deg, #dbeafe, #f0f9ff)",
         borderRadius: 12, padding: "14px 18px", marginBottom: 14,
@@ -58,6 +67,17 @@ function getChatPeerInfo(ride, user) {
     };
 }
 
+function getIncomingChatNoticeTitle(ride, user) {
+    return isAssignedDriverUser(ride, user)
+        ? "מחכה לך הודעה חדשה מהנוסע"
+        : "מחכה לך הודעה חדשה מהנהג";
+}
+
+function messagePreview(message) {
+    const text = String(message || "").trim();
+    return text.length > 72 ? `${text.slice(0, 69)}...` : text;
+}
+
 function getRideParticipantInfo(ride) {
     return [
         {
@@ -97,12 +117,16 @@ export default function RideStatusPage() {
     const [messages,   setMessages]   = useState([]);
     const [chatText,   setChatText]   = useState("");
     const [chatOpen,   setChatOpen]   = useState(false);
+    const [unreadMessages, setUnreadMessages] = useState(0);
+    const [chatNotice, setChatNotice] = useState(null);
     const [sosClicked, setSosClicked] = useState(false);
     const [eta,        setEta]        = useState(null);
     const [nearbyDrivers, setNearbyDrivers] = useState([]);
     const [userLoc,    setUserLoc]    = useState(null);
     const socketRef = useRef(null);
     const chatEndRef = useRef(null);
+    const chatOpenRef = useRef(false);
+    const chatNoticeTitleRef = useRef("מחכה לך הודעה חדשה");
     const prevStatus = useRef(null);
 
     // Get user location
@@ -113,6 +137,39 @@ export default function RideStatusPage() {
                 () => {}
             );
         }
+    }, []);
+
+    useEffect(() => {
+        chatOpenRef.current = chatOpen;
+        if (!chatOpen) return;
+
+        setUnreadMessages(0);
+        setChatNotice(null);
+        window.setTimeout(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 0);
+    }, [chatOpen]);
+
+    useEffect(() => {
+        chatNoticeTitleRef.current = getIncomingChatNoticeTitle(ride, user);
+    }, [ride, user]);
+
+    useEffect(() => {
+        if (!chatNotice) return undefined;
+
+        const timer = window.setTimeout(() => {
+            setChatNotice(current => current?.id === chatNotice.id ? null : current);
+        }, 9000);
+        return () => window.clearTimeout(timer);
+    }, [chatNotice]);
+
+    const openChat = useCallback(() => {
+        setChatOpen(true);
+        setUnreadMessages(0);
+        setChatNotice(null);
+        window.setTimeout(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 0);
     }, []);
 
     const fetchRide = useCallback(async () => {
@@ -169,8 +226,20 @@ export default function RideStatusPage() {
 
         socket.on("location-update", ({ lat, lng }) => setDriverLoc({ lat, lng }));
         socket.on("new-message", (msg) => {
+            const incoming = String(msg.sender || "") !== String(user?.userId || "");
             setMessages(m => [...m, msg]);
-            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            window.setTimeout(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, 0);
+            if (incoming && !chatOpenRef.current) {
+                setUnreadMessages(count => count + 1);
+                setChatNotice({
+                    id: Date.now(),
+                    title: chatNoticeTitleRef.current,
+                    senderName: msg.senderName || "",
+                    preview: messagePreview(msg.message)
+                });
+            }
         });
         socket.on("ride-cancelled", ({ reason }) => {
             if (reason === "auto_timeout") {
@@ -290,6 +359,24 @@ export default function RideStatusPage() {
         <div style={s.page} className="fade-in">
             <h1 style={s.title}>{"סטטוס נסיעה"}</h1>
 
+            {chatNotice && !chatOpen && (
+                <div style={s.chatToast} role="status" aria-live="polite">
+                    <div style={s.chatToastIcon}>💬</div>
+                    <div>
+                        <div style={s.chatToastTitle}>{chatNotice.title}</div>
+                        <div style={s.chatToastPreview}>
+                            {chatNotice.senderName ? `${chatNotice.senderName}: ` : ""}{chatNotice.preview}
+                        </div>
+                        <button type="button" onClick={openChat} style={s.chatToastButton}>
+                            פתח צ'אט
+                        </button>
+                    </div>
+                    <button type="button" aria-label="סגור התראת הודעה" onClick={() => setChatNotice(null)} style={s.chatToastClose}>
+                        ×
+                    </button>
+                </div>
+            )}
+
             {/* ETA banner */}
             {eta && ["accepted", "driver_arriving"].includes(ride.status) && (
                 <div style={s.etaBanner} role="alert">
@@ -381,10 +468,21 @@ export default function RideStatusPage() {
             {/* Chat */}
             {ride.driverId && inRide && (
                 <div style={s.card}>
-                    <button type="button" onClick={() => setChatOpen(o => !o)}
-                        style={{ background: "none", padding: 0, color: "var(--primary)", fontWeight: 700, fontSize: 14, marginBottom: chatOpen ? 12 : 0 }}>
-                        💬 {chatPeer.title} {chatOpen ? "▲" : "▼"}
+                    <button type="button" onClick={chatOpen ? () => setChatOpen(false) : openChat}
+                        style={{ ...s.chatToggle, marginBottom: chatOpen ? 12 : unreadMessages > 0 ? 8 : 0 }}>
+                        <span>💬 {chatPeer.title}</span>
+                        {!chatOpen && unreadMessages > 0 && (
+                            <span style={s.chatBadge} aria-label={`${unreadMessages} הודעות חדשות`}>
+                                {unreadMessages > 9 ? "9+" : unreadMessages}
+                            </span>
+                        )}
+                        <span aria-hidden="true">{chatOpen ? "▲" : "▼"}</span>
                     </button>
+                    {!chatOpen && unreadMessages > 0 && (
+                        <div style={s.chatUnreadLine} role="status">
+                            מחכה לך הודעה חדשה. לחץ לפתיחת הצ'אט.
+                        </div>
+                    )}
                     {chatOpen && (
                         <>
                             <div style={s.chatBox} role="log" aria-live="polite">
