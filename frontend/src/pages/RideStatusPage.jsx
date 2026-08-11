@@ -16,6 +16,15 @@ const s = {
     val: { fontWeight: 600, fontSize: 14 },
     sosBtn: { width: "100%", background: "var(--danger)", color: "#fff", padding: 14, borderRadius: 10, fontSize: 16, fontWeight: 800, marginBottom: 10 },
     chatBox: { background: "#f8fafc", borderRadius: 10, padding: 12, maxHeight: 200, overflowY: "auto", marginBottom: 10 },
+    chatToggle: { position: "relative", display: "inline-flex", alignItems: "center", gap: 8, background: "none", padding: 0, color: "var(--primary)", fontWeight: 700, fontSize: 14 },
+    chatBadge: { minWidth: 20, height: 20, borderRadius: 999, background: "var(--danger)", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, padding: "0 6px" },
+    chatUnreadLine: { color: "var(--danger)", fontSize: 13, fontWeight: 700, marginBottom: 12 },
+    chatToast: { position: "fixed", top: 18, right: 18, zIndex: 50, width: "min(360px, calc(100vw - 32px))", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: 14, display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 12, alignItems: "start", direction: "rtl" },
+    chatToastIcon: { width: 34, height: 34, borderRadius: "50%", background: "rgba(79,70,229,0.10)", color: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 },
+    chatToastTitle: { fontWeight: 800, fontSize: 14, marginBottom: 3 },
+    chatToastPreview: { color: "var(--text-muted)", fontSize: 12, lineHeight: 1.4, marginBottom: 10 },
+    chatToastButton: { background: "var(--primary)", color: "#fff", borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 800 },
+    chatToastClose: { background: "none", color: "var(--text-muted)", padding: 0, fontSize: 20, lineHeight: 1 },
     etaBanner: {
         background: "linear-gradient(135deg, #dbeafe, #f0f9ff)",
         borderRadius: 12, padding: "14px 18px", marginBottom: 14,
@@ -45,11 +54,90 @@ function isAssignedDriverUser(ride, user) {
     ));
 }
 
+function idOf(value) {
+    if (!value) return "";
+    return String(value?._id || value);
+}
+
+function sameIdValue(left, right) {
+    return Boolean(idOf(left) && idOf(left) === idOf(right));
+}
+
+function profileBelongsToUser(profile, user) {
+    return sameIdValue(profile?.userId?._id || profile?.userId, user?.userId);
+}
+
+function carpoolPassengerSeats(ride) {
+    return Array.isArray(ride?.carpoolPassengers) ? ride.carpoolPassengers : [];
+}
+
+function carpoolPassengerCount(ride) {
+    const seatCount = carpoolPassengerSeats(ride)
+        .reduce((sum, seat) => sum + Number(seat.seatsNeeded || 0), 0);
+    return Math.max(Number(ride?.passengerCount || 0), seatCount || 0);
+}
+
+function carpoolDisplayStatus(ride) {
+    if (ride?.rideType === "carpool" && ride?.status === "accepted" && ride?.driverId) {
+        return STATUS_LABELS.driver_arriving;
+    }
+    return STATUS_LABELS[ride?.status] || STATUS_LABELS.searching;
+}
+
+function isPrimaryPassengerUser(ride, user) {
+    return Boolean(ride?.passengerId && (
+        sameIdValue(ride.passengerId?._id || ride.passengerId, user?.passengerId) ||
+        profileBelongsToUser(ride.passengerId, user)
+    ));
+}
+
+function isCarpoolPassengerUser(ride, user) {
+    return carpoolPassengerSeats(ride).some(seat => {
+        const passenger = seat?.passengerId;
+        return sameIdValue(passenger?._id || passenger, user?.passengerId) ||
+            profileBelongsToUser(passenger, user);
+    });
+}
+
+function currentCarpoolSeatForUser(ride, user) {
+    return carpoolPassengerSeats(ride).find(seat => {
+        const passenger = seat?.passengerId;
+        return sameIdValue(passenger?._id || passenger, user?.passengerId) ||
+            profileBelongsToUser(passenger, user);
+    }) || null;
+}
+
+function isRidePassengerUser(ride, user) {
+    return isPrimaryPassengerUser(ride, user) || isCarpoolPassengerUser(ride, user);
+}
+
+function completionPassengerRows(ride) {
+    const carpoolPassengers = carpoolPassengerSeats(ride);
+    if (ride?.rideType === "carpool" && carpoolPassengers.length > 0) {
+        return carpoolPassengers.map((seat, index) => ({
+            key: `completion-${idOf(seat.requestId || seat._id || seat.passengerId?._id || index)}`,
+            label: seat.passengerId?.userId?.fullName || `נוסע קרפול ${index + 1}`,
+            completed: Boolean(seat.passengerCompletedAt)
+        }));
+    }
+
+    return [{
+        key: "completion-passenger",
+        label: "הנוסע",
+        completed: Boolean(ride?.passengerCompletedAt)
+    }];
+}
+
 function getChatPeerInfo(ride, user) {
     const driverView = isAssignedDriverUser(ride, user);
-    const peerRole = driverView ? "הנוסע" : "הנהג";
+    const carpoolPassengers = carpoolPassengerSeats(ride);
+    const multipleCarpoolPassengers = driverView && ride?.rideType === "carpool" && carpoolPassengers.length > 1;
+    const peerRole = driverView
+        ? (multipleCarpoolPassengers ? "נוסעי הקרפול" : "הנוסע")
+        : "הנהג";
+    const firstCarpoolPassenger = carpoolPassengers[0]?.passengerId;
     const peerName = driverView
-        ? ride?.passengerId?.userId?.fullName
+        ? (multipleCarpoolPassengers ? "" : firstCarpoolPassenger?.userId?.fullName || ride?.passengerId?.userId?.fullName)
         : ride?.driverId?.userId?.fullName;
 
     return {
@@ -58,9 +146,42 @@ function getChatPeerInfo(ride, user) {
     };
 }
 
+function getIncomingChatNoticeTitle(ride, user) {
+    const manyCarpoolPassengers = ride?.rideType === "carpool" && carpoolPassengerSeats(ride).length > 1;
+    return isAssignedDriverUser(ride, user)
+        ? (manyCarpoolPassengers ? "מחכה לך הודעה חדשה מנוסעי הקרפול" : "מחכה לך הודעה חדשה מהנוסע")
+        : "מחכה לך הודעה חדשה מהנהג";
+}
+
+function messagePreview(message) {
+    const text = String(message || "").trim();
+    return text.length > 72 ? `${text.slice(0, 69)}...` : text;
+}
+
 function getRideParticipantInfo(ride) {
-    return [
-        {
+    const carpoolPassengers = carpoolPassengerSeats(ride);
+    const passengerCards = ride?.rideType === "carpool" && carpoolPassengers.length > 0
+        ? carpoolPassengers.map((seat, index) => {
+            const passenger = seat.passengerId;
+            const seatsText = Number(seat.seatsNeeded || 1) > 1
+                ? `${seat.seatsNeeded} מושבים`
+                : "מושב אחד";
+            return {
+                key: `carpool-${idOf(seat.requestId || seat._id || passenger?._id || index)}`,
+                title: `נוסע קרפול ${index + 1}`,
+                icon: "👤",
+                name: passenger?.userId?.fullName || "נוסע קרפול",
+                meta: passenger
+                    ? `⭐ ${passenger.ratingAverage || 5} · ${passenger.totalRides || 0} נסיעות`
+                    : "פרטי הנוסע יופיעו כאן",
+                extra: [
+                    seatsText,
+                    seat.finalPrice !== undefined ? `₪${seat.finalPrice}` : ""
+                ].filter(Boolean),
+                muted: !passenger
+            };
+        })
+        : [{
             key: "passenger",
             title: "פרטי הנוסע",
             icon: "👤",
@@ -69,7 +190,10 @@ function getRideParticipantInfo(ride) {
                 ? `⭐ ${ride.passengerId.ratingAverage || 5} · ${ride.passengerId.totalRides || 0} נסיעות`
                 : "פרטי הנוסע יופיעו כאן",
             muted: !ride?.passengerId
-        },
+        }];
+
+    return [
+        ...passengerCards,
         {
             key: "driver",
             title: "פרטי הנהג",
@@ -97,12 +221,16 @@ export default function RideStatusPage() {
     const [messages,   setMessages]   = useState([]);
     const [chatText,   setChatText]   = useState("");
     const [chatOpen,   setChatOpen]   = useState(false);
+    const [unreadMessages, setUnreadMessages] = useState(0);
+    const [chatNotice, setChatNotice] = useState(null);
     const [sosClicked, setSosClicked] = useState(false);
     const [eta,        setEta]        = useState(null);
     const [nearbyDrivers, setNearbyDrivers] = useState([]);
     const [userLoc,    setUserLoc]    = useState(null);
     const socketRef = useRef(null);
     const chatEndRef = useRef(null);
+    const chatOpenRef = useRef(false);
+    const chatNoticeTitleRef = useRef("מחכה לך הודעה חדשה");
     const prevStatus = useRef(null);
 
     // Get user location
@@ -113,6 +241,39 @@ export default function RideStatusPage() {
                 () => {}
             );
         }
+    }, []);
+
+    useEffect(() => {
+        chatOpenRef.current = chatOpen;
+        if (!chatOpen) return;
+
+        setUnreadMessages(0);
+        setChatNotice(null);
+        window.setTimeout(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 0);
+    }, [chatOpen]);
+
+    useEffect(() => {
+        chatNoticeTitleRef.current = getIncomingChatNoticeTitle(ride, user);
+    }, [ride, user]);
+
+    useEffect(() => {
+        if (!chatNotice) return undefined;
+
+        const timer = window.setTimeout(() => {
+            setChatNotice(current => current?.id === chatNotice.id ? null : current);
+        }, 9000);
+        return () => window.clearTimeout(timer);
+    }, [chatNotice]);
+
+    const openChat = useCallback(() => {
+        setChatOpen(true);
+        setUnreadMessages(0);
+        setChatNotice(null);
+        window.setTimeout(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 0);
     }, []);
 
     const fetchRide = useCallback(async () => {
@@ -169,8 +330,20 @@ export default function RideStatusPage() {
 
         socket.on("location-update", ({ lat, lng }) => setDriverLoc({ lat, lng }));
         socket.on("new-message", (msg) => {
+            const incoming = String(msg.sender || "") !== String(user?.userId || "");
             setMessages(m => [...m, msg]);
-            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            window.setTimeout(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, 0);
+            if (incoming && !chatOpenRef.current) {
+                setUnreadMessages(count => count + 1);
+                setChatNotice({
+                    id: Date.now(),
+                    title: chatNoticeTitleRef.current,
+                    senderName: msg.senderName || "",
+                    preview: messagePreview(msg.message)
+                });
+            }
         });
         socket.on("ride-cancelled", ({ reason }) => {
             if (reason === "auto_timeout") {
@@ -263,7 +436,7 @@ export default function RideStatusPage() {
     if (loading) return <div className="spinner" aria-label={"טוען..."} />;
     if (!ride)   return null;
 
-    const st = STATUS_LABELS[ride.status] || STATUS_LABELS.searching;
+    const st = carpoolDisplayStatus(ride);
     const inRide = ["accepted", "driver_arriving", "in_progress"].includes(ride.status);
     const pickupLoc = ride.pickupLocation?.lat ? { lat: ride.pickupLocation.lat, lng: ride.pickupLocation.lng } : null;
     const isAssignedDriver = ride.driverId && (
@@ -271,12 +444,20 @@ export default function RideStatusPage() {
         ride.driverId?.userId?._id === user?.userId ||
         user?.role === "admin"
     );
+    const isRidePassenger = isRidePassengerUser(ride, user);
+    const canConfirmCompletion = Boolean(isAssignedDriver || isRidePassenger);
+    const currentCarpoolSeat = currentCarpoolSeatForUser(ride, user);
+    const passengerCompletionRows = completionPassengerRows(ride);
+    const isCarpoolRide = ride.rideType === "carpool";
     const chatPeer = getChatPeerInfo(ride, user);
     const participantInfo = getRideParticipantInfo(ride);
     // Whether this viewer has already confirmed the ride ended.
     const myCompletionConfirmed = isAssignedDriver
         ? Boolean(ride.driverCompletedAt)
-        : Boolean(ride.passengerCompletedAt);
+        : Boolean(isRidePassenger && (currentCarpoolSeat ? currentCarpoolSeat.passengerCompletedAt : ride.passengerCompletedAt));
+    const canPayAfterOwnCarpoolCompletion = Boolean(
+        isCarpoolRide && isRidePassenger && !isAssignedDriver && myCompletionConfirmed
+    );
 
     // Map markers: nearby drivers for passenger
     const driverMarkers = ride.status === "searching"
@@ -289,6 +470,24 @@ export default function RideStatusPage() {
     return (
         <div style={s.page} className="fade-in">
             <h1 style={s.title}>{"סטטוס נסיעה"}</h1>
+
+            {chatNotice && !chatOpen && (
+                <div style={s.chatToast} role="status" aria-live="polite">
+                    <div style={s.chatToastIcon}>💬</div>
+                    <div>
+                        <div style={s.chatToastTitle}>{chatNotice.title}</div>
+                        <div style={s.chatToastPreview}>
+                            {chatNotice.senderName ? `${chatNotice.senderName}: ` : ""}{chatNotice.preview}
+                        </div>
+                        <button type="button" onClick={openChat} style={s.chatToastButton}>
+                            פתח צ'אט
+                        </button>
+                    </div>
+                    <button type="button" aria-label="סגור התראת הודעה" onClick={() => setChatNotice(null)} style={s.chatToastClose}>
+                        ×
+                    </button>
+                </div>
+            )}
 
             {/* ETA banner */}
             {eta && ["accepted", "driver_arriving"].includes(ride.status) && (
@@ -317,7 +516,7 @@ export default function RideStatusPage() {
                     ["🏁 יעד", ride.destinationLocation?.address],
                     ["סוג נסיעה",            ride.rideType === "carpool" ? "🤝 קרפול" : "🚕 נסיעה"],
                     ["מחיר כולל",          ride.finalPrice ? `₪${ride.finalPrice}` : "טרם נקבע"],
-                    ["נוסעים",          ride.passengerCount],
+                    ["נוסעים",          carpoolPassengerCount(ride) || ride.passengerCount],
                     ...(ride.scheduledTime ? [["זמן מתוכנן", new Date(ride.scheduledTime).toLocaleString("he-IL")]] : []),
                 ].map(([label, val]) => (
                     <div key={label} style={s.row}>
@@ -381,10 +580,21 @@ export default function RideStatusPage() {
             {/* Chat */}
             {ride.driverId && inRide && (
                 <div style={s.card}>
-                    <button type="button" onClick={() => setChatOpen(o => !o)}
-                        style={{ background: "none", padding: 0, color: "var(--primary)", fontWeight: 700, fontSize: 14, marginBottom: chatOpen ? 12 : 0 }}>
-                        💬 {chatPeer.title} {chatOpen ? "▲" : "▼"}
+                    <button type="button" onClick={chatOpen ? () => setChatOpen(false) : openChat}
+                        style={{ ...s.chatToggle, marginBottom: chatOpen ? 12 : unreadMessages > 0 ? 8 : 0 }}>
+                        <span>💬 {chatPeer.title}</span>
+                        {!chatOpen && unreadMessages > 0 && (
+                            <span style={s.chatBadge} aria-label={`${unreadMessages} הודעות חדשות`}>
+                                {unreadMessages > 9 ? "9+" : unreadMessages}
+                            </span>
+                        )}
+                        <span aria-hidden="true">{chatOpen ? "▲" : "▼"}</span>
                     </button>
+                    {!chatOpen && unreadMessages > 0 && (
+                        <div style={s.chatUnreadLine} role="status">
+                            מחכה לך הודעה חדשה. לחץ לפתיחת הצ'אט.
+                        </div>
+                    )}
                     {chatOpen && (
                         <>
                             <div style={s.chatBox} role="log" aria-live="polite">
@@ -418,11 +628,13 @@ export default function RideStatusPage() {
                 </button>
             )}
             {/* A ride ends only when both sides confirm it did. */}
-            {ride.status === "in_progress" && (
+            {ride.status === "in_progress" && canConfirmCompletion && (
                 <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 10 }}>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>סיום הנסיעה</div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
-                        הנסיעה נסגרת רק כששני הצדדים מאשרים.
+                        {isCarpoolRide
+                            ? "כל נוסע מאשר כשהוא יורד ויכול לשלם מיד. הנסיעה נסגרת סופית רק כשהנהג וכל נוסעי הקרפול מאשרים."
+                            : "הנסיעה נסגרת רק כששני הצדדים מאשרים."}
                     </div>
 
                     <div style={{ display: "grid", gap: 6, marginBottom: 12, fontSize: 13 }}>
@@ -432,17 +644,26 @@ export default function RideStatusPage() {
                                 {ride.driverCompletedAt ? "✅ אישר" : "⏳ ממתין לאישור"}
                             </span>
                         </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span>🧍 הנוסע</span>
-                            <span style={{ fontWeight: 700, color: ride.passengerCompletedAt ? "var(--success)" : "var(--text-muted)" }}>
-                                {ride.passengerCompletedAt ? "✅ אישר" : "⏳ ממתין לאישור"}
-                            </span>
-                        </div>
+                        {passengerCompletionRows.map(row => (
+                            <div key={row.key} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span>🧍 {row.label}</span>
+                                <span style={{ fontWeight: 700, color: row.completed ? "var(--success)" : "var(--text-muted)" }}>
+                                    {row.completed ? "✅ אישר" : "⏳ ממתין לאישור"}
+                                </span>
+                            </div>
+                        ))}
                     </div>
 
                     {myCompletionConfirmed ? (
-                        <div role="status" style={{ background: "#d1fae5", color: "#065f46", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700 }}>
-                            ✅ אישרת. ממתינים לאישור {isAssignedDriver ? "הנוסע" : "הנהג"}.
+                        <div style={{ display: "grid", gap: 10 }}>
+                            <div role="status" style={{ background: "#d1fae5", color: "#065f46", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700 }}>
+                                ✅ אישרת. ממתינים לאישור {isAssignedDriver ? (isCarpoolRide ? "כל הנוסעים" : "הנוסע") : "הנהג"}.
+                            </div>
+                            {canPayAfterOwnCarpoolCompletion && (
+                                <button className="btn-primary" onClick={() => navigate(`/payment/${id}`)} style={{ width: "100%" }}>
+                                    המשך לתשלום →
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <button className="btn-primary" onClick={() => updateRideStep("complete")} style={{ width: "100%" }}>
@@ -457,9 +678,34 @@ export default function RideStatusPage() {
                     {"בטל נסיעה"}
                 </button>
             )}
-            {ride.status === "completed" && (
-                <button className="btn-primary" onClick={() => navigate(isAssignedDriver ? `/rate/${id}?direction=driver_to_passenger` : `/payment/${id}`)}>
-                    ⭐ {isAssignedDriver ? "דרג נוסע" : "המשך לתשלום"} →
+            {ride.status === "completed" && isAssignedDriver && (
+                isCarpoolRide && carpoolPassengerSeats(ride).length > 0 ? (
+                    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 10 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 10 }}>דרג נוסעי קרפול</div>
+                        <div style={{ display: "grid", gap: 8 }}>
+                            {carpoolPassengerSeats(ride).map((seat, index) => {
+                                const passenger = seat.passengerId;
+                                const passengerId = idOf(passenger?._id || passenger);
+                                return (
+                                    <button key={idOf(seat.requestId || seat._id || passengerId || index)}
+                                        className="btn-primary"
+                                        onClick={() => navigate(`/rate/${id}?direction=driver_to_passenger&passengerId=${passengerId}`)}
+                                        disabled={!passengerId}>
+                                        ⭐ דרג {passenger?.userId?.fullName || `נוסע ${index + 1}`} →
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ) : (
+                    <button className="btn-primary" onClick={() => navigate(`/rate/${id}?direction=driver_to_passenger`)}>
+                        ⭐ דרג נוסע →
+                    </button>
+                )
+            )}
+            {ride.status === "completed" && !isAssignedDriver && isRidePassenger && (
+                <button className="btn-primary" onClick={() => navigate(`/payment/${id}`)}>
+                    ⭐ המשך לתשלום →
                 </button>
             )}
             {inRide && (

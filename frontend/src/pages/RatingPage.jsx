@@ -75,12 +75,32 @@ function getRatingText(stars) {
     return ["", "לא טוב", "בסדר", "טוב", "מצוין", "מושלם!"][stars];
 }
 
+function idOf(value) {
+    if (!value) return "";
+    return String(value?._id || value);
+}
+
+function carpoolPassengerSeats(ride) {
+    return Array.isArray(ride?.carpoolPassengers) ? ride.carpoolPassengers : [];
+}
+
+function ratingTargetPassenger(ride, passengerId) {
+    if (!passengerId) return ride?.passengerId;
+    if (idOf(ride?.passengerId?._id || ride?.passengerId) === String(passengerId)) {
+        return ride?.passengerId;
+    }
+    const seat = carpoolPassengerSeats(ride)
+        .find(item => idOf(item?.passengerId?._id || item?.passengerId) === String(passengerId));
+    return seat?.passengerId || null;
+}
+
 export default function RatingPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const requestedDirection = searchParams.get("direction");
+    const requestedPassengerId = searchParams.get("passengerId");
     const isDriverRatingPassenger =
         requestedDirection === RATING_DIRECTIONS.DRIVER_TO_PASSENGER ||
         (!requestedDirection && user?.role === "driver");
@@ -117,7 +137,7 @@ export default function RatingPage() {
         setError("");
     }, [direction]);
 
-    const target = isDriverRatingPassenger ? ride?.passengerId : ride?.driverId;
+    const target = isDriverRatingPassenger ? ratingTargetPassenger(ride, requestedPassengerId) : ride?.driverId;
     const targetName = target?.userId?.fullName || copy.targetFallback;
     const targetRating = target?.ratingAverage;
     const targetRides = target?.totalRides;
@@ -135,11 +155,15 @@ export default function RatingPage() {
 
     const submit = async () => {
         if (stars === 0) return setError("נא לתת דירוג");
+        if (isDriverRatingPassenger && !idOf(target?._id || target)) {
+            return setError("לא נמצא נוסע לדירוג");
+        }
         setError("");
         setLoading(true);
         try {
             await api.post("/ratings", {
                 rideId: id,
+                ...(isDriverRatingPassenger && idOf(target?._id || target) ? { passengerId: idOf(target?._id || target) } : {}),
                 direction,
                 rating: stars,
                 comment,

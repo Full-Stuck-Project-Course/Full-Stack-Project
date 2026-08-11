@@ -67,8 +67,9 @@ function formatAmount(amount) {
 
 async function notifyPaymentApproved(source, { ride, payment }) {
     try {
+        const paidPassengerId = payment.passengerId?._id || payment.passengerId || ride.passengerId;
         const [passenger, driver] = await Promise.all([
-            PassengerProfile.findById(ride.passengerId).select("userId"),
+            PassengerProfile.findById(paidPassengerId).select("userId"),
             ride.driverId ? DriverProfile.findById(ride.driverId).select("userId") : null
         ]);
 

@@ -26,11 +26,52 @@ const s = {
     label: { display: "block", marginBottom: 6, fontWeight: 600, fontSize: 14 },
     group: { marginBottom: 16 },
     row: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
+    helper: { color: "var(--text-muted)", fontSize: 12, marginTop: 6, lineHeight: 1.5 },
+    paymentSummary: { border: "1px solid #bfdbfe", background: "#eff6ff", borderRadius: 12, padding: "12px 14px", marginBottom: 14 },
+    paymentSummaryHeader: { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" },
+    paymentActions: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
+    secondaryBtn: { background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)", padding: "9px 14px", borderRadius: 10 },
+    dangerBtn: { background: "#fee2e2", color: "var(--danger)", padding: "9px 14px", borderRadius: 10 },
     tag: (c) => ({ display: "inline-block", background: c + "18", color: c, padding: "3px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700 }),
 };
 
 const ROLE_LABELS = { passenger: "נוסע", driver: "נהג", both: "נהג ונוסע", admin: "מנהל" };
 const ROLE_COLORS = { passenger: "#3b82f6", driver: "#10b981", both: "#8b5cf6", admin: "#ef4444" };
+
+function digitsOnly(value) {
+    return String(value || "").replace(/\D/g, "");
+}
+
+function formatCardNumber(value) {
+    return digitsOnly(value).slice(0, 19).replace(/(.{4})/g, "$1 ").trim();
+}
+
+function getCurrentMonth() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function cardBrandLabel(brand) {
+    const labels = {
+        visa: "Visa",
+        mastercard: "Mastercard",
+        amex: "American Express",
+        other: "כרטיס אשראי"
+    };
+    return labels[brand] || labels.other;
+}
+
+function hasSavedPaymentMethod(method) {
+    return Boolean(method?.cardLast4 && method?.expiry);
+}
+
+function validatePaymentMethodForm(form) {
+    const cardDigits = digitsOnly(form.cardNumber);
+    if (!String(form.cardholderName || "").trim()) return "שם בעל הכרטיס הוא שדה חובה";
+    if (cardDigits.length < 12 || cardDigits.length > 19) return "מספר כרטיס חייב להכיל 12 עד 19 ספרות";
+    if (!form.expiry || form.expiry < getCurrentMonth()) return "תוקף הכרטיס חייב להיות החודש הנוכחי או עתידי";
+    return "";
+}
 
 const PROFILE_PHOTO_VERIFICATION = {
     title: "מאשרים את תמונת הפרופיל שלך",
@@ -84,19 +125,47 @@ export default function ProfilePage() {
     const [showPw,   setShowPw]   = useState({ currentPassword: false, newPassword: false, confirm: false });
     const [idVerification, setIdVerification] = useState(null);
     const [photoApproved, setPhotoApproved] = useState(false);
+    const [passenger, setPassenger] = useState(null);
+    const [paymentForm, setPaymentForm] = useState({ cardholderName: "", cardNumber: "", expiry: "" });
+    const [paymentSaving, setPaymentSaving] = useState(false);
+    const [paymentSaved, setPaymentSaved] = useState(false);
+    const [paymentError, setPaymentError] = useState("");
 
     useEffect(() => {
+        let active = true;
         (async () => {
             try {
+                if (!userId) return;
                 const { data } = await api.get(`/users/${userId}`);
+                if (!active) return;
                 setProfile(data);
                 setForm({
                     fullName: data.fullName,
                     phone: data.phone,
                     preferredLanguage: data.preferredLanguage
                 });
-            } finally { setLoading(false); }
+                let passengerData = null;
+                if (data.passengerId) {
+                    const passengerRes = await api.get(`/passengers/${data.passengerId}`).catch(() => null);
+                    passengerData = passengerRes?.data || null;
+                }
+                if (!passengerData && ["passenger", "both", "admin"].includes(data.role)) {
+                    const passengerRes = await api.get("/passengers").catch(() => ({ data: [] }));
+                    passengerData = (passengerRes.data || []).find(p => String(p.userId?._id || p.userId) === String(userId)) || null;
+                }
+                if (!active) return;
+                setPassenger(passengerData);
+                const method = passengerData?.defaultPaymentMethod;
+                setPaymentForm({
+                    cardholderName: method?.cardholderName || data.fullName || "",
+                    cardNumber: "",
+                    expiry: method?.expiry || ""
+                });
+            } finally {
+                if (active) setLoading(false);
+            }
         })();
+        return () => { active = false; };
     }, [userId]);
 
     const [formErrors, setFormErrors] = useState({});
@@ -112,6 +181,68 @@ export default function ProfilePage() {
                 setFormErrors(er => ({ ...er, phone: "מספר טלפון חייב להתחיל ב-05" }));
             else if (digits.length > 0 && digits.length < 10)
                 setFormErrors(er => ({ ...er, phone: `חסרות ${10 - digits.length} ספרות` }));
+        }
+    };
+
+    const setPaymentField = (field, value) => {
+        setPaymentForm(prev => ({
+            ...prev,
+            [field]: field === "cardNumber" ? formatCardNumber(value) : value
+        }));
+        setPaymentError("");
+        setPaymentSaved(false);
+    };
+
+    const handleSavePaymentMethod = async (e) => {
+        e.preventDefault();
+        if (!passenger?._id) return;
+        const validationError = validatePaymentMethodForm(paymentForm);
+        if (validationError) return setPaymentError(validationError);
+
+        setPaymentSaving(true);
+        setPaymentError("");
+        try {
+            const { data } = await api.put(`/passengers/${passenger._id}`, {
+                defaultPaymentMethod: paymentForm
+            });
+            setPassenger(data.passenger);
+            const method = data.passenger?.defaultPaymentMethod;
+            setPaymentForm({
+                cardholderName: method?.cardholderName || paymentForm.cardholderName,
+                cardNumber: "",
+                expiry: method?.expiry || paymentForm.expiry
+            });
+            setPaymentSaved(true);
+            setTimeout(() => setPaymentSaved(false), 2500);
+        } catch (err) {
+            setPaymentError(err.response?.data?.error || "שגיאה בשמירת אמצעי התשלום");
+        } finally {
+            setPaymentSaving(false);
+        }
+    };
+
+    const handleRemovePaymentMethod = async () => {
+        if (!passenger?._id) return;
+        if (!window.confirm("להסיר את אמצעי התשלום השמור?")) return;
+
+        setPaymentSaving(true);
+        setPaymentError("");
+        try {
+            const { data } = await api.put(`/passengers/${passenger._id}`, {
+                defaultPaymentMethod: null
+            });
+            setPassenger(data.passenger);
+            setPaymentForm(prev => ({
+                cardholderName: profile?.fullName || prev.cardholderName,
+                cardNumber: "",
+                expiry: ""
+            }));
+            setPaymentSaved(true);
+            setTimeout(() => setPaymentSaved(false), 2500);
+        } catch (err) {
+            setPaymentError(err.response?.data?.error || "שגיאה בהסרת אמצעי התשלום");
+        } finally {
+            setPaymentSaving(false);
         }
     };
 
@@ -229,6 +360,9 @@ export default function ProfilePage() {
     const verifyLabel = documentStatusLabel(profile?.idVerificationStatus, hasIdPhoto);
     const verifyIcon = documentStatusIcon(profile?.idVerificationStatus, hasIdPhoto);
     const photoStatus = documentStatus(null, Boolean(profile?.profileImage));
+    const savedPaymentMethod = passenger?.defaultPaymentMethod;
+    const hasSavedCard = hasSavedPaymentMethod(savedPaymentMethod);
+    const minPaymentExpiry = getCurrentMonth();
 
     return (
         <div style={s.page} className="fade-in">
@@ -329,6 +463,96 @@ export default function ProfilePage() {
                     </button>
                 </form>
             </div>
+
+            {passenger && (
+                <div style={s.card}>
+                    <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>אמצעי תשלום</div>
+
+                    {hasSavedCard && (
+                        <div style={s.paymentSummary}>
+                            <div style={s.paymentSummaryHeader}>
+                                <div>
+                                    <div style={{ fontWeight: 800 }}>כרטיס שמור בפרופיל</div>
+                                    <div style={{ fontSize: 14, marginTop: 3 }}>
+                                        {cardBrandLabel(savedPaymentMethod.cardBrand)} · <strong dir="ltr">•••• {savedPaymentMethod.cardLast4}</strong>
+                                    </div>
+                                    <div style={s.helper}>בתוקף עד {savedPaymentMethod.expiry}</div>
+                                </div>
+                                <button
+                                    type="button"
+                                    style={s.dangerBtn}
+                                    onClick={handleRemovePaymentMethod}
+                                    disabled={paymentSaving}
+                                >
+                                    הסר
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <form onSubmit={handleSavePaymentMethod}>
+                        <div style={s.group}>
+                            <label style={s.label}>שם בעל הכרטיס</label>
+                            <input
+                                autoComplete="cc-name"
+                                value={paymentForm.cardholderName || ""}
+                                onChange={e => setPaymentField("cardholderName", e.target.value)}
+                                disabled={paymentSaving}
+                            />
+                        </div>
+
+                        <div style={s.group}>
+                            <label style={s.label}>{hasSavedCard ? "מספר כרטיס חדש" : "מספר כרטיס"}</label>
+                            <input
+                                autoComplete="cc-number"
+                                inputMode="numeric"
+                                dir="ltr"
+                                placeholder="1234 5678 9012 3456"
+                                maxLength={23}
+                                value={paymentForm.cardNumber || ""}
+                                onChange={e => setPaymentField("cardNumber", e.target.value)}
+                                disabled={paymentSaving}
+                            />
+                        </div>
+
+                        <div style={s.group}>
+                            <label style={s.label}>תוקף</label>
+                            <input
+                                type="month"
+                                autoComplete="cc-exp"
+                                min={minPaymentExpiry}
+                                value={paymentForm.expiry || ""}
+                                onChange={e => setPaymentField("expiry", e.target.value)}
+                                disabled={paymentSaving}
+                            />
+                            <div style={s.helper}>נשמרים רק סוג הכרטיס, 4 ספרות אחרונות ותוקף. מספר מלא ו-CVV לא נשמרים.</div>
+                        </div>
+
+                        {paymentError && <p className="error-msg" role="alert">{paymentError}</p>}
+                        {paymentSaved && <p className="success-msg" role="status">אמצעי התשלום עודכן</p>}
+
+                        <div style={s.paymentActions}>
+                            <button type="submit" className="btn-primary" disabled={paymentSaving} style={{ width: "auto" }}>
+                                {paymentSaving ? "שומר..." : hasSavedCard ? "החלף כרטיס שמור" : "שמור אמצעי תשלום"}
+                            </button>
+                            {hasSavedCard && (
+                                <button
+                                    type="button"
+                                    style={s.secondaryBtn}
+                                    onClick={() => setPaymentForm({
+                                        cardholderName: savedPaymentMethod.cardholderName || profile?.fullName || "",
+                                        cardNumber: "",
+                                        expiry: savedPaymentMethod.expiry || ""
+                                    })}
+                                    disabled={paymentSaving}
+                                >
+                                    נקה שדות
+                                </button>
+                            )}
+                        </div>
+                    </form>
+                </div>
+            )}
 
             {/* ID verification */}
             <div style={s.card}>

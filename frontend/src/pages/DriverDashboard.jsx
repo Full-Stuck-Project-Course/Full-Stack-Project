@@ -44,6 +44,29 @@ const DRIVER_HEARTBEAT_INTERVAL_MS = 30_000;
 
 const ACTIVE_RIDE_STATUSES = ["searching", "accepted", "driver_arriving", "in_progress"];
 
+const rideStatusText = {
+    searching: "מחפש נהג",
+    accepted: "אושר",
+    driver_arriving: "בדרך לנוסע",
+    in_progress: "בנסיעה"
+};
+
+function idOf(value) {
+    if (!value) return "";
+    return String(value?._id || value);
+}
+
+function carpoolPassengerSeats(ride) {
+    return Array.isArray(ride?.carpoolPassengers) ? ride.carpoolPassengers : [];
+}
+
+function rideStatusLabel(ride) {
+    if (ride?.rideType === "carpool" && ride?.status === "accepted" && ride?.driverId) {
+        return rideStatusText.driver_arriving;
+    }
+    return rideStatusText[ride?.status] || ride?.status;
+}
+
 // A scheduled booking needs its date as well as its time — a bare time reads as
 // "today" and hides that the passenger asked for another day.
 function formatScheduledTime(value) {
@@ -64,6 +87,7 @@ export default function DriverDashboard() {
     const navigate      = useNavigate();
     const [driver,      setDriver]      = useState(null);
     const [openRides,   setOpenRides]   = useState([]);
+    const [activeRides, setActiveRides] = useState([]);
     const [carpoolRequests, setCarpoolRequests] = useState([]);
     const [activeCarpoolRide, setActiveCarpoolRide] = useState(null);
     const [carpoolError, setCarpoolError] = useState("");
@@ -80,6 +104,9 @@ export default function DriverDashboard() {
     const [statusSaving, setStatusSaving] = useState(false);
     const socketRef = useRef(null);
     const driverId = driver?._id;
+    const canApproveCarpoolRequest = Boolean(activeCarpoolRide) ||
+        driver?.status === "available" ||
+        driver?.status === "busy";
 
     const fetchAll = useCallback(async () => {
         try {
@@ -106,12 +133,18 @@ export default function DriverDashboard() {
                 setRatings(ratingRes.data?.slice(0, 5) || []);
                 setCompletedRides(extractItems(completedRes.data).slice(0, 5));
                 setCarpoolRequests(carpoolRes.data || []);
+                const ownRides = extractItems(ownRidesRes.data);
+                const activeDriverRides = ownRides.filter(ride => ACTIVE_RIDE_STATUSES.includes(ride.status));
+                setActiveRides(activeDriverRides);
                 // A carpool the driver is already running: further passengers
                 // join it instead of opening a second ride.
-                setActiveCarpoolRide(extractItems(ownRidesRes.data).find(ride =>
+                setActiveCarpoolRide(activeDriverRides.find(ride =>
                     ride.rideType === "carpool" &&
                     ACTIVE_RIDE_STATUSES.includes(ride.status)
                 ) || null);
+            } else {
+                setActiveRides([]);
+                setActiveCarpoolRide(null);
             }
 
             api.get("/maps/demand").then(r => setDemand(r.data)).catch(() => {});
@@ -394,6 +427,34 @@ export default function DriverDashboard() {
                 </div>
             </div>
 
+            {activeRides.length > 0 && (
+                <div style={{ ...s.card, borderColor: "var(--primary)", background: "linear-gradient(135deg, rgba(79,70,229,0.08), var(--surface))" }}>
+                    <div style={{ fontWeight: 800, marginBottom: 12, fontSize: 15 }}>נסיעה פעילה</div>
+                    {activeRides.map(ride => (
+                        <div key={ride._id} style={{ ...s.rideReq, background: "var(--surface)" }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    📍 {ride.pickupLocation?.address}
+                                </div>
+                                <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    🏁 {ride.destinationLocation?.address}
+                                </div>
+                                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap" }}>
+                                    <span>{rideStatusLabel(ride)}</span>
+                                    <span>{ride.rideType === "carpool" ? "קרפול" : "נסיעה"}</span>
+                                    {ride.passengerCount > 0 && <span>{ride.passengerCount} נוסעים</span>}
+                                    {ride.finalPrice > 0 && <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{ride.finalPrice}</span>}
+                                </div>
+                            </div>
+                            <button type="button" onClick={() => navigate(`/ride/${ride._id}`)}
+                                style={{ background: "var(--primary)", color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
+                                חזור לנסיעה
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             {/* Driver alerts */}
             {alerts.filter(a => !a.isRead).length > 0 && (
                 <div style={s.card}>
@@ -462,43 +523,53 @@ export default function DriverDashboard() {
                         <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)" }}>
                             אין בקשות קרפול כרגע
                         </div>
-                    ) : carpoolRequests.map(request => (
-                        <div key={request._id} style={s.rideReq}>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
-                                    📍 {request.pickupLocation?.address}
-                                </div>
-                                <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4 }}>
-                                    🏁 {request.destinationLocation?.address}
-                                </div>
-                                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap" }}>
-                                    <span>👤 {request.passengerId?.userId?.fullName || "נוסע"}</span>
-                                    <span>💺 {request.seatsNeeded || 1} מושבים</span>
-                                    {request.pricePerSeat > 0 && (
-                                        <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{request.pricePerSeat} למושב</span>
+                    ) : carpoolRequests.map(request => {
+                        const requestFinalPrice = Number(request.finalPrice || 0);
+                        const requestSeatPrice = Number(request.pricePerSeat || 0);
+                        const requestSeats = Number(request.seatsNeeded || 1);
+                        return (
+                            <div key={request._id} style={s.rideReq}>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+                                        📍 {request.pickupLocation?.address}
+                                    </div>
+                                    <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4 }}>
+                                        🏁 {request.destinationLocation?.address}
+                                    </div>
+                                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap" }}>
+                                        <span>👤 {request.passengerId?.userId?.fullName || "נוסע"}</span>
+                                        <span>💺 {requestSeats} מושבים</span>
+                                        {requestFinalPrice > 0 ? (
+                                            <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{requestFinalPrice} סה"כ</span>
+                                        ) : requestSeatPrice > 0 && (
+                                            <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{requestSeatPrice} למושב</span>
+                                        )}
+                                        {requestFinalPrice > 0 && requestSeatPrice > 0 && requestSeats > 1 && (
+                                            <span style={{ fontWeight: 700, color: "var(--success)" }}>₪{requestSeatPrice} למושב</span>
+                                        )}
+                                        {request.requestedTime && (
+                                            <span>🕐 {formatScheduledTime(request.requestedTime)}</span>
+                                        )}
+                                    </div>
+                                    {request.notes && (
+                                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>📝 {request.notes}</div>
                                     )}
-                                    {request.requestedTime && (
-                                        <span>🕐 {formatScheduledTime(request.requestedTime)}</span>
-                                    )}
                                 </div>
-                                {request.notes && (
-                                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>📝 {request.notes}</div>
-                                )}
+                                <button
+                                    type="button"
+                                    disabled={approvingRequestId === request._id || !canApproveCarpoolRequest}
+                                    onClick={() => approveCarpoolRequest(request._id)}
+                                    style={{
+                                        background: "var(--success)", color: "#fff", padding: "10px 18px",
+                                        borderRadius: 10, fontSize: 14, fontWeight: 700, flexShrink: 0,
+                                        opacity: approvingRequestId === request._id || !canApproveCarpoolRequest ? 0.55 : 1
+                                    }}>
+                                    {approvingRequestId === request._id ? "מאשר..." : "אשר נוסע ✓"}
+                                </button>
                             </div>
-                            <button
-                                type="button"
-                                disabled={approvingRequestId === request._id || (!activeCarpoolRide && driver.status !== "available")}
-                                onClick={() => approveCarpoolRequest(request._id)}
-                                style={{
-                                    background: "var(--success)", color: "#fff", padding: "10px 18px",
-                                    borderRadius: 10, fontSize: 14, fontWeight: 700, flexShrink: 0,
-                                    opacity: approvingRequestId === request._id || (!activeCarpoolRide && driver.status !== "available") ? 0.55 : 1
-                                }}>
-                                {approvingRequestId === request._id ? "מאשר..." : "אשר נוסע ✓"}
-                            </button>
-                        </div>
-                    ))}
-                    {!activeCarpoolRide && driver.status !== "available" && carpoolRequests.length > 0 && (
+                        );
+                    })}
+                    {!canApproveCarpoolRequest && carpoolRequests.length > 0 && (
                         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
                             עבור לסטטוס "זמין" כדי לפתוח נסיעת קרפול חדשה.
                         </div>
@@ -540,10 +611,28 @@ export default function DriverDashboard() {
                                     {ride.finalPrice > 0 && ` · ₪${ride.finalPrice}`}
                                 </div>
                             </div>
-                            <button type="button" onClick={() => navigate(`/rate/${ride._id}?direction=driver_to_passenger`)}
-                                style={{ background: "#fef3c7", color: "#92400e", padding: "7px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-                                דרג נוסע
-                            </button>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end", flexShrink: 0 }}>
+                                {ride.rideType === "carpool" && carpoolPassengerSeats(ride).length > 0
+                                    ? carpoolPassengerSeats(ride).map((seat, index) => {
+                                        const passenger = seat.passengerId;
+                                        const passengerId = idOf(passenger?._id || passenger);
+                                        return (
+                                            <button key={idOf(seat.requestId || seat._id || passengerId || index)}
+                                                type="button"
+                                                disabled={!passengerId}
+                                                onClick={() => navigate(`/rate/${ride._id}?direction=driver_to_passenger&passengerId=${passengerId}`)}
+                                                style={{ background: "#fef3c7", color: "#92400e", padding: "7px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700 }}>
+                                                דרג {passenger?.userId?.fullName || `נוסע ${index + 1}`}
+                                            </button>
+                                        );
+                                    })
+                                    : (
+                                        <button type="button" onClick={() => navigate(`/rate/${ride._id}?direction=driver_to_passenger`)}
+                                            style={{ background: "#fef3c7", color: "#92400e", padding: "7px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700 }}>
+                                            דרג נוסע
+                                        </button>
+                                    )}
+                            </div>
                         </div>
                     ))}
                 </div>

@@ -7,7 +7,9 @@ const PassengerProfile = require("../db/models/PassengerProfile");
 const Ride = require("../db/models/Ride");
 const Vehicle = require("../db/models/Vehicle");
 const { activeBookingConflict, findActiveBookingForPassenger } = require("../utils/activeBooking");
+const { findUnresolvedPaymentForPassenger, unresolvedPaymentConflict } = require("../utils/unresolvedPayments");
 const { calculateFareForRoute } = require("../utils/routePricing");
+const { normalizeVehicleType } = require("../utils/driverDiscovery");
 const {
     canAccessPassenger,
     forbidden,
@@ -59,6 +61,62 @@ function parseNonNegativeNumber(value, fallback) {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function positiveNumber(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function quotedVehicleType(value) {
+    return normalizeVehicleType(value) || "regular";
+}
+
+function carpoolQuoteFromFare(fare, vehicleType) {
+    return {
+        vehicleType,
+        distanceKm: fare.distanceKm,
+        estimatedDurationMinutes: fare.estimatedDurationMinutes,
+        basePrice: fare.basePrice,
+        surgeMultiplier: fare.surgeMultiplier,
+        finalPrice: fare.finalPrice,
+        pricePerSeat: fare.pricePerPerson
+    };
+}
+
+async function calculateCarpoolQuote({ pickupLocation, destinationLocation, vehicleType, seatsNeeded }) {
+    const quotedType = quotedVehicleType(vehicleType);
+    const { fare } = await calculateFareForRoute({
+        pickupLocation,
+        destinationLocation,
+        vehicleType: quotedType,
+        rideType: "carpool",
+        passengerCount: seatsNeeded
+    });
+    return carpoolQuoteFromFare(fare, quotedType);
+}
+
+async function quoteForRideOpening(request, vehicle) {
+    const finalPrice = positiveNumber(request.finalPrice);
+    if (finalPrice > 0) {
+        const seatsNeeded = Math.max(1, Number(request.seatsNeeded || 1));
+        return {
+            vehicleType: quotedVehicleType(request.vehicleType || vehicle.vehicleType),
+            distanceKm: positiveNumber(request.distanceKm),
+            estimatedDurationMinutes: positiveNumber(request.estimatedDurationMinutes),
+            basePrice: positiveNumber(request.basePrice),
+            surgeMultiplier: positiveNumber(request.surgeMultiplier) || 1,
+            finalPrice,
+            pricePerSeat: positiveNumber(request.pricePerSeat) || Math.ceil(finalPrice / seatsNeeded)
+        };
+    }
+
+    return calculateCarpoolQuote({
+        pickupLocation: request.pickupLocation,
+        destinationLocation: request.destinationLocation,
+        vehicleType: request.vehicleType || vehicle.vehicleType,
+        seatsNeeded: Number(request.seatsNeeded || 1)
+    });
+}
+
 function parseFutureDate(value, fieldName) {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {
@@ -75,6 +133,71 @@ async function reservedSeatsForRide(rideId, excludeRequestId) {
         _id: { $ne: excludeRequestId }
     });
     return reserved.reduce((sum, request) => sum + Number(request.seatsNeeded || 0), 0);
+}
+
+function committedSeatCount(ride, reservedSeats = 0) {
+    return Math.max(Number(ride?.passengerCount || 1), Number(reservedSeats || 0));
+}
+
+async function findOpenCarpoolRideForDriver(driverId) {
+    return Ride.findOne({
+        driverId,
+        rideType: "carpool",
+        status: { $in: OPEN_RIDE_STATUSES }
+    }).sort({ updatedAt: -1, createdAt: -1 });
+}
+
+async function validateCarpoolRideCapacity({ ride, driver, vehicle, requestVehicleType, seatsNeeded, requestId }) {
+    if (ride.rideType !== "carpool") {
+        return { statusCode: 400, message: "Passengers can only be added to a carpool ride" };
+    }
+    if (!sameId(ride.driverId, driver._id)) {
+        return { statusCode: 403, message: "Only the ride's own driver can approve passengers for it" };
+    }
+    if (requestVehicleType && ride.vehicleType && ride.vehicleType !== requestVehicleType) {
+        return { statusCode: 400, message: `This passenger requested a ${requestVehicleType} carpool ride` };
+    }
+    if (!OPEN_RIDE_STATUSES.includes(ride.status)) {
+        return { statusCode: 400, message: "Cannot add a passenger to a finished ride" };
+    }
+
+    const reservedSeats = await reservedSeatsForRide(ride._id, requestId);
+    if (vehicle.seats < committedSeatCount(ride, reservedSeats) + seatsNeeded) {
+        return { statusCode: 400, message: "Vehicle does not have enough seats for this passenger" };
+    }
+
+    return null;
+}
+
+async function addSeatsToCarpoolRide(ride, seatsNeeded, vehicle, requestId) {
+    const reservedSeats = await reservedSeatsForRide(ride._id, requestId);
+    const currentSeats = committedSeatCount(ride, reservedSeats);
+    const nextSeats = currentSeats + seatsNeeded;
+
+    if (vehicle && vehicle.seats < nextSeats) {
+        const error = new Error("Vehicle does not have enough seats for this passenger");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const updatedRide = await Ride.findOneAndUpdate(
+        {
+            _id: ride._id,
+            rideType: "carpool",
+            status: { $in: OPEN_RIDE_STATUSES },
+            passengerCount: { $lte: currentSeats }
+        },
+        { $set: { passengerCount: nextSeats } },
+        { new: true, runValidators: true }
+    );
+
+    if (!updatedRide) {
+        const error = new Error("Carpool ride capacity changed; please try again");
+        error.statusCode = 409;
+        throw error;
+    }
+
+    return updatedRide;
 }
 
 // Only a verified driver who opted into carpool sees the queue.
@@ -108,6 +231,9 @@ async function createCarpoolRequest(req, res) {
         // A carpool request is a booking like any other, so it competes with an
         // open ride for the passenger's single active slot.
         if (!isAdmin(req)) {
+            const pendingPayment = await findUnresolvedPaymentForPassenger(passengerId);
+            if (pendingPayment) return unresolvedPaymentConflict(res, pendingPayment);
+
             const activeBooking = await findActiveBookingForPassenger(passengerId);
             if (activeBooking) return activeBookingConflict(res, activeBooking);
         }
@@ -124,12 +250,18 @@ async function createCarpoolRequest(req, res) {
         if (parsedDetour === null || parsedDetour > 60) {
             return res.status(400).json({ error: "Max detour must be between 0 and 60 minutes" });
         }
-        const parsedPrice = parseNonNegativeNumber(req.body.pricePerSeat, 0);
-        if (parsedPrice === null) {
+        const submittedPrice = parseNonNegativeNumber(req.body.pricePerSeat, 0);
+        if (submittedPrice === null) {
             return res.status(400).json({ error: "Price per seat must be a non-negative number" });
         }
         const parsedRequestedTime = parseFutureDate(requestedTime, "Requested time");
         const parsedExpiresAt = req.body.expiresAt ? parseFutureDate(req.body.expiresAt, "Expiration time") : null;
+        const quote = await calculateCarpoolQuote({
+            pickupLocation,
+            destinationLocation,
+            vehicleType: req.body.vehicleType,
+            seatsNeeded: parsedSeats
+        });
 
         const request = await CarpoolRequest.create({
             passengerId,
@@ -138,7 +270,7 @@ async function createCarpoolRequest(req, res) {
             requestedTime: parsedRequestedTime,
             seatsNeeded: parsedSeats,
             maxDetourMinutes: parsedDetour,
-            pricePerSeat: parsedPrice,
+            ...quote,
             notes,
             expiresAt: parsedExpiresAt,
             status: "pending",
@@ -194,6 +326,9 @@ async function getCarpoolRequestById(req, res) {
 
 // PUT /carpool/:id/match
 async function matchCarpoolRequest(req, res) {
+    let expandedRide = null;
+    let expandedSeats = 0;
+
     try {
         if (!isAdmin(req)) return forbidden(res);
         const { rideId } = req.body;
@@ -215,15 +350,19 @@ async function matchCarpoolRequest(req, res) {
             return res.status(400).json({ error: "Carpool request has expired" });
         }
 
+        let vehicle = null;
         if (ride.vehicleId) {
-            const vehicle = await Vehicle.findById(ride.vehicleId);
+            vehicle = await Vehicle.findById(ride.vehicleId);
             if (!vehicle) return res.status(404).json({ error: "Ride vehicle not found" });
             const alreadyReservedSeats = await reservedSeatsForRide(rideId, existing._id);
-            const totalSeats = Number(ride.passengerCount || 1) + alreadyReservedSeats + Number(existing.seatsNeeded || 1);
+            const totalSeats = committedSeatCount(ride, alreadyReservedSeats) + Number(existing.seatsNeeded || 1);
             if (vehicle.seats < totalSeats) {
                 return res.status(400).json({ error: "Vehicle does not have enough seats for this match" });
             }
         }
+
+        expandedSeats = Number(existing.seatsNeeded || 1);
+        expandedRide = await addSeatsToCarpoolRide(ride, expandedSeats, vehicle, existing._id);
 
         const request = await CarpoolRequest.findOneAndUpdate(
             {
@@ -234,10 +373,22 @@ async function matchCarpoolRequest(req, res) {
             { status: "matched", rideId, driverId: ride.driverId || null },
             { new: true }
         );
-        if (!request) return res.status(409).json({ error: "Carpool request is no longer available" });
+        if (!request) {
+            const error = new Error("Carpool request is no longer available");
+            error.statusCode = 409;
+            throw error;
+        }
+        expandedRide = null;
+        expandedSeats = 0;
         res.status(200).json({ message: "Carpool request matched to ride", request });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        if (expandedRide && expandedSeats > 0) {
+            await Ride.findByIdAndUpdate(
+                expandedRide._id,
+                { $inc: { passengerCount: -expandedSeats } }
+            ).catch(() => {});
+        }
+        res.status(error.statusCode || 400).json({ error: error.message });
     }
 }
 
@@ -268,18 +419,30 @@ async function cancelCarpoolRequest(req, res) {
 // GET /carpool/pending - the queue drivers pick passengers from
 async function getPendingRequests(req, res) {
     try {
+        const filter = {
+            status: "pending",
+            $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }]
+        };
+
         if (!isAdmin(req)) {
             const driver = await getDriverProfileForUser(req.user.userId);
             if (!driver?.isVerified) return forbidden(res);
             // A driver who turned carpool off simply has an empty queue.
             if (!driver.acceptsCarpoolRides) return res.status(200).json([]);
+
+            const vehicle = await Vehicle.findOne({ driverId: driver._id, isActive: true }).sort({ createdAt: -1 });
+            const vehicleType = normalizeVehicleType(vehicle?.vehicleType);
+            if (!vehicleType) return res.status(200).json([]);
+            filter.$and = [{
+                $or: [
+                    { vehicleType },
+                    { vehicleType: null },
+                    { vehicleType: { $exists: false } }
+                ]
+            }];
         }
 
-        const now = new Date();
-        const requests = await publicPopulate(CarpoolRequest.find({
-            status: "pending",
-            $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }]
-        })).sort({ requestedTime: 1 });
+        const requests = await publicPopulate(CarpoolRequest.find(filter)).sort({ requestedTime: 1 });
 
         res.status(200).json(requests);
     } catch (error) {
@@ -311,13 +474,7 @@ async function openCarpoolRideForRequest(request, driver, vehicle) {
 
     try {
         const passengerCount = Number(request.seatsNeeded || 1);
-        const { fare } = await calculateFareForRoute({
-            pickupLocation: request.pickupLocation,
-            destinationLocation: request.destinationLocation,
-            vehicleType: vehicle.vehicleType,
-            rideType: "carpool",
-            passengerCount
-        });
+        const quote = await quoteForRideOpening(request, vehicle);
 
         return await Ride.create({
             passengerId: request.passengerId,
@@ -326,15 +483,15 @@ async function openCarpoolRideForRequest(request, driver, vehicle) {
             pickupLocation: plainLocation(request.pickupLocation),
             destinationLocation: plainLocation(request.destinationLocation),
             rideType: "carpool",
-            status: "accepted",
+            status: "driver_arriving",
             scheduledTime: request.requestedTime || null,
             passengerCount,
-            vehicleType: vehicle.vehicleType || null,
-            distanceKm: fare.distanceKm,
-            estimatedDurationMinutes: fare.estimatedDurationMinutes,
-            basePrice: fare.basePrice,
-            surgeMultiplier: fare.surgeMultiplier,
-            finalPrice: fare.finalPrice
+            vehicleType: quote.vehicleType || null,
+            distanceKm: quote.distanceKm,
+            estimatedDurationMinutes: quote.estimatedDurationMinutes,
+            basePrice: quote.basePrice,
+            surgeMultiplier: quote.surgeMultiplier,
+            finalPrice: quote.finalPrice
         });
     } catch (error) {
         await DriverProfile.findByIdAndUpdate(driver._id, { status: "available" }).catch(() => {});
@@ -371,11 +528,13 @@ async function notifyCarpoolApproval(req, request, ride) {
 }
 
 // PUT /carpool/:id/accept - a driver approves a waiting carpool passenger.
-// Without a rideId this opens a new carpool ride; with one the passenger joins
-// a carpool the same driver is already running.
+// Without a rideId this opens a new carpool ride or reuses the driver's open
+// carpool ride; with one the passenger joins the requested open carpool.
 async function acceptCarpoolRequest(req, res) {
     let claimedRequest = null;
     let openedRide = null;
+    let expandedRide = null;
+    let expandedSeats = 0;
 
     try {
         const driver = isAdmin(req) && req.body.driverId
@@ -403,6 +562,10 @@ async function acceptCarpoolRequest(req, res) {
         if (!vehicle.testApproval || !vehicle.insuranceApproval) {
             return res.status(403).json({ error: "Vehicle documents must be approved before accepting rides" });
         }
+        const requestVehicleType = normalizeVehicleType(existing.vehicleType);
+        if (requestVehicleType && vehicle.vehicleType !== requestVehicleType) {
+            return res.status(400).json({ error: `This carpool request was quoted for a ${requestVehicleType} vehicle` });
+        }
 
         const seatsNeeded = Number(existing.seatsNeeded || 1);
         let ride = null;
@@ -410,21 +573,35 @@ async function acceptCarpoolRequest(req, res) {
         if (req.body.rideId) {
             ride = await Ride.findById(req.body.rideId);
             if (!ride) return res.status(404).json({ error: "Ride not found" });
-            if (ride.rideType !== "carpool") {
-                return res.status(400).json({ error: "Passengers can only be added to a carpool ride" });
+            const rideError = await validateCarpoolRideCapacity({
+                ride,
+                driver,
+                vehicle,
+                requestVehicleType,
+                seatsNeeded,
+                requestId: existing._id
+            });
+            if (rideError) return res.status(rideError.statusCode).json({ error: rideError.message });
+        } else {
+            if (driver.status === "busy") {
+                ride = await findOpenCarpoolRideForDriver(driver._id);
             }
-            if (!sameId(ride.driverId, driver._id)) {
-                return forbidden(res, "Only the ride's own driver can approve passengers for it");
-            }
-            if (!OPEN_RIDE_STATUSES.includes(ride.status)) {
-                return res.status(400).json({ error: "Cannot add a passenger to a finished ride" });
-            }
-            const reservedSeats = await reservedSeatsForRide(ride._id, existing._id);
-            if (vehicle.seats < Number(ride.passengerCount || 1) + reservedSeats + seatsNeeded) {
+
+            if (ride) {
+                const rideError = await validateCarpoolRideCapacity({
+                    ride,
+                    driver,
+                    vehicle,
+                    requestVehicleType,
+                    seatsNeeded,
+                    requestId: existing._id
+                });
+                if (rideError) return res.status(rideError.statusCode).json({ error: rideError.message });
+            } else if (driver.status === "busy") {
+                return res.status(400).json({ error: "Driver must have an open carpool ride before adding another passenger" });
+            } else if (vehicle.seats < seatsNeeded) {
                 return res.status(400).json({ error: "Vehicle does not have enough seats for this passenger" });
             }
-        } else if (vehicle.seats < seatsNeeded) {
-            return res.status(400).json({ error: "Vehicle does not have enough seats for this passenger" });
         }
 
         // Claim the request before building the ride so two drivers cannot
@@ -443,6 +620,10 @@ async function acceptCarpoolRequest(req, res) {
         if (!ride) {
             ride = await openCarpoolRideForRequest(existing, driver, vehicle);
             openedRide = ride;
+        } else {
+            ride = await addSeatsToCarpoolRide(ride, seatsNeeded, vehicle, existing._id);
+            expandedRide = ride;
+            expandedSeats = seatsNeeded;
         }
 
         const request = await CarpoolRequest.findByIdAndUpdate(
@@ -458,6 +639,8 @@ async function acceptCarpoolRequest(req, res) {
 
         claimedRequest = null;
         openedRide = null;
+        expandedRide = null;
+        expandedSeats = 0;
 
         await notifyCarpoolApproval(req, request, ride);
 
@@ -477,6 +660,12 @@ async function acceptCarpoolRequest(req, res) {
                 { status: "cancelled", cancelledAt: new Date(), cancelledBy: "system" }
             ).catch(() => {});
             await DriverProfile.findByIdAndUpdate(openedRide.driverId, { status: "available" }).catch(() => {});
+        }
+        if (expandedRide && expandedSeats > 0) {
+            await Ride.findByIdAndUpdate(
+                expandedRide._id,
+                { $inc: { passengerCount: -expandedSeats } }
+            ).catch(() => {});
         }
         res.status(error.statusCode || 400).json({ error: error.message });
     }

@@ -296,6 +296,7 @@ export default function RegisterPage() {
                 phone:    form.phone,
                 role:     form.role,
                 preferredLanguage: form.preferredLanguage,
+                gender:   form.gender || undefined,
                 referralCode: form.referralCode || undefined
             });
 
@@ -304,6 +305,7 @@ export default function RegisterPage() {
                     userId: data.userId,
                     role: data.role,
                     fullName: data.fullName,
+                    gender: data.gender,
                     preferredLanguage: data.preferredLanguage,
                     referralCode: data.referralCode,
                     loyaltyPoints: data.loyaltyPoints,

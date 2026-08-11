@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import { extractItems } from "../api/pagination";
+import { createSocket } from "../api/socket";
 import MapComponent, { AddressInput } from "../components/MapComponent";
 
 const s = {
@@ -39,7 +40,17 @@ const s = {
         background: sel ? "rgba(79,70,229,0.06)" : "var(--surface)",
         fontSize: 13, fontWeight: sel ? 700 : 400,
         color: sel ? "var(--primary)" : "var(--text-muted)"
-    })
+    }),
+    pickupActions: { display: "flex", justifyContent: "flex-end", marginTop: 8 },
+    currentLocationBtn: {
+        background: "var(--surface)",
+        color: "var(--primary)",
+        border: "1px solid var(--primary)",
+        padding: "7px 12px",
+        borderRadius: 8,
+        fontSize: 13,
+        fontWeight: 700
+    }
 };
 
 const RIDE_TYPES = [
@@ -63,6 +74,7 @@ const DRIVER_GENDERS = [
 const DEFAULT_DRIVER_RADIUS_KM = 15;
 const MIN_DRIVER_RADIUS_KM = 1;
 const MAX_DRIVER_RADIUS_KM = 25;
+const CURRENT_LOCATION_PICKUP_LABEL = "המיקום הנוכחי שלי";
 
 const MIN_RATING_OPTIONS = [
     { value: 0,   label: "כל דירוג" },
@@ -104,6 +116,28 @@ function hasCoordinates(loc) {
     return loc?.lat != null && loc?.lng != null && !(Number(loc.lat) === 0 && Number(loc.lng) === 0);
 }
 
+function geolocationErrorMessage(error) {
+    if (error?.code === error?.PERMISSION_DENIED) return "יש לאפשר גישה למיקום כדי להשתמש במיקום הנוכחי כנקודת איסוף";
+    if (error?.code === error?.POSITION_UNAVAILABLE) return "לא ניתן למצוא את המיקום הנוכחי כרגע";
+    if (error?.code === error?.TIMEOUT) return "בדיקת המיקום לקחה יותר מדי זמן. נסה שוב";
+    return "לא ניתן להשתמש במיקום הנוכחי כרגע";
+}
+
+function reverseGeocodeLocation(loc) {
+    if (typeof window === "undefined" || !window.google?.maps?.Geocoder) return Promise.resolve("");
+
+    return new Promise(resolve => {
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat: loc.lat, lng: loc.lng } }, (results, status) => {
+            if (status === "OK" && results?.[0]?.formatted_address) {
+                resolve(results[0].formatted_address);
+            } else {
+                resolve("");
+            }
+        });
+    });
+}
+
 // A passenger may only have one booking in flight. These mirror the statuses
 // the server refuses a second booking for.
 const ACTIVE_RIDE_STATUSES = ["searching", "accepted", "driver_arriving", "in_progress"];
@@ -112,8 +146,15 @@ const OPEN_CARPOOL_STATUSES = ["pending", "matched", "confirmed"];
 export const ACTIVE_BOOKING_MESSAGE =
     "לא ניתן להזמין כמה נסיעות במקביל. יש לך כבר נסיעה פעילה או בקשה שממתינה לנהג — סיים או בטל אותה כדי להזמין נסיעה חדשה.";
 
+export const PENDING_PAYMENT_MESSAGE =
+    "יש לך תשלום שממתין על נסיעה קודמת. צריך להשלים אותו לפני הזמנת נסיעה חדשה.";
+
 function ownsBooking(record, passengerId) {
     return Boolean(passengerId) && (record.passengerId?._id || record.passengerId) === passengerId;
+}
+
+function paymentRideId(payment) {
+    return payment?.rideId?._id || payment?.rideId || null;
 }
 
 // Mirrors the server rule so the page can warn before the request is sent. The
@@ -133,6 +174,26 @@ export function findActiveBooking(rides, carpoolRequests, passengerId) {
     }
 
     return null;
+}
+
+async function loadPassengerBooking(passengerId) {
+    const [ridesRes, carpoolRes, paymentRes] = await Promise.all([
+        api.get("/rides", { params: { passengerId } }),
+        api.get("/carpool", { params: { passengerId } }).catch(() => ({ data: [] })),
+        api.get("/payments/unresolved").catch(() => ({ data: { payment: null } }))
+    ]);
+
+    return {
+        activeBooking: findActiveBooking(extractItems(ridesRes.data), carpoolRes.data, passengerId),
+        pendingPayment: paymentRes.data?.payment || null
+    };
+}
+
+function activeBookingNotice(booking) {
+    if (booking?.type === "carpool" && booking.rideId) {
+        return "בקשת הקרפול אושרה והנהג בדרך. אפשר לעקוב אחרי הנסיעה הפעילה.";
+    }
+    return ACTIVE_BOOKING_MESSAGE;
 }
 
 const LOYALTY_POINT_VALUE_ILS = 0.1;
@@ -167,6 +228,7 @@ export default function BookRidePage() {
     const [priceLoading, setPriceLoading] = useState(false);
     const [nearbyDrivers, setNearbyDrivers] = useState([]);
     const [userLoc,       setUserLoc]     = useState(null);
+    const [pickupLocating, setPickupLocating] = useState(false);
     const [bestTime,      setBestTime]    = useState(null);
     const [pricePrediction, setPricePrediction] = useState(null);
 
@@ -183,7 +245,16 @@ export default function BookRidePage() {
     const [savedAddresses, setSavedAddresses] = useState([]);
 
     // The one booking the passenger is allowed to have open at a time
+    const [passengerId, setPassengerId] = useState(null);
     const [activeBooking, setActiveBooking] = useState(null);
+    const [pendingPayment, setPendingPayment] = useState(null);
+
+    const refreshActiveBooking = useCallback(async (id = passengerId) => {
+        if (!id) return;
+        const snapshot = await loadPassengerBooking(id);
+        setActiveBooking(snapshot.activeBooking);
+        setPendingPayment(snapshot.pendingPayment);
+    }, [passengerId]);
 
     // Get user location
     useEffect(() => {
@@ -243,22 +314,54 @@ export default function BookRidePage() {
         (async () => {
             try {
                 const { data: passengers } = await api.get("/passengers");
-                const passengerId = passengers.find(p => p.userId === userId || p.userId?._id === userId)?._id;
-                if (!passengerId) return;
-
-                // Both are scoped to the passenger: a user who also drives would
-                // otherwise get their driving rides and the whole carpool queue.
-                const [ridesRes, carpoolRes] = await Promise.all([
-                    api.get("/rides", { params: { passengerId } }),
-                    api.get("/carpool", { params: { passengerId } }).catch(() => ({ data: [] }))
-                ]);
+                const foundPassengerId = passengers.find(p => p.userId === userId || p.userId?._id === userId)?._id;
                 if (cancelled) return;
-                setActiveBooking(findActiveBooking(extractItems(ridesRes.data), carpoolRes.data, passengerId));
+                setPassengerId(foundPassengerId || null);
+                if (!foundPassengerId) return;
+
+                const snapshot = await loadPassengerBooking(foundPassengerId);
+                if (cancelled) return;
+                setActiveBooking(snapshot.activeBooking);
+                setPendingPayment(snapshot.pendingPayment);
             } catch { /* the server still refuses a second booking */ }
         })();
 
         return () => { cancelled = true; };
     }, [userId]);
+
+    useEffect(() => {
+        if (!userId) return;
+
+        const socket = createSocket();
+        socket.on("carpool-request-approved", ({ requestId, rideId }) => {
+            setActiveBooking(current => {
+                if (current?.type === "carpool" && current.requestId && requestId &&
+                    String(current.requestId) !== String(requestId)) {
+                    return current;
+                }
+
+                return {
+                    type: "carpool",
+                    status: "confirmed",
+                    rideId: rideId || current?.rideId || null,
+                    requestId: current?.requestId || requestId || null
+                };
+            });
+            setSuccess("בקשת הקרפול אושרה והנהג בדרך. אפשר לעקוב אחרי הנסיעה.");
+            refreshActiveBooking().catch(() => {});
+        });
+
+        return () => socket.disconnect();
+    }, [refreshActiveBooking, userId]);
+
+    useEffect(() => {
+        if (activeBooking?.type !== "carpool" || activeBooking.rideId || !passengerId) return;
+
+        const timer = setInterval(() => {
+            refreshActiveBooking(passengerId).catch(() => {});
+        }, 5000);
+        return () => clearInterval(timer);
+    }, [activeBooking?.rideId, activeBooking?.type, passengerId, refreshActiveBooking]);
 
     // Calculate price
     const calcPrice = useCallback(async () => {
@@ -307,10 +410,41 @@ export default function BookRidePage() {
         else setDest(loc);
     };
 
+    const useCurrentLocationAsPickup = () => {
+        setError("");
+        setSuccess("");
+
+        if (!navigator.geolocation) {
+            setError("הדפדפן לא תומך בזיהוי מיקום");
+            return;
+        }
+
+        setPickupLocating(true);
+        navigator.geolocation.getCurrentPosition(
+            async pos => {
+                const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                const address = await reverseGeocodeLocation(loc);
+                setUserLoc(loc);
+                setPickup({
+                    address: address || CURRENT_LOCATION_PICKUP_LABEL,
+                    lat: loc.lat,
+                    lng: loc.lng
+                });
+                setPickupLocating(false);
+            },
+            locationError => {
+                setPickupLocating(false);
+                setError(geolocationErrorMessage(locationError));
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        );
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
         setSuccess("");
+        if (pendingPayment) return setError(PENDING_PAYMENT_MESSAGE);
         if (activeBooking) return setError(ACTIVE_BOOKING_MESSAGE);
         if (!pickup.address) return setError("נא להזין כתובת איסוף");
         if (!dest.address)   return setError("נא להזין כתובת יעד");
@@ -325,16 +459,22 @@ export default function BookRidePage() {
         try {
             if (rideType === "carpool") {
                 const pricePerSeat = Number(priceData?.pricePerPerson ?? Math.ceil((priceData?.price || 0) / passengerCount));
-                await api.post("/carpool", {
+                const { data } = await api.post("/carpool", {
                     pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
                     destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                     requestedTime: toScheduledInstant(scheduledTime) || new Date().toISOString(),
+                    vehicleType,
                     seatsNeeded: passengerCount,
                     maxDetourMinutes: 10,
                     pricePerSeat: Number.isFinite(pricePerSeat) ? pricePerSeat : 0
                 });
                 setSuccess("בקשת הקרפול נשלחה וממתינה לאישור נהג.");
-                setActiveBooking({ type: "carpool", status: "pending", rideId: null, requestId: null });
+                setActiveBooking({
+                    type: "carpool",
+                    status: data.request?.status || "pending",
+                    rideId: data.request?.rideId?._id || data.request?.rideId || null,
+                    requestId: data.request?._id || null
+                });
                 return;
             }
 
@@ -367,7 +507,10 @@ export default function BookRidePage() {
             }
             navigate(`/ride/${data.ride._id}`);
         } catch (err) {
-            if (err.response?.data?.code === "ACTIVE_BOOKING_EXISTS") {
+            if (err.response?.data?.code === "PENDING_PAYMENT_REQUIRED") {
+                setPendingPayment(err.response.data.pendingPayment || null);
+                setError(PENDING_PAYMENT_MESSAGE);
+            } else if (err.response?.data?.code === "ACTIVE_BOOKING_EXISTS") {
                 setActiveBooking(err.response.data.activeBooking || { type: "ride", status: "searching" });
                 setError(ACTIVE_BOOKING_MESSAGE);
             } else {
@@ -385,10 +528,28 @@ export default function BookRidePage() {
         <div style={s.page}>
             <h1 style={s.title}>{"הזמן נסיעה"}</h1>
 
+            {pendingPayment && (
+                <div role="alert" style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 14, color: "#991b1b" }}>
+                    יש לך תשלום שממתין על נסיעה קודמת. אחרי התשלום תוכל להזמין נסיעה חדשה.
+                    <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {paymentRideId(pendingPayment) && (
+                            <button type="button" onClick={() => navigate(`/payment/${paymentRideId(pendingPayment)}`)}
+                                style={{ background: "var(--danger)", color: "#fff", padding: "7px 14px", borderRadius: 8, fontSize: 13 }}>
+                                לתשלום עכשיו
+                            </button>
+                        )}
+                        <button type="button" onClick={() => navigate("/passenger")}
+                            style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)", padding: "7px 14px", borderRadius: 8, fontSize: 13 }}>
+                            ללוח הנוסע
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* One booking at a time */}
             {activeBooking && (
                 <div role="alert" style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 14, color: "#92400e" }}>
-                    ⚠️ {ACTIVE_BOOKING_MESSAGE}
+                    ⚠️ {activeBookingNotice(activeBooking)}
                     <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {activeBooking.rideId && (
                             <button type="button" onClick={() => navigate(`/ride/${activeBooking.rideId}`)}
@@ -452,6 +613,16 @@ export default function BookRidePage() {
                         <AddressInput placeholder={"הכנס כתובת איסוף"} value={pickup.address}
                             onChange={v => setPickup(p => ({ ...p, address: v }))}
                             onPlaceSelected={loc => setPickup(loc)} />
+                        <div style={s.pickupActions}>
+                            <button
+                                type="button"
+                                onClick={useCurrentLocationAsPickup}
+                                disabled={pickupLocating}
+                                style={{ ...s.currentLocationBtn, opacity: pickupLocating ? 0.65 : 1 }}
+                            >
+                                {pickupLocating ? "מאתר מיקום..." : "השתמש במיקום הנוכחי"}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Stops */}
@@ -646,7 +817,7 @@ export default function BookRidePage() {
 
                 {error && <p className="error-msg" role="alert">⚠️ {error}</p>}
                 {success && <p role="status" style={{ color: "var(--success)", fontWeight: 700, marginTop: 8 }}>{success}</p>}
-                <button type="submit" className="btn-primary" disabled={loading || Boolean(activeBooking)} style={{ marginTop: 8 }}>
+                <button type="submit" className="btn-primary" disabled={loading || Boolean(activeBooking) || Boolean(pendingPayment)} style={{ marginTop: 8 }}>
                     {loading ? (rideType === "carpool" ? "שולח בקשה..." : "מחפש נהג...") : (rideType === "carpool" ? "שלח בקשת קרפול 🤝" : `${"הזמן עכשיו"} 🚕`)}
                 </button>
             </form>

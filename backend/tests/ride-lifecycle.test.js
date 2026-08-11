@@ -39,6 +39,7 @@ const destinationLocation = { address: "Destination", lat: 31.7683, lng: 35.2137
 // createRide refuses a second booking, so every creation test has to say the
 // passenger has nothing open yet.
 function stubNoActiveBooking() {
+    patchMethod(patches, Payment, "findOne", async () => null);
     patchMethod(patches, Ride, "findOne", async () => null);
     patchMethod(patches, CarpoolRequest, "findOne", async () => null);
 }
@@ -441,16 +442,15 @@ test("verified driver can claim, start, and complete a ride while payment/profil
     assert.ok(ride.passengerCompletedAt instanceof Date);
     assert.equal(ride.status, "completed");
     assert.ok(ride.completedAt instanceof Date);
-    assert.deepEqual(driverProfileUpdate.update, {
-        $inc: { totalRides: 1, totalEarnings: 58.5 },
-        status: "available"
-    });
+    assert.equal(driverProfileUpdate.update.status, "available");
+    assert.ok(driverProfileUpdate.update.lastActiveAt instanceof Date);
+    assert.deepEqual(driverProfileUpdate.update.$inc, { totalRides: 1, totalEarnings: 58.5 });
     assert.deepEqual(passengerProfileUpdate.update, {
         $inc: { totalRides: 1, totalSpent: 58.5 }
     });
     // Completing a ride opens the payment; the passenger still has to submit the
     // card form, which is what approves it.
-    assert.deepEqual(paymentUpsert.filter, { rideId: ride._id });
+    assert.deepEqual(paymentUpsert.filter, { rideId: ride._id, passengerId: ride.passengerId });
     assert.equal(paymentUpsert.update.$setOnInsert.paymentMethod, "credit_card");
     assert.equal(paymentUpsert.update.$setOnInsert.paymentStatus, "pending");
     assert.equal(paymentUpsert.update.$setOnInsert.amount, 58.5);

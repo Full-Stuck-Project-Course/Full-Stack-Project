@@ -6,6 +6,7 @@ const Ride = require("../db/models/Ride");
 const Vehicle = require("../db/models/Vehicle");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const CarpoolRequest = require("../db/models/CarpoolRequest");
+const Payment = require("../db/models/payment");
 const { createRide } = require("../controllers/rideController");
 const {
     acceptCarpoolRequest,
@@ -17,7 +18,9 @@ const originals = {
     rideCreate: Ride.create,
     rideFindById: Ride.findById,
     rideFindOne: Ride.findOne,
+    rideFindOneAndUpdate: Ride.findOneAndUpdate,
     rideFindByIdAndUpdate: Ride.findByIdAndUpdate,
+    paymentFindOne: Payment.findOne,
     passengerFindOne: PassengerProfile.findOne,
     passengerFindById: PassengerProfile.findById,
     driverFindOne: DriverProfile.findOne,
@@ -37,6 +40,7 @@ const originals = {
 // The booking guard runs before anything is created, so every scenario that
 // creates a booking needs the "nothing open yet" answer.
 function stubNoActiveBooking() {
+    Payment.findOne = async () => null;
     Ride.findOne = async () => null;
     CarpoolRequest.findOne = async () => null;
 }
@@ -86,6 +90,7 @@ async function assertCarpoolPostCreatesPendingRequest() {
             requestedTime: new Date(Date.now() + 60_000).toISOString(),
             seatsNeeded: 2,
             maxDetourMinutes: 12,
+            vehicleType: "comfort",
             pricePerSeat: 18
         }),
         res
@@ -95,6 +100,10 @@ async function assertCarpoolPostCreatesPendingRequest() {
     assert.strictEqual(createdPayload.status, "pending", "POST /carpool must enter the matching queue as pending");
     assert.strictEqual(createdPayload.rideId, null, "POST /carpool must not bind to a ride before matching");
     assert.strictEqual(createdPayload.seatsNeeded, 2, "POST /carpool should preserve the requested seat count");
+    assert.strictEqual(createdPayload.vehicleType, "comfort", "POST /carpool should store the quoted vehicle type");
+    assert.ok(createdPayload.finalPrice > 0, "POST /carpool should store the server-side total quote");
+    assert.ok(createdPayload.pricePerSeat > 0, "POST /carpool should store the server-side seat quote");
+    assert.notStrictEqual(createdPayload.pricePerSeat, 18, "POST /carpool must not trust the client-submitted price");
 }
 
 async function assertCarpoolRideCreationDoesNotBypassQueue() {
@@ -127,6 +136,7 @@ async function assertCarpoolRideCreationDoesNotBypassQueue() {
 
 async function assertOnlyPendingRequestsCanBeMatched() {
     let updatePayload = null;
+    let rideSeatUpdate = null;
 
     Ride.findById = async () => ({
         _id: "ride-id",
@@ -159,6 +169,11 @@ async function assertOnlyPendingRequestsCanBeMatched() {
         expiresAt: null,
         seatsNeeded: 1
     });
+    CarpoolRequest.find = async () => [];
+    Ride.findOneAndUpdate = async (filter, update) => {
+        rideSeatUpdate = { filter, update };
+        return { _id: "ride-id", passengerCount: update.$set.passengerCount };
+    };
     CarpoolRequest.findOneAndUpdate = async (filter, update) => {
         updatePayload = { filter, update };
         return { _id: "request-id", status: update.status, rideId: update.rideId };
@@ -173,6 +188,45 @@ async function assertOnlyPendingRequestsCanBeMatched() {
     assert.strictEqual(matched.statusCode, 200, "pending carpool requests should be matchable");
     assert.strictEqual(updatePayload.filter.status, "pending", "matching must claim only pending requests");
     assert.strictEqual(updatePayload.update.status, "matched", "matching should move requests from pending to matched");
+    assert.strictEqual(rideSeatUpdate.update.$set.passengerCount, 2,
+        "matching should reserve the passenger's seat on the ride itself");
+}
+
+async function assertFailedMatchReleasesReservedRideSeats() {
+    let rollbackUpdate = null;
+
+    Ride.findById = async () => ({
+        _id: "ride-id",
+        rideType: "carpool",
+        status: "searching",
+        vehicleId: null,
+        passengerCount: 1
+    });
+    CarpoolRequest.findById = async () => ({
+        _id: "request-id",
+        status: "pending",
+        expiresAt: null,
+        seatsNeeded: 1
+    });
+    CarpoolRequest.find = async () => [];
+    Ride.findOneAndUpdate = async () => ({ _id: "ride-id", passengerCount: 2 });
+    CarpoolRequest.findOneAndUpdate = async () => null;
+    Ride.findByIdAndUpdate = async (id, update) => {
+        rollbackUpdate = { id, update };
+        return { _id: id };
+    };
+
+    const res = makeRes();
+    await matchCarpoolRequest(
+        { user: { userId: "admin-user", role: "admin" }, params: { id: "request-id" }, body: { rideId: "ride-id" } },
+        res
+    );
+
+    assert.strictEqual(res.statusCode, 409, "a lost match claim should report a conflict");
+    assert.deepStrictEqual(rollbackUpdate, {
+        id: "ride-id",
+        update: { $inc: { passengerCount: -1 } }
+    }, "a failed match must release the reserved passenger seat");
 }
 
 async function assertMatchedRequestsReserveVehicleSeats() {
@@ -186,7 +240,7 @@ async function assertMatchedRequestsReserveVehicleSeats() {
         vehicleId: "vehicle-id",
         passengerCount: 1
     });
-    Vehicle.findById = async () => ({ _id: "vehicle-id", seats: 4 });
+    Vehicle.findById = async () => ({ _id: "vehicle-id", seats: 3 });
     CarpoolRequest.findById = async () => ({
         _id: "request-id",
         status: "pending",
@@ -237,6 +291,13 @@ async function assertDriverApprovalOpensCarpoolRide() {
             status: "pending",
             expiresAt: null,
             seatsNeeded: 2,
+            vehicleType: "regular",
+            distanceKm: 7.2,
+            estimatedDurationMinutes: 18,
+            basePrice: 40,
+            surgeMultiplier: 1,
+            finalPrice: 44,
+            pricePerSeat: 22,
             pickupLocation,
             destinationLocation,
             requestedTime: new Date(Date.now() + 60_000)
@@ -286,6 +347,8 @@ async function assertDriverApprovalOpensCarpoolRide() {
         assert.strictEqual(ridePayload.driverId, "driver-profile", "the approving driver must own the opened ride");
         assert.strictEqual(ridePayload.passengerId, "passenger-profile", "the approved passenger must own the opened ride");
         assert.strictEqual(ridePayload.passengerCount, 2, "the ride must seat the requested number of passengers");
+        assert.strictEqual(ridePayload.finalPrice, 44, "approval must open the ride from the stored passenger quote");
+        assert.strictEqual(ridePayload.basePrice, 40, "approval must preserve the stored quote breakdown");
         assert.strictEqual(confirmUpdate.update.status, "confirmed", "an approved request must end up confirmed");
         assert.strictEqual(confirmUpdate.update.rideId, "carpool-ride", "an approved request must point at the opened ride");
     } finally {
@@ -321,6 +384,7 @@ async function assertSecondBookingIsRefusedWhileOneIsOpen() {
     PassengerProfile.findOne = async ({ userId }) => (
         userId === "passenger-user" ? { _id: "passenger-profile", userId } : null
     );
+    Payment.findOne = async () => null;
     Ride.findOne = async () => ({ _id: "open-ride", status: "in_progress" });
     CarpoolRequest.findOne = async () => null;
     Ride.create = async () => {
@@ -364,22 +428,73 @@ async function assertSecondBookingIsRefusedWhileOneIsOpen() {
     assert.strictEqual(blockedByCarpool.body.activeBooking.type, "carpool", "the conflict must name the carpool request");
 }
 
+async function assertPendingPaymentBlocksNewBookings() {
+    PassengerProfile.findOne = async ({ userId }) => (
+        userId === "passenger-user" ? { _id: "passenger-profile", userId } : null
+    );
+    Payment.findOne = async () => ({
+        _id: "payment-id",
+        rideId: "ride-id",
+        passengerId: "passenger-profile",
+        paymentStatus: "pending",
+        amount: 50,
+        currency: "ILS"
+    });
+    Ride.findOne = async () => {
+        throw new Error("active bookings must not be checked before the pending payment gate");
+    };
+    CarpoolRequest.findOne = async () => {
+        throw new Error("active carpool bookings must not be checked before the pending payment gate");
+    };
+    Ride.create = async () => {
+        throw new Error("a ride must not be created while payment is pending");
+    };
+    CarpoolRequest.create = async () => {
+        throw new Error("a carpool request must not be created while payment is pending");
+    };
+
+    const rideRes = makeRes();
+    await createRide(
+        passengerRequest({ pickupLocation, destinationLocation, passengerCount: 1 }),
+        rideRes
+    );
+    assert.strictEqual(rideRes.statusCode, 409, "pending payment must block a new ride");
+    assert.strictEqual(rideRes.body.code, "PENDING_PAYMENT_REQUIRED", "payment conflicts must be identifiable by the client");
+
+    const carpoolRes = makeRes();
+    await createCarpoolRequest(
+        passengerRequest({
+            pickupLocation,
+            destinationLocation,
+            requestedTime: new Date(Date.now() + 60_000).toISOString(),
+            seatsNeeded: 1
+        }),
+        carpoolRes
+    );
+    assert.strictEqual(carpoolRes.statusCode, 409, "pending payment must block a new carpool request");
+    assert.strictEqual(carpoolRes.body.pendingPayment.rideId, "ride-id", "the client needs the ride id to reopen payment");
+}
+
 (async () => {
     try {
         await assertCarpoolPostCreatesPendingRequest();
         await assertCarpoolRideCreationDoesNotBypassQueue();
         await assertOnlyPendingRequestsCanBeMatched();
+        await assertFailedMatchReleasesReservedRideSeats();
         await assertMatchedRequestsReserveVehicleSeats();
         await assertDriverApprovalOpensCarpoolRide();
         await assertDriversWhoOptedOutSeeNoApproval();
         await assertSecondBookingIsRefusedWhileOneIsOpen();
+        await assertPendingPaymentBlocksNewBookings();
 
         console.log("Carpool flow check passed: drivers approve waiting passengers and a passenger can only hold one booking.");
     } finally {
         Ride.create = originals.rideCreate;
         Ride.findById = originals.rideFindById;
         Ride.findOne = originals.rideFindOne;
+        Ride.findOneAndUpdate = originals.rideFindOneAndUpdate;
         Ride.findByIdAndUpdate = originals.rideFindByIdAndUpdate;
+        Payment.findOne = originals.paymentFindOne;
         Vehicle.findById = originals.vehicleFindById;
         Vehicle.findOne = originals.vehicleFindOne;
         PassengerProfile.findOne = originals.passengerFindOne;

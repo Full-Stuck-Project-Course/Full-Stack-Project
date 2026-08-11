@@ -18,8 +18,9 @@ assert(
 
 assert(
     /function\s+getChatPeerInfo\s*\(ride,\s*user\)/.test(rideStatusPage) &&
-        /const\s+peerRole\s*=\s*driverView\s*\?\s*"הנוסע"\s*:\s*"הנהג"/.test(rideStatusPage),
-    "RideStatusPage must label the chat peer by the current user's ride role."
+        rideStatusPage.includes('multipleCarpoolPassengers ? "נוסעי הקרפול" : "הנוסע"') &&
+        rideStatusPage.includes(': "הנהג"'),
+    "RideStatusPage must label the chat peer by the current user's ride role, including multi-passenger carpool rides."
 );
 
 assert(
@@ -32,6 +33,21 @@ assert(
     /senderName:\s*user\?\.fullName\s*\|\|\s*getChatPeerInfo\(ride,\s*user\)\.senderFallback/.test(rideStatusPage) &&
         /senderFallback:\s*driverView\s*\?\s*"נהג"\s*:\s*"נוסע"/.test(rideStatusPage),
     "RideStatusPage chat sender fallback must match driver/passenger context."
+);
+
+assert(
+    rideStatusPage.includes("unreadMessages") &&
+        rideStatusPage.includes("chatBadge") &&
+        rideStatusPage.includes("chatNotice") &&
+        rideStatusPage.includes("מחכה לך הודעה חדשה"),
+    "RideStatusPage must show an unread chat badge and in-app toast for incoming messages."
+);
+
+assert(
+    rideStatusPage.includes("chatOpenRef.current") &&
+        rideStatusPage.includes("setUnreadMessages(0)") &&
+        rideStatusPage.includes("openChat"),
+    "RideStatusPage must clear unread chat indicators when the chat is opened."
 );
 
 console.log("Ride chat role labels check passed: drivers see passenger chat labels and passengers see driver chat labels.");

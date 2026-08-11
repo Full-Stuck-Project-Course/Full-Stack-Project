@@ -16,19 +16,40 @@ const s = {
     statLbl: { fontSize: 12, color: "var(--text-muted)", marginTop: 4 },
     card: { background: "var(--surface)", borderRadius: 14, padding: 20, boxShadow: "var(--shadow)", marginBottom: 14, border: "1px solid var(--border)" },
     rideRow: { padding: "12px 0", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" },
+    paymentAlert: { background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#991b1b", fontSize: 14 },
+    paymentAlertActions: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 },
     badgePoints: { background: "linear-gradient(135deg, #fef3c7, #fde68a)", border: "1px solid #f59e0b", borderRadius: 20, padding: "8px 18px", fontWeight: 700, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 }
 };
 
 const carpoolStatusText = {
     pending: "ממתין לאישור נהג",
     matched: "הותאם לנסיעה",
-    confirmed: "אושר על ידי נהג",
+    confirmed: "הנהג בדרך",
     completed: "הושלם"
 };
+
+const rideStatusText = {
+    searching: "מחפש נהג",
+    accepted: "אושר",
+    driver_arriving: "הנהג בדרך",
+    in_progress: "בנסיעה"
+};
+
+function rideStatusLabel(ride) {
+    if (ride?.rideType === "carpool" && ride?.status === "accepted" && ride?.driverId) {
+        return rideStatusText.driver_arriving;
+    }
+    return rideStatusText[ride?.status] || ride?.status || "בתהליך";
+}
 
 // Statuses that still hold the passenger's single booking slot, so giving one
 // up has to stay possible.
 const OPEN_CARPOOL_STATUSES = ["pending", "matched", "confirmed"];
+const PENDING_PAYMENT_MESSAGE = "יש לך תשלום שממתין על נסיעה קודמת. אחרי התשלום תוכל להזמין נסיעה חדשה.";
+
+function paymentRideId(payment) {
+    return payment?.rideId?._id || payment?.rideId || null;
+}
 
 export default function PassengerDashboard() {
     const { user }       = useAuth();
@@ -38,6 +59,7 @@ export default function PassengerDashboard() {
     const [upcoming,     setUpcoming]     = useState([]);
     const [pastRides,    setPastRides]    = useState([]);
     const [carpoolRequests, setCarpoolRequests] = useState([]);
+    const [pendingPayment, setPendingPayment] = useState(null);
     const [loading,      setLoading]      = useState(true);
     const [savedName,    setSavedName]    = useState("home");
     const [savedLocation, setSavedLocation] = useState({ address: "", lat: null, lng: null });
@@ -45,13 +67,15 @@ export default function PassengerDashboard() {
     useEffect(() => {
         (async () => {
             try {
-                const [passRes, ridesRes, carpoolRes] = await Promise.all([
+                const [passRes, ridesRes, carpoolRes, paymentRes] = await Promise.all([
                     api.get("/passengers"),
                     api.get("/rides"),
-                    api.get("/carpool")
+                    api.get("/carpool"),
+                    api.get("/payments/unresolved").catch(() => ({ data: { payment: null } }))
                 ]);
                 const p = passRes.data.find(p => p.userId === userId || p.userId?._id === userId);
                 setPassenger(p);
+                setPendingPayment(paymentRes.data?.payment || null);
 
                 const allRides = extractItems(ridesRes.data);
                 const now = new Date();
@@ -85,6 +109,24 @@ export default function PassengerDashboard() {
     return (
         <div style={s.page} className="fade-in">
             <h1 style={s.title}>{"לוח נוסע"}</h1>
+
+            {pendingPayment && (
+                <div role="alert" style={s.paymentAlert}>
+                    {PENDING_PAYMENT_MESSAGE}
+                    <div style={s.paymentAlertActions}>
+                        {paymentRideId(pendingPayment) && (
+                            <button type="button" onClick={() => navigate(`/payment/${paymentRideId(pendingPayment)}`)}
+                                style={{ background: "var(--danger)", color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 13 }}>
+                                לתשלום עכשיו
+                            </button>
+                        )}
+                        <button type="button" onClick={() => navigate("/history")}
+                            style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)", padding: "8px 14px", borderRadius: 8, fontSize: 13 }}>
+                            להיסטוריה
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Loyalty points */}
             {passenger && (
@@ -133,7 +175,7 @@ export default function PassengerDashboard() {
                             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
                                 {ride.scheduledTime
                                     ? `🕐 ${new Date(ride.scheduledTime).toLocaleString("he-IL")}`
-                                    : ride.status === "searching" ? "🔍 מחפש נהג..." : "בתהליך"}
+                                    : rideStatusLabel(ride)}
                                 {ride.finalPrice > 0 && ` · ₪${ride.finalPrice}`}
                             </div>
                         </div>
@@ -167,6 +209,7 @@ export default function PassengerDashboard() {
                                     </div>
                                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
                                         {carpoolStatusText[request.status] || request.status} · {request.seatsNeeded || 1} מושבים
+                                        {request.finalPrice > 0 && ` · ₪${request.finalPrice}`}
                                         {request.requestedTime && ` · ${new Date(request.requestedTime).toLocaleString("he-IL")}`}
                                     </div>
                                     {request.driverId?.userId?.fullName && (

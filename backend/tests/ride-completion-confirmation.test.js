@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const DriverProfile = require("../db/models/DriverProfile");
 const Notification = require("../db/models/Notification");
 const PassengerProfile = require("../db/models/PassengerProfile");
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const Payment = require("../db/models/payment");
 const Ride = require("../db/models/Ride");
 const { completeRide } = require("../controllers/rideController");
@@ -111,6 +112,95 @@ test("the passenger confirming alone leaves the ride in progress", async () => {
     assert.equal(captured.payment, undefined);
 });
 
+test("an approved carpool passenger can confirm completion even when they are not the primary passenger", async () => {
+    const ride = inProgressRide({
+        rideType: "carpool",
+        passengerId: "passenger-1"
+    });
+    const captured = patchRideDependencies(ride);
+    let seatCompletionUpdate;
+
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => (
+        userId === "second-passenger-user" ? { _id: "passenger-2" } : null
+    ));
+    patchMethod(patches, CarpoolRequest, "findOne", async (filter) => {
+        assert.equal(filter.rideId, ride._id);
+        assert.equal(filter.passengerId, "passenger-2");
+        assert.ok(filter.status.$in.includes("confirmed"));
+        assert.ok(filter.status.$in.includes("completed"));
+        return { _id: "request-2", passengerId: "passenger-2", status: "confirmed", finalPrice: 18 };
+    });
+    patchMethod(patches, CarpoolRequest, "findByIdAndUpdate", async (id, update) => {
+        seatCompletionUpdate = { id, update };
+        return { _id: id, passengerId: "passenger-2", status: update.$set.status, finalPrice: 18, passengerCompletedAt: update.$set.passengerCompletedAt };
+    });
+    patchMethod(patches, CarpoolRequest, "find", async () => ([
+        { _id: "request-2", passengerId: "passenger-2", status: "completed", passengerCompletedAt: new Date() }
+    ]));
+
+    const res = makeRes();
+    await completeRide({
+        user: { userId: "second-passenger-user", role: "passenger" },
+        params: { id: "ride-1" },
+        body: {}
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.awaiting, "driver");
+    assert.equal(seatCompletionUpdate.id, "request-2");
+    assert.ok(seatCompletionUpdate.update.$set.passengerCompletedAt instanceof Date);
+    assert.equal(seatCompletionUpdate.update.$set.status, "completed");
+    assert.ok(ride.passengerCompletedAt instanceof Date);
+    assert.deepEqual(captured.payment.filter, { rideId: ride._id, passengerId: "passenger-2" });
+    assert.equal(captured.payment.update.$setOnInsert.amount, 18);
+});
+
+test("one carpool passenger confirming does not finish the ride for the others", async () => {
+    const ride = inProgressRide({
+        rideType: "carpool",
+        passengerId: "passenger-1",
+        driverCompletedAt: new Date("2026-01-01T10:00:00Z")
+    });
+    const captured = patchRideDependencies(ride);
+    const confirmedAt = new Date("2026-01-01T10:05:00Z");
+
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => (
+        userId === "second-passenger-user" ? { _id: "passenger-2" } : null
+    ));
+    patchMethod(patches, CarpoolRequest, "findOne", async () => ({
+        _id: "request-2",
+        passengerId: "passenger-2",
+        status: "confirmed",
+        finalPrice: 18,
+        passengerCompletedAt: null
+    }));
+    patchMethod(patches, CarpoolRequest, "findByIdAndUpdate", async (id, update) => ({
+        _id: id,
+        passengerId: "passenger-2",
+        status: update.$set.status,
+        finalPrice: 18,
+        passengerCompletedAt: update.$set.passengerCompletedAt || confirmedAt
+    }));
+    patchMethod(patches, CarpoolRequest, "find", async () => ([
+        { _id: "request-1", passengerId: "passenger-1", status: "confirmed", passengerCompletedAt: null },
+        { _id: "request-2", passengerId: "passenger-2", status: "completed", passengerCompletedAt: confirmedAt }
+    ]));
+
+    const res = makeRes();
+    await completeRide({
+        user: { userId: "second-passenger-user", role: "passenger" },
+        params: { id: "ride-1" },
+        body: {}
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.awaiting, "passenger");
+    assert.equal(ride.status, "in_progress");
+    assert.equal(ride.passengerCompletedAt, null);
+    assert.deepEqual(captured.payment.filter, { rideId: ride._id, passengerId: "passenger-2" });
+    assert.equal(captured.payment.update.$setOnInsert.amount, 18);
+});
+
 test("the second confirmation finishes the ride and runs the side effects once", async () => {
     const ride = inProgressRide();
     const captured = patchRideDependencies(ride);
@@ -122,10 +212,10 @@ test("the second confirmation finishes the ride and runs the side effects once",
     assert.equal(res.statusCode, 200);
     assert.equal(ride.status, "completed");
     assert.ok(ride.completedAt instanceof Date);
-    assert.deepEqual(captured.driverUpdate, {
-        $inc: { totalRides: 1, totalEarnings: 40 },
-        status: "available"
-    });
+    assert.equal(captured.driverUpdate.status, "available");
+    assert.ok(captured.driverUpdate.lastActiveAt instanceof Date,
+        "finishing a ride must refresh driver activity so stale cleanup does not mark them offline");
+    assert.deepEqual(captured.driverUpdate.$inc, { totalRides: 1, totalEarnings: 40 });
     assert.deepEqual(captured.passengerUpdate, { $inc: { totalRides: 1, totalSpent: 40 } });
     assert.equal(captured.payment.update.$setOnInsert.paymentStatus, "pending");
 });

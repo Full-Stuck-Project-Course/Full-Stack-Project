@@ -3,6 +3,7 @@
 const PassengerProfile = require("../db/models/PassengerProfile");
 const { isAdmin, canAccessPassenger, forbidden } = require("../utils/authz");
 const { hasValidCoordinates } = require("../utils/pricing");
+const { normalizeSavedPaymentMethod } = require("../utils/simulatedPaymentMethod");
 
 const PASSENGER_UPDATE_FIELDS = ["preferredDriverGender", "preferredMatching"];
 
@@ -70,6 +71,15 @@ async function updatePassenger(req, res) {
         const update = {};
         for (const key of PASSENGER_UPDATE_FIELDS) {
             if (req.body[key] !== undefined) update[key] = req.body[key];
+        }
+        if (Object.hasOwn(req.body, "defaultPaymentMethod")) {
+            if (req.body.defaultPaymentMethod === null || req.body.defaultPaymentMethod === "") {
+                update.defaultPaymentMethod = null;
+            } else {
+                const paymentMethod = normalizeSavedPaymentMethod(req.body.defaultPaymentMethod);
+                if (paymentMethod.error) return res.status(400).json({ error: paymentMethod.error });
+                update.defaultPaymentMethod = { ...paymentMethod, updatedAt: new Date() };
+            }
         }
         const passenger = await PassengerProfile.findByIdAndUpdate(req.params.id, update, {
             new: true, runValidators: true

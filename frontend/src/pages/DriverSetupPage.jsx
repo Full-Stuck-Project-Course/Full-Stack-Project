@@ -12,25 +12,9 @@ const VEHICLE_TYPES = ["regular", "comfort", "luxury", "van"];
 const LANGS = ["עברית", "אנגלית", "ערבית", "רוסית", "אמהרית", "צרפתית"];
 const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 const ALLOWED_DOCUMENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const DRIVER_LICENSE_NUMBER_RE = /^\d{5,9}$/;
-const LICENSE_PLATE_RE = /^\d{7,8}$/;
-
-const AVAILABILITY_MESSAGES = {
-    licenseNumber: {
-        invalid: "מספר רישיון חייב להכיל 5-9 ספרות בלבד",
-        checking: "בודקים אם מספר הרישיון פנוי...",
-        duplicate: "מספר רישיון הנהיגה כבר קיים במערכת",
-        available: "מספר הרישיון תקין ופנוי",
-        failed: "לא ניתן לבדוק כרגע את מספר הרישיון"
-    },
-    licensePlate: {
-        invalid: "לוחית רישוי חייבת להכיל 7-8 ספרות",
-        checking: "בודקים אם לוחית הרישוי פנויה...",
-        duplicate: "לוחית הרישוי כבר קיימת במערכת",
-        available: "לוחית הרישוי תקינה ופנויה",
-        failed: "לא ניתן לבדוק כרגע את לוחית הרישוי"
-    }
-};
+const DRIVER_LICENSE_NUMBER_PATTERN = /^\d{5,9}$/;
+const LICENSE_PLATE_PATTERN = /^\d{7,8}$/;
+const AVAILABILITY_CHECK_DELAY_MS = 350;
 
 const CAR_BRANDS = {
     "טויוטה":   ["קורולה", "יאריס", "קאמרי", "RAV4", "לנד קרוזר", "היילקס", "C-HR", "אחר"],
@@ -80,10 +64,10 @@ function FieldErr({ msg }) {
     return <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>⚠️ {msg}</p>;
 }
 
-function FieldHint({ msg, tone = "muted" }) {
+function FieldHint({ msg, tone = "success" }) {
     if (!msg) return null;
-    const color = tone === "success" ? "var(--success)" : "var(--text-muted)";
-    return <p role="status" style={{ color, fontSize: 12, marginTop: 4 }}>{msg}</p>;
+    const color = tone === "muted" ? "var(--text-muted)" : "var(--success)";
+    return <p aria-live="polite" style={{ color, fontSize: 12, marginTop: 4, fontWeight: 700 }}>{msg}</p>;
 }
 
 function validateDocumentFile(file) {
@@ -126,6 +110,7 @@ export default function DriverSetupPage() {
     const { user, updateUser } = useAuth();
     const { t }     = useLang();
     const userId    = user?.userId;
+    const userGender = ["male", "female"].includes(user?.gender) ? user.gender : "";
     const navigate  = useNavigate();
     const [step, setStep] = useState(0);
     const [existingDriver, setExistingDriver] = useState(null);
@@ -150,16 +135,16 @@ export default function DriverSetupPage() {
     const [error, setError] = useState("");
     const [fieldErrors, setFieldErrors] = useState({});
     const [verification, setVerification] = useState(null);
-    const licenseNumberCheckSeq = useRef(0);
-    const licenseNumberCheckTimer = useRef(null);
-    const licensePlateCheckSeq = useRef(0);
-    const licensePlateCheckTimer = useRef(null);
-    const [licenseNumberChecking, setLicenseNumberChecking] = useState(false);
-    const [licenseNumberInUse, setLicenseNumberInUse] = useState(false);
-    const [licenseNumberChecked, setLicenseNumberChecked] = useState(false);
-    const [licensePlateChecking, setLicensePlateChecking] = useState(false);
-    const [licensePlateInUse, setLicensePlateInUse] = useState(false);
-    const [licensePlateChecked, setLicensePlateChecked] = useState(false);
+    const licenseCheckSeq = useRef(0);
+    const plateCheckSeq = useRef(0);
+    const licenseCheckTimer = useRef(null);
+    const plateCheckTimer = useRef(null);
+    const [licenseChecking, setLicenseChecking] = useState(false);
+    const [licenseChecked, setLicenseChecked] = useState(false);
+    const [licenseInUse, setLicenseInUse] = useState(false);
+    const [plateChecking, setPlateChecking] = useState(false);
+    const [plateChecked, setPlateChecked] = useState(false);
+    const [plateInUse, setPlateInUse] = useState(false);
 
     useEffect(() => {
         api.get("/drivers").then(r => {
@@ -194,84 +179,139 @@ export default function DriverSetupPage() {
                     if (vehicle.testImagePath) setTestPreview("existing");
                     if (vehicle.insuranceImagePath) setInsurancePreview("existing");
                 }).catch(() => {});
+            } else if (userGender) {
+                setDF(prev => ({
+                    ...prev,
+                    gender: prev.gender || userGender
+                }));
             }
         }).catch(() => {});
-    }, [userId]);
+    }, [userId, userGender]);
 
     useEffect(() => {
-        return () => {
-            licenseNumberCheckSeq.current += 1;
-            licensePlateCheckSeq.current += 1;
-            if (licenseNumberCheckTimer.current) clearTimeout(licenseNumberCheckTimer.current);
-            if (licensePlateCheckTimer.current) clearTimeout(licensePlateCheckTimer.current);
-        };
-    }, []);
+        const licenseNumber = driverForm.licenseNumber.trim();
+        licenseCheckSeq.current += 1;
+        const checkId = licenseCheckSeq.current;
+        if (licenseCheckTimer.current) clearTimeout(licenseCheckTimer.current);
+        setLicenseInUse(false);
+        setLicenseChecked(false);
 
-    const checkSetupAvailability = (field, rawValue) => {
-        const isLicenseNumber = field === "licenseNumber";
-        const value = String(rawValue || "").trim();
-        const pattern = isLicenseNumber ? DRIVER_LICENSE_NUMBER_RE : LICENSE_PLATE_RE;
-        const messages = AVAILABILITY_MESSAGES[field];
-        const seqRef = isLicenseNumber ? licenseNumberCheckSeq : licensePlateCheckSeq;
-        const timerRef = isLicenseNumber ? licenseNumberCheckTimer : licensePlateCheckTimer;
-        const setChecking = isLicenseNumber ? setLicenseNumberChecking : setLicensePlateChecking;
-        const setInUse = isLicenseNumber ? setLicenseNumberInUse : setLicensePlateInUse;
-        const setChecked = isLicenseNumber ? setLicenseNumberChecked : setLicensePlateChecked;
-        const existingValue = isLicenseNumber
-            ? existingDriver?.licenseNumber
-            : existingVehicle?.licensePlate;
-
-        seqRef.current += 1;
-        const checkId = seqRef.current;
-        if (timerRef.current) clearTimeout(timerRef.current);
-        setInUse(false);
-        setChecked(false);
-
-        if (!value) {
-            setChecking(false);
-            return;
+        if (!licenseNumber) {
+            setLicenseChecking(false);
+            return undefined;
         }
 
-        if (!pattern.test(value)) {
-            setChecking(false);
-            setFieldErrors(current => ({ ...current, [field]: messages.invalid }));
-            return;
+        if (!DRIVER_LICENSE_NUMBER_PATTERN.test(licenseNumber)) {
+            setLicenseChecking(false);
+            setFieldErrors(current => ({
+                ...current,
+                licenseNumber: "מספר רישיון נהיגה חייב להכיל 5-9 ספרות בלבד"
+            }));
+            return undefined;
         }
 
-        if (value === String(existingValue || "")) {
-            setChecking(false);
-            setChecked(true);
-            return;
+        if (String(existingDriver?.licenseNumber || "") === licenseNumber) {
+            setLicenseChecking(false);
+            setLicenseChecked(true);
+            setFieldErrors(current => ({ ...current, licenseNumber: undefined }));
+            return undefined;
         }
 
-        setChecking(true);
-        timerRef.current = setTimeout(async () => {
+        setLicenseChecking(true);
+        licenseCheckTimer.current = setTimeout(async () => {
             try {
-                const { data } = await api.get("/drivers/check-setup", {
-                    params: { [field]: value }
-                });
-                if (seqRef.current !== checkId) return;
-
-                const info = data?.[field];
-                setChecked(true);
-                setInUse(Boolean(info?.exists));
+                const { data } = await api.post("/drivers/check-license-number", { licenseNumber });
+                if (licenseCheckSeq.current !== checkId) return;
+                setLicenseChecked(true);
+                setLicenseInUse(Boolean(data.exists));
                 setFieldErrors(current => ({
                     ...current,
-                    [field]: info?.valid === false
-                        ? messages.invalid
-                        : info?.exists
-                            ? messages.duplicate
+                    licenseNumber: !data.valid
+                        ? "מספר רישיון נהיגה חייב להכיל 5-9 ספרות בלבד"
+                        : data.exists
+                            ? "מספר רישיון הנהיגה כבר קיים במערכת"
                             : undefined
                 }));
             } catch {
-                if (seqRef.current === checkId) {
-                    setFieldErrors(current => ({ ...current, [field]: messages.failed }));
+                if (licenseCheckSeq.current === checkId) {
+                    setFieldErrors(current => ({ ...current, licenseNumber: "לא ניתן לבדוק את מספר הרישיון כרגע" }));
                 }
             } finally {
-                if (seqRef.current === checkId) setChecking(false);
+                if (licenseCheckSeq.current === checkId) setLicenseChecking(false);
             }
-        }, 300);
-    };
+        }, AVAILABILITY_CHECK_DELAY_MS);
+
+        return () => {
+            if (licenseCheckTimer.current) clearTimeout(licenseCheckTimer.current);
+        };
+    }, [driverForm.licenseNumber, existingDriver?.licenseNumber]);
+
+    useEffect(() => {
+        const licensePlate = vehicleForm.licensePlate.trim();
+        plateCheckSeq.current += 1;
+        const checkId = plateCheckSeq.current;
+        if (plateCheckTimer.current) clearTimeout(plateCheckTimer.current);
+        setPlateInUse(false);
+        setPlateChecked(false);
+
+        if (!licensePlate) {
+            setPlateChecking(false);
+            return undefined;
+        }
+
+        if (!LICENSE_PLATE_PATTERN.test(licensePlate)) {
+            setPlateChecking(false);
+            setFieldErrors(current => ({
+                ...current,
+                licensePlate: "לוחית רישוי חייבת להכיל 7-8 ספרות בלבד"
+            }));
+            return undefined;
+        }
+
+        if (String(existingVehicle?.licensePlate || "") === licensePlate) {
+            setPlateChecking(false);
+            setPlateChecked(true);
+            setFieldErrors(current => ({ ...current, licensePlate: undefined }));
+            return undefined;
+        }
+
+        setPlateChecking(true);
+        plateCheckTimer.current = setTimeout(async () => {
+            try {
+                const { data } = await api.post("/vehicles/check-license-plate", { licensePlate });
+                if (plateCheckSeq.current !== checkId) return;
+                setPlateChecked(true);
+                setPlateInUse(Boolean(data.exists));
+                setFieldErrors(current => ({
+                    ...current,
+                    licensePlate: !data.valid
+                        ? "לוחית רישוי חייבת להכיל 7-8 ספרות בלבד"
+                        : data.exists
+                            ? "לוחית הרישוי כבר קיימת במערכת"
+                            : undefined
+                }));
+            } catch {
+                if (plateCheckSeq.current === checkId) {
+                    setFieldErrors(current => ({ ...current, licensePlate: "לא ניתן לבדוק את לוחית הרישוי כרגע" }));
+                }
+            } finally {
+                if (plateCheckSeq.current === checkId) setPlateChecking(false);
+            }
+        }, AVAILABILITY_CHECK_DELAY_MS);
+
+        return () => {
+            if (plateCheckTimer.current) clearTimeout(plateCheckTimer.current);
+        };
+    }, [vehicleForm.licensePlate, existingVehicle?.licensePlate]);
+
+    useEffect(() => {
+        return () => {
+            licenseCheckSeq.current += 1;
+            plateCheckSeq.current += 1;
+            if (licenseCheckTimer.current) clearTimeout(licenseCheckTimer.current);
+            if (plateCheckTimer.current) clearTimeout(plateCheckTimer.current);
+        };
+    }, []);
 
     const setD = (k, v) => setDF(f => ({ ...f, [k]: v }));
     const setV = (k, v) => setVF(f => ({ ...f, [k]: v }));
@@ -289,10 +329,9 @@ export default function DriverSetupPage() {
         if (step === 0) {
             const lic = driverForm.licenseNumber.trim();
             if (!lic) errs.licenseNumber = "שדה חובה";
-            else if (!DRIVER_LICENSE_NUMBER_RE.test(lic)) errs.licenseNumber = AVAILABILITY_MESSAGES.licenseNumber.invalid;
-            else if (licenseNumberChecking) errs.licenseNumber = AVAILABILITY_MESSAGES.licenseNumber.checking;
-            else if (licenseNumberInUse) errs.licenseNumber = AVAILABILITY_MESSAGES.licenseNumber.duplicate;
-            else if (fieldErrors.licenseNumber === AVAILABILITY_MESSAGES.licenseNumber.failed) errs.licenseNumber = fieldErrors.licenseNumber;
+            else if (!DRIVER_LICENSE_NUMBER_PATTERN.test(lic)) errs.licenseNumber = "מספר רישיון חייב להכיל 5-9 ספרות בלבד";
+            else if (licenseChecking) errs.licenseNumber = "בודקים אם מספר רישיון הנהיגה פנוי...";
+            else if (licenseInUse) errs.licenseNumber = "מספר רישיון הנהיגה כבר קיים במערכת";
 
             if (driverForm.licenseExpiry) {
                 if (new Date(driverForm.licenseExpiry) < new Date()) errs.licenseExpiry = "תאריך תפוגה עבר";
@@ -324,10 +363,9 @@ export default function DriverSetupPage() {
 
             const plate = vehicleForm.licensePlate.trim();
             if (!plate) errs.licensePlate = "שדה חובה";
-            else if (!LICENSE_PLATE_RE.test(plate)) errs.licensePlate = AVAILABILITY_MESSAGES.licensePlate.invalid;
-            else if (licensePlateChecking) errs.licensePlate = AVAILABILITY_MESSAGES.licensePlate.checking;
-            else if (licensePlateInUse) errs.licensePlate = AVAILABILITY_MESSAGES.licensePlate.duplicate;
-            else if (fieldErrors.licensePlate === AVAILABILITY_MESSAGES.licensePlate.failed) errs.licensePlate = fieldErrors.licensePlate;
+            else if (!LICENSE_PLATE_PATTERN.test(plate)) errs.licensePlate = "לוחית רישוי חייבת להכיל 7-8 ספרות";
+            else if (plateChecking) errs.licensePlate = "בודקים אם לוחית הרישוי פנויה...";
+            else if (plateInUse) errs.licensePlate = "לוחית הרישוי כבר קיימת במערכת";
         }
         if (step === 2) {
             if (!licensePreview) errs.licensePhoto = "יש להעלות צילום רישיון נהיגה";
@@ -411,7 +449,9 @@ export default function DriverSetupPage() {
             // Update user role if needed
             if (user?.role === "passenger") {
                 await api.put(`/users/${user.userId}`, { role: "both" });
-                updateUser({ role: "both" });
+                updateUser({ role: "both", gender: data.driver?.gender || driverForm.gender });
+            } else if (user) {
+                updateUser({ gender: data.driver?.gender || driverForm.gender });
             }
 
             await verificationDelay;
@@ -431,19 +471,6 @@ export default function DriverSetupPage() {
         setStep(s => s + 1);
     };
 
-    const licenseNumberAvailable = licenseNumberChecked &&
-        !licenseNumberChecking &&
-        !licenseNumberInUse &&
-        !fieldErrors.licenseNumber &&
-        DRIVER_LICENSE_NUMBER_RE.test(driverForm.licenseNumber.trim());
-    const licensePlateAvailable = licensePlateChecked &&
-        !licensePlateChecking &&
-        !licensePlateInUse &&
-        !fieldErrors.licensePlate &&
-        LICENSE_PLATE_RE.test(vehicleForm.licensePlate.trim());
-    const currentStepChecking = (step === 0 && licenseNumberChecking) ||
-        (step === 1 && licensePlateChecking);
-
     return (
         <div style={s.page} className="fade-in">
             <AutoVerificationOverlay open={Boolean(verification)} {...(verification || {})} />
@@ -460,22 +487,13 @@ export default function DriverSetupPage() {
                     <div style={s.group}>
                         <label style={s.label}>מספר רישיון נהיגה * <span style={{ color: "var(--danger)" }}>חובה</span></label>
                         <input placeholder="12345678" value={driverForm.licenseNumber}
-                            onChange={e => {
-                                const digits = e.target.value.replace(/[^\d]/g, "").slice(0, 9);
-                                setD("licenseNumber", digits);
-                                setFieldErrors(f => ({ ...f, licenseNumber: undefined }));
-                                checkSetupAvailability("licenseNumber", digits);
-                            }}
+                            onChange={e => { setD("licenseNumber", e.target.value.replace(/[^\d]/g, "")); setFieldErrors(f => ({ ...f, licenseNumber: undefined })); }}
                             inputMode="numeric"
                             maxLength={9}
-                            style={{ borderColor: fieldErrors.licenseNumber ? "var(--danger)" : licenseNumberAvailable ? "var(--success)" : undefined }} />
+                            style={{ borderColor: fieldErrors.licenseNumber ? "var(--danger)" : undefined }} />
+                        <FieldHint msg={licenseChecking ? "בודקים אם מספר הרישיון פנוי..." : ""} tone="muted" />
+                        <FieldHint msg={!licenseChecking && licenseChecked && !licenseInUse && DRIVER_LICENSE_NUMBER_PATTERN.test(driverForm.licenseNumber.trim()) ? "מספר הרישיון תקין ופנוי" : ""} />
                         <FieldErr msg={fieldErrors.licenseNumber} />
-                        {!fieldErrors.licenseNumber && licenseNumberChecking && (
-                            <FieldHint msg={AVAILABILITY_MESSAGES.licenseNumber.checking} />
-                        )}
-                        {licenseNumberAvailable && (
-                            <FieldHint tone="success" msg={AVAILABILITY_MESSAGES.licenseNumber.available} />
-                        )}
                     </div>
                     <div style={s.group}>
                         <label style={s.label}>תפוגת רישיון</label>
@@ -636,22 +654,13 @@ export default function DriverSetupPage() {
                                     const digits = e.target.value.replace(/[^\d]/g, "").slice(0, 8);
                                     setV("licensePlate", digits);
                                     setFieldErrors(f => ({ ...f, licensePlate: undefined }));
-                                    checkSetupAvailability("licensePlate", digits);
                                 }}
                                 inputMode="numeric"
                                 maxLength={8}
-                                style={{
-                                    borderColor: fieldErrors.licensePlate ? "var(--danger)" : licensePlateAvailable ? "var(--success)" : undefined,
-                                    letterSpacing: 2,
-                                    fontWeight: 600
-                                }} />
+                                style={{ borderColor: fieldErrors.licensePlate ? "var(--danger)" : undefined, letterSpacing: 2, fontWeight: 600 }} />
+                            <FieldHint msg={plateChecking ? "בודקים אם לוחית הרישוי פנויה..." : ""} tone="muted" />
+                            <FieldHint msg={!plateChecking && plateChecked && !plateInUse && LICENSE_PLATE_PATTERN.test(vehicleForm.licensePlate.trim()) ? "לוחית הרישוי תקינה ופנויה" : ""} />
                             <FieldErr msg={fieldErrors.licensePlate} />
-                            {!fieldErrors.licensePlate && licensePlateChecking && (
-                                <FieldHint msg={AVAILABILITY_MESSAGES.licensePlate.checking} />
-                            )}
-                            {licensePlateAvailable && (
-                                <FieldHint tone="success" msg={AVAILABILITY_MESSAGES.licensePlate.available} />
-                            )}
                         </div>
                         <div style={s.group}>
                             <label style={s.label}>מושבים</label>
@@ -720,7 +729,7 @@ export default function DriverSetupPage() {
                     </button>
                 )}
                 {step < 2 ? (
-                    <button type="button" className="btn-primary" style={{ flex: 2 }} disabled={currentStepChecking} onClick={goNext}>
+                    <button type="button" className="btn-primary" style={{ flex: 2 }} onClick={goNext}>
                         הבא →
                     </button>
                 ) : (

@@ -10,6 +10,7 @@ const Vehicle = require("../db/models/Vehicle");
 const User = require("../db/models/User");
 const Payment = require("../db/models/payment");
 const { activeBookingConflict, findActiveBookingForPassenger } = require("../utils/activeBooking");
+const { findUnresolvedPaymentForPassenger, unresolvedPaymentConflict } = require("../utils/unresolvedPayments");
 const { haversineKm, hasValidCoordinates } = require("../utils/pricing");
 const { calculateFareForRoute } = require("../utils/routePricing");
 const {
@@ -38,6 +39,7 @@ const ADMIN_RIDE_STATUSES = new Set([
     "completed",
     "cancelled"
 ]);
+const CARPOOL_RIDE_SEAT_STATUSES = ["matched", "confirmed", "completed"];
 
 const MIN_DRIVER_DISTANCE_KM = 1;
 const MAX_DRIVER_DISTANCE_KM = 25;
@@ -108,17 +110,51 @@ function driverPreferenceMismatch(ride, driver, vehicle) {
 
 // Which side of the ride is confirming completion. Admin outranks both so a
 // disputed ride can still be settled.
-async function completionSideFor(req, ride) {
-    if (isAdmin(req)) return "admin";
+async function completionActorFor(req, ride) {
+    if (isAdmin(req)) return { side: "admin" };
 
     const [driver, passenger] = await Promise.all([
         getDriverProfileForUser(req.user.userId),
         getPassengerProfileForUser(req.user.userId)
     ]);
 
-    if (driver && sameId(driver._id, ride.driverId)) return "driver";
-    if (passenger && sameId(passenger._id, ride.passengerId)) return "passenger";
-    return null;
+    if (driver && sameId(driver._id, ride.driverId)) return { side: "driver" };
+    if (passenger && ride.rideType === "carpool") {
+        const seat = await CarpoolRequest.findOne({
+            rideId: ride._id,
+            passengerId: passenger._id,
+            status: { $in: CARPOOL_RIDE_SEAT_STATUSES }
+        });
+        if (seat) return { side: "carpool_passenger", passengerId: passenger._id, seat };
+    }
+    if (passenger && sameId(passenger._id, ride.passengerId)) {
+        return { side: "passenger", passengerId: passenger._id };
+    }
+    return { side: null };
+}
+
+async function carpoolCompletionSeatsForRide(rideId) {
+    return CarpoolRequest.find({
+        rideId,
+        status: { $in: CARPOOL_RIDE_SEAT_STATUSES }
+    });
+}
+
+async function markCarpoolPassengerCompleted(seat, now) {
+    if (!seat) return seat;
+    if (seat.passengerCompletedAt && seat.status === "completed") return seat;
+
+    const updatedSeat = await CarpoolRequest.findByIdAndUpdate(
+        seat._id,
+        { $set: { passengerCompletedAt: seat.passengerCompletedAt || now, status: "completed" } },
+        { new: true, runValidators: true }
+    );
+
+    return updatedSeat || { ...seat, passengerCompletedAt: seat.passengerCompletedAt || now, status: "completed" };
+}
+
+function allCarpoolPassengersConfirmed(seats) {
+    return seats.length > 0 && seats.every(seat => Boolean(seat.passengerCompletedAt));
 }
 
 // Nudges whoever still has to confirm. The confirmation is already saved, so a
@@ -167,15 +203,81 @@ async function notifyCompletionConfirmation(req, ride, confirmedBy) {
 // still sees the card screen. Approval happens when that form is submitted, with
 // no payment provider and no human reviewer involved. An existing paid or
 // refunded payment is left exactly as it is.
-async function openPaymentForRide(ride) {
-    return Payment.findOneAndUpdate(
-        { rideId: ride._id },
+function carpoolSeatAmount(seat, ride) {
+    const finalPrice = Number(seat?.finalPrice);
+    if (Number.isFinite(finalPrice) && finalPrice >= 0) return finalPrice;
+
+    const pricePerSeat = Number(seat?.pricePerSeat);
+    const seatsNeeded = Number(seat?.seatsNeeded || 1);
+    if (Number.isFinite(pricePerSeat) && pricePerSeat >= 0) {
+        return Number((pricePerSeat * seatsNeeded).toFixed(2));
+    }
+
+    return Number(ride?.finalPrice || 0);
+}
+
+async function carpoolSeatsForRide(rideId, statuses = CARPOOL_RIDE_SEAT_STATUSES) {
+    const query = CarpoolRequest.find({
+        rideId,
+        status: { $in: statuses }
+    });
+
+    if (query && typeof query.populate === "function") {
+        return query
+            .populate({
+                path: "passengerId",
+                populate: { path: "userId", select: "fullName profileImage preferredLanguage" }
+            })
+            .sort({ createdAt: 1 });
+    }
+
+    return query || [];
+}
+
+function passengerPaymentRowForCarpoolSeat(seat, ride) {
+    const passengerId = seat?.passengerId?._id || seat?.passengerId;
+    if (!passengerId) return null;
+    return {
+        passengerId,
+        amount: carpoolSeatAmount(seat, ride)
+    };
+}
+
+async function passengerPaymentRowsForRide(ride) {
+    if (ride?.rideType !== "carpool") {
+        return [{
+            passengerId: ride.passengerId,
+            amount: Number(ride.finalPrice || 0)
+        }];
+    }
+
+    const seats = await carpoolSeatsForRide(ride._id);
+    const rows = (seats || [])
+        .map(seat => passengerPaymentRowForCarpoolSeat(seat, ride))
+        .filter(Boolean);
+
+    const primaryPassengerId = ride.passengerId?._id || ride.passengerId;
+    const hasPrimarySeat = rows.some(row => sameId(row.passengerId, primaryPassengerId));
+    if (primaryPassengerId && !hasPrimarySeat) {
+        rows.unshift({
+            passengerId: primaryPassengerId,
+            amount: Number(ride.finalPrice || 0)
+        });
+    }
+
+    return rows;
+}
+
+async function openPaymentForRide(ride, passengerPaymentRows = null) {
+    const rows = passengerPaymentRows || await passengerPaymentRowsForRide(ride);
+    return Promise.all(rows.map(row => Payment.findOneAndUpdate(
+        { rideId: ride._id, passengerId: row.passengerId },
         {
             $setOnInsert: {
                 rideId: ride._id,
-                passengerId: ride.passengerId,
+                passengerId: row.passengerId,
                 driverId: ride.driverId,
-                amount: ride.finalPrice || 0,
+                amount: row.amount,
                 currency: "ILS",
                 paymentMethod: "credit_card",
                 paymentStatus: "pending",
@@ -183,7 +285,7 @@ async function openPaymentForRide(ride) {
             }
         },
         { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
-    );
+    )));
 }
 
 // Carpool seats outlive the request queue, so a ride that ends has to release
@@ -208,6 +310,35 @@ function readyForDispatchFilter(date = new Date()) {
             { scheduledTime: { $lte: new Date(date.getTime() + DISPATCH_WINDOW_MS) } }
         ]
     };
+}
+
+function uniqueIds(values) {
+    return [...new Set((values || [])
+        .map(value => value?._id || value)
+        .filter(Boolean)
+        .map(String))];
+}
+
+async function findCarpoolRideIdsForPassenger(passengerId) {
+    const seats = await CarpoolRequest.find({
+        passengerId,
+        rideId: { $ne: null },
+        status: { $in: CARPOOL_RIDE_SEAT_STATUSES }
+    }).select("rideId");
+
+    return uniqueIds(seats.map(seat => seat.rideId));
+}
+
+async function passengerRideFilters(passenger) {
+    if (!passenger) return [];
+
+    const filters = [{ passengerId: passenger._id }];
+    const carpoolRideIds = await findCarpoolRideIdsForPassenger(passenger._id);
+    if (carpoolRideIds.length > 0) {
+        filters.push({ _id: { $in: carpoolRideIds } });
+    }
+
+    return filters;
 }
 
 async function canAccessRide(req, ride) {
@@ -246,6 +377,32 @@ async function getPopulatedRide(id) {
             populate: { path: "userId", select: "fullName profileImage preferredLanguage" }
         })
         .populate("vehicleId");
+}
+
+function plainDocument(document) {
+    if (!document) return document;
+    return typeof document.toObject === "function" ? document.toObject() : { ...document };
+}
+
+async function rideResponseDocument(ride) {
+    if (!ride || ride.rideType !== "carpool") return ride;
+
+    const seats = await carpoolSeatsForRide(ride._id);
+    const seatCount = (seats || []).reduce((sum, seat) => sum + Number(seat.seatsNeeded || 0), 0);
+    const response = plainDocument(ride);
+
+    response.carpoolPassengers = (seats || []).map(seat => ({
+        requestId: seat._id,
+        passengerId: seat.passengerId,
+        seatsNeeded: Number(seat.seatsNeeded || 1),
+        status: seat.status,
+        passengerCompletedAt: seat.passengerCompletedAt || null,
+        finalPrice: seat.finalPrice,
+        pricePerSeat: seat.pricePerSeat
+    }));
+    response.passengerCount = Math.max(Number(response.passengerCount || 1), seatCount || 0);
+
+    return response;
 }
 
 function positiveNumber(value) {
@@ -341,6 +498,9 @@ async function createRide(req, res) {
         // One booking at a time. Admins keep the override so support can still
         // place a ride for someone who is mid-trip.
         if (!isAdmin(req)) {
+            const pendingPayment = await findUnresolvedPaymentForPassenger(passengerId);
+            if (pendingPayment) return unresolvedPaymentConflict(res, pendingPayment);
+
             const activeBooking = await findActiveBookingForPassenger(passengerId);
             if (activeBooking) return activeBookingConflict(res, activeBooking);
         }
@@ -488,15 +648,14 @@ async function getAllRides(req, res) {
                 filter.driverId = driver._id;
             } else if (passengerId) {
                 if (!passenger || !sameId(passenger._id, passengerId)) return forbidden(res);
-                filter.passengerId = passenger._id;
+                filter.$or = await passengerRideFilters(passenger);
             } else if (status === "searching") {
                 if (!driver || !driver.isVerified) return res.status(200).json(paginatedRides([], pagination, 0));
                 if (!driver.acceptsCarpoolRides && rideType === "carpool") return res.status(200).json(paginatedRides([], pagination, 0));
                 if (!driver.acceptsCarpoolRides && !rideType) filter.rideType = { $ne: "carpool" };
                 Object.assign(filter, readyForDispatchFilter());
             } else {
-                const ownFilters = [];
-                if (passenger) ownFilters.push({ passengerId: passenger._id });
+                const ownFilters = await passengerRideFilters(passenger);
                 if (driver) ownFilters.push({ driverId: driver._id });
                 if (ownFilters.length === 0) return res.status(200).json(paginatedRides([], pagination, 0));
                 filter.$or = ownFilters;
@@ -514,7 +673,11 @@ async function getAllRides(req, res) {
             Ride.countDocuments(filter)
         ]);
 
-        res.status(200).json(paginatedRides(rides, pagination, total));
+        const responseRides = rides.some(ride => ride?.rideType === "carpool")
+            ? await Promise.all(rides.map(rideResponseDocument))
+            : rides;
+
+        res.status(200).json(paginatedRides(responseRides, pagination, total));
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -527,7 +690,7 @@ async function getRideById(req, res) {
         if (!ride) return res.status(404).json({ error: "Ride not found" });
         if (!await canAccessRide(req, ride)) return forbidden(res);
 
-        res.status(200).json(ride);
+        res.status(200).json(await rideResponseDocument(ride));
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -656,25 +819,52 @@ async function completeRide(req, res) {
         if (!await canAccessRide(req, ride)) return forbidden(res);
         if (ride.status !== "in_progress") return res.status(400).json({ error: "Ride is not in progress" });
 
-        const side = await completionSideFor(req, ride);
-        if (!side) return forbidden(res, "Only the ride passenger or the assigned driver can confirm completion");
+        const actor = await completionActorFor(req, ride);
+        if (!actor.side) return forbidden(res, "Only an approved ride passenger or the assigned driver can confirm completion");
 
         const now = new Date();
-        if (side === "driver" && !ride.driverCompletedAt) ride.driverCompletedAt = now;
-        if (side === "passenger" && !ride.passengerCompletedAt) ride.passengerCompletedAt = now;
+        if (actor.side === "driver" && !ride.driverCompletedAt) ride.driverCompletedAt = now;
+        if (actor.side === "passenger" && !ride.passengerCompletedAt) ride.passengerCompletedAt = now;
+        let completedCarpoolSeat = null;
+        if (actor.side === "carpool_passenger") {
+            completedCarpoolSeat = await markCarpoolPassengerCompleted(actor.seat, now);
+        }
         // An admin settles a disputed ride on behalf of both sides.
-        if (side === "admin") {
+        if (actor.side === "admin") {
             ride.driverCompletedAt = ride.driverCompletedAt || now;
-            ride.passengerCompletedAt = ride.passengerCompletedAt || now;
+            if (ride.rideType === "carpool") {
+                await CarpoolRequest.updateMany(
+                    { rideId: ride._id, status: { $in: CARPOOL_RIDE_SEAT_STATUSES }, passengerCompletedAt: null },
+                    { $set: { passengerCompletedAt: now } }
+                );
+            } else {
+                ride.passengerCompletedAt = ride.passengerCompletedAt || now;
+            }
+        }
+
+        let passengerSideCompleted = Boolean(ride.passengerCompletedAt);
+        if (ride.rideType === "carpool") {
+            const completionSeats = await carpoolCompletionSeatsForRide(ride._id);
+            passengerSideCompleted = completionSeats.length > 0
+                ? allCarpoolPassengersConfirmed(completionSeats)
+                : Boolean(ride.passengerCompletedAt);
+            if (completionSeats.length > 0 && passengerSideCompleted && !ride.passengerCompletedAt) {
+                ride.passengerCompletedAt = now;
+            }
         }
 
         // Wait for the other side rather than finishing on one person's word.
-        if (!ride.driverCompletedAt || !ride.passengerCompletedAt) {
+        if (!ride.driverCompletedAt || !passengerSideCompleted) {
             await ride.save();
-            await notifyCompletionConfirmation(req, ride, side);
+            if (actor.side === "carpool_passenger") {
+                const row = passengerPaymentRowForCarpoolSeat(completedCarpoolSeat || actor.seat, ride);
+                if (row) await openPaymentForRide(ride, [row]);
+            }
+            await notifyCompletionConfirmation(req, ride, actor.side === "carpool_passenger" ? "passenger" : actor.side);
             return res.status(200).json({
                 message: "Completion confirmed; waiting for the other side",
                 awaiting: ride.driverCompletedAt ? "passenger" : "driver",
+                paymentReady: actor.side === "carpool_passenger",
                 ride
             });
         }
@@ -688,18 +878,25 @@ async function completeRide(req, res) {
         }
         await ride.save();
 
+        const passengerPaymentRows = await passengerPaymentRowsForRide(ride);
+        const driverEarnings = passengerPaymentRows.reduce(
+            (sum, row) => sum + Number(row.amount || 0),
+            0
+        );
+
         if (ride.driverId) {
             await DriverProfile.findByIdAndUpdate(ride.driverId, {
-                $inc: { totalRides: 1, totalEarnings: ride.finalPrice || 0 },
-                status: "available"
+                $inc: { totalRides: 1, totalEarnings: driverEarnings },
+                status: "available",
+                lastActiveAt: now
             });
         }
 
-        await PassengerProfile.findByIdAndUpdate(ride.passengerId, {
-            $inc: { totalRides: 1, totalSpent: ride.finalPrice || 0 }
-        });
+        await Promise.all(passengerPaymentRows.map(row => PassengerProfile.findByIdAndUpdate(row.passengerId, {
+            $inc: { totalRides: 1, totalSpent: Number(row.amount || 0) }
+        })));
 
-        await openPaymentForRide(ride);
+        await openPaymentForRide(ride, passengerPaymentRows);
         await settleCarpoolSeats(ride, "completed");
 
         res.status(200).json({ message: "Ride completed", ride });

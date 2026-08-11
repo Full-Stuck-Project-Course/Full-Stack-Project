@@ -96,11 +96,12 @@ function withoutGoogleMaps(run) {
 
 test("a verified carpool driver sees the queue of waiting passengers", async () => {
     const capture = {};
-    const waiting = [makeRequest()];
+    const waiting = [makeRequest({ vehicleType: "regular" })];
 
     patchMethod(patches, DriverProfile, "findOne", async ({ userId }) => (
         userId === "driver-user" ? makeDriver() : null
     ));
+    stubVehicle(makeVehicle());
     patchMethod(patches, CarpoolRequest, "find", (filter) => {
         capture.filter = filter;
         return queryResult(waiting, capture);
@@ -113,6 +114,7 @@ test("a verified carpool driver sees the queue of waiting passengers", async () 
     assert.deepEqual(res.body, waiting);
     assert.equal(capture.filter.status, "pending");
     assert.ok(capture.filter.$or, "expired requests must be filtered out of the queue");
+    assert.ok(capture.filter.$and, "drivers must only see carpool requests quoted for their active vehicle type");
 });
 
 test("a driver who turned carpool off gets an empty queue instead of other people's requests", async () => {
@@ -142,7 +144,16 @@ test("an unverified driver cannot read the carpool queue", async () => {
 
 test("approving a waiting passenger opens a carpool ride and confirms the request", async () => {
     await withoutGoogleMaps(async () => {
-        const request = makeRequest({ seatsNeeded: 2 });
+        const request = makeRequest({
+            seatsNeeded: 2,
+            vehicleType: "regular",
+            distanceKm: 7.2,
+            estimatedDurationMinutes: 18,
+            basePrice: 40,
+            surgeMultiplier: 1,
+            finalPrice: 44,
+            pricePerSeat: 22
+        });
         let claim;
         let driverClaim;
         let ridePayload;
@@ -190,13 +201,14 @@ test("approving a waiting passenger opens a carpool ride and confirms the reques
         assert.deepEqual(driverClaim.filter, { _id: "driver-1", status: "available", isVerified: true });
         assert.deepEqual(driverClaim.update, { status: "busy" });
         assert.equal(ridePayload.rideType, "carpool");
-        assert.equal(ridePayload.status, "accepted");
+        assert.equal(ridePayload.status, "driver_arriving");
         assert.equal(ridePayload.driverId, "driver-1");
         assert.equal(ridePayload.vehicleId, "vehicle-1");
         assert.equal(ridePayload.passengerId, "passenger-1");
         assert.equal(ridePayload.passengerCount, 2);
         assert.equal(ridePayload.pickupLocation.address, pickupLocation.address);
-        assert.ok(ridePayload.finalPrice > 0, "the opened ride must carry a fare");
+        assert.equal(ridePayload.finalPrice, 44, "the opened ride must use the stored passenger quote");
+        assert.equal(ridePayload.basePrice, 40, "the opened ride must preserve the stored quote breakdown");
         assert.equal(confirm.update.status, "confirmed");
         assert.equal(confirm.update.rideId, "carpool-ride-1");
         assert.equal(notice.userId, "passenger-user");
@@ -215,6 +227,7 @@ test("a second passenger joins the carpool ride the driver is already running", 
     };
     let reservedFilter;
     let rideCreateCalls = 0;
+    let rideSeatUpdate;
     let confirm;
 
     patchMethod(patches, DriverProfile, "findOne", async () => makeDriver({ status: "busy" }));
@@ -226,6 +239,10 @@ test("a second passenger joins the carpool ride the driver is already running", 
         return [{ _id: "request-1", seatsNeeded: 1 }];
     });
     patchMethod(patches, CarpoolRequest, "findOneAndUpdate", async (filter, update) => ({ ...request, ...update }));
+    patchMethod(patches, Ride, "findOneAndUpdate", async (filter, update, options) => {
+        rideSeatUpdate = { filter, update, options };
+        return { ...ride, passengerCount: update.$set.passengerCount };
+    });
     patchMethod(patches, Ride, "create", async () => {
         rideCreateCalls += 1;
         throw new Error("joining an existing carpool must not open another ride");
@@ -245,10 +262,84 @@ test("a second passenger joins the carpool ride the driver is already running", 
 
     assert.equal(res.statusCode, 200);
     assert.equal(rideCreateCalls, 0);
+    assert.deepEqual(rideSeatUpdate.filter, {
+        _id: "carpool-ride-1",
+        rideType: "carpool",
+        status: { $in: ["searching", "accepted", "driver_arriving", "in_progress"] },
+        passengerCount: { $lte: 2 }
+    });
+    assert.deepEqual(rideSeatUpdate.update, { $set: { passengerCount: 3 } });
     assert.equal(confirm.update.rideId, "carpool-ride-1");
     assert.equal(reservedFilter.rideId, "carpool-ride-1");
     assert.deepEqual(reservedFilter.status.$in, ["matched", "confirmed"],
         "seats already promised to other riders must count against capacity");
+});
+
+test("a busy carpool driver can approve another passenger even when the client omits the ride id", async () => {
+    const request = makeRequest({ _id: "request-2b", passengerId: "passenger-2", seatsNeeded: 1 });
+    const ride = {
+        _id: "carpool-ride-1",
+        rideType: "carpool",
+        driverId: "driver-1",
+        status: "driver_arriving",
+        passengerCount: 2,
+        vehicleType: "regular"
+    };
+    let openRideFilter;
+    let reservedFilter;
+    let driverClaimCalls = 0;
+    let rideCreateCalls = 0;
+    let rideSeatUpdate;
+    let confirm;
+
+    patchMethod(patches, DriverProfile, "findOne", async () => makeDriver({ status: "busy" }));
+    patchMethod(patches, CarpoolRequest, "findById", async () => request);
+    stubVehicle(makeVehicle());
+    patchMethod(patches, Ride, "findOne", (filter) => {
+        openRideFilter = filter;
+        return { sort: async () => ride };
+    });
+    patchMethod(patches, CarpoolRequest, "find", async (filter) => {
+        reservedFilter = filter;
+        return [{ _id: "request-1", seatsNeeded: 1 }];
+    });
+    patchMethod(patches, CarpoolRequest, "findOneAndUpdate", async (filter, update) => ({ ...request, ...update }));
+    patchMethod(patches, Ride, "findOneAndUpdate", async (filter, update, options) => {
+        rideSeatUpdate = { filter, update, options };
+        return { ...ride, passengerCount: update.$set.passengerCount };
+    });
+    patchMethod(patches, DriverProfile, "findOneAndUpdate", async () => {
+        driverClaimCalls += 1;
+        throw new Error("joining an existing carpool must not claim a new driver slot");
+    });
+    patchMethod(patches, Ride, "create", async () => {
+        rideCreateCalls += 1;
+        throw new Error("joining an existing carpool must not open another ride");
+    });
+    patchMethod(patches, CarpoolRequest, "findByIdAndUpdate", async (id, update) => {
+        confirm = { id, update };
+        return { ...request, ...update };
+    });
+    stubApprovalNotice();
+
+    const res = makeRes();
+    await acceptCarpoolRequest({
+        user: { userId: "driver-user", role: "driver" },
+        params: { id: request._id },
+        body: {}
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(rideCreateCalls, 0);
+    assert.equal(driverClaimCalls, 0);
+    assert.deepEqual(rideSeatUpdate.update, { $set: { passengerCount: 3 } });
+    assert.deepEqual(openRideFilter, {
+        driverId: "driver-1",
+        rideType: "carpool",
+        status: { $in: ["searching", "accepted", "driver_arriving", "in_progress"] }
+    });
+    assert.equal(confirm.update.rideId, "carpool-ride-1");
+    assert.equal(reservedFilter.rideId, "carpool-ride-1");
 });
 
 test("a passenger is refused when the seats left on the ride do not cover the request", async () => {
@@ -263,7 +354,7 @@ test("a passenger is refused when the seats left on the ride do not cover the re
 
     patchMethod(patches, DriverProfile, "findOne", async () => makeDriver({ status: "busy" }));
     patchMethod(patches, CarpoolRequest, "findById", async () => request);
-    stubVehicle(makeVehicle({ seats: 4 }));
+    stubVehicle(makeVehicle({ seats: 3 }));
     patchMethod(patches, Ride, "findById", async () => ride);
     patchMethod(patches, CarpoolRequest, "find", async () => [{ _id: "request-1", seatsNeeded: 1 }]);
     patchMethod(patches, CarpoolRequest, "findOneAndUpdate", async () => {

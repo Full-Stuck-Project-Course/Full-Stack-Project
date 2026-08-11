@@ -7,6 +7,10 @@ const DriverProfile = require("../db/models/DriverProfile");
 const { updateDriverStatus } = require("../controllers/driverController");
 const { io, markStaleAvailableDriversOffline } = require("../server");
 const {
+    DEFAULT_DRIVER_ACTIVE_WINDOW_MS,
+    DEFAULT_DRIVER_DISCONNECT_GRACE_MS
+} = require("../utils/driverPresence");
+const {
     makeRes,
     patchMethod,
     restoreMethods
@@ -16,6 +20,11 @@ const patches = [];
 
 test.afterEach(() => {
     restoreMethods(patches);
+});
+
+test("driver presence defaults keep available drivers online for a few minutes", () => {
+    assert.equal(DEFAULT_DRIVER_ACTIVE_WINDOW_MS, 5 * 60 * 1000);
+    assert.equal(DEFAULT_DRIVER_DISCONNECT_GRACE_MS, 3 * 60 * 1000);
 });
 
 test("marking a driver available refreshes their activity timestamp", async () => {

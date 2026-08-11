@@ -1,8 +1,16 @@
 // controllers/paymentController.js
 
 const Payment = require("../db/models/payment");
+const CarpoolRequest = require("../db/models/CarpoolRequest");
+const PassengerProfile = require("../db/models/PassengerProfile");
 const Ride = require("../db/models/Ride");
 const { notifyPaymentApproved } = require("../utils/approvalNotifications");
+const {
+    normalizeSavedPaymentMethod,
+    validateSimulatedCard,
+    validateStoredPaymentMethod
+} = require("../utils/simulatedPaymentMethod");
+const { findUnresolvedPaymentForPassenger } = require("../utils/unresolvedPayments");
 const {
     sameId,
     isAdmin,
@@ -23,39 +31,54 @@ async function canAccessPayment(req, payment) {
     );
 }
 
-function digitsOnly(value) {
-    return String(value || "").replace(/\D/g, "");
-}
+const CARPOOL_PAYMENT_SEAT_STATUSES = ["matched", "confirmed", "completed"];
 
-function isValidFutureExpiry(expiry) {
-    if (!/^\d{4}-\d{2}$/.test(expiry)) return false;
-    const [year, month] = expiry.split("-").map(Number);
-    if (month < 1 || month > 12) return false;
+function carpoolPaymentAmount(seat, ride) {
+    const finalPrice = Number(seat?.finalPrice);
+    if (Number.isFinite(finalPrice) && finalPrice >= 0) return finalPrice;
 
-    const now = new Date();
-    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const expiryMonth = new Date(year, month - 1, 1);
-    return expiryMonth >= currentMonth;
-}
-
-function validateSimulatedCard(body) {
-    const cardholderName = String(body.cardholderName || "").trim();
-    const cardNumber = digitsOnly(body.cardNumber);
-    const cvv = digitsOnly(body.cvv);
-    const expiry = String(body.expiry || "").trim();
-
-    if (!cardholderName) return { error: "Cardholder name is required" };
-    if (cardNumber.length < 12 || cardNumber.length > 19) {
-        return { error: "Card number must contain 12 to 19 digits" };
+    const pricePerSeat = Number(seat?.pricePerSeat);
+    const seatsNeeded = Number(seat?.seatsNeeded || 1);
+    if (Number.isFinite(pricePerSeat) && pricePerSeat >= 0) {
+        return Number((pricePerSeat * seatsNeeded).toFixed(2));
     }
-    if (!isValidFutureExpiry(expiry)) return { error: "Expiry month must be current or future" };
-    if (!/^\d{3,4}$/.test(cvv)) return { error: "CVV must contain 3 or 4 digits" };
 
-    return {
-        cardLast4: cardNumber.slice(-4),
-        cardholderName,
-        expiry
-    };
+    return Number(ride?.finalPrice || 0);
+}
+
+async function passengerPaymentContext(ride, passenger) {
+    if (!passenger) return null;
+
+    if (ride?.rideType === "carpool") {
+        const seat = await CarpoolRequest.findOne({
+            rideId: ride._id,
+            passengerId: passenger._id,
+            status: { $in: CARPOOL_PAYMENT_SEAT_STATUSES }
+        });
+        if (seat) {
+            return {
+                passengerId: passenger._id,
+                amount: carpoolPaymentAmount(seat, ride),
+                readyForPayment: Boolean(ride.status === "completed" || seat.passengerCompletedAt || seat.status === "completed")
+            };
+        }
+    }
+
+    if (sameId(passenger._id, ride?.passengerId)) {
+        return {
+            passengerId: passenger._id,
+            amount: Number(ride.finalPrice || 0),
+            readyForPayment: Boolean(ride.status === "completed" || ride.passengerCompletedAt)
+        };
+    }
+
+    return null;
+}
+
+function populatedPaymentQuery(filter) {
+    return Payment.findOne(filter)
+        .populate("passengerId")
+        .populate("driverId");
 }
 
 // POST /payments
@@ -145,12 +168,50 @@ async function getPaymentById(req, res) {
 // GET /payments/ride/:rideId
 async function getPaymentByRide(req, res) {
     try {
-        const payment = await Payment.findOne({ rideId: req.params.rideId })
-            .populate("passengerId")
-            .populate("driverId");
+        let payment = null;
+
+        if (isAdmin(req)) {
+            payment = await populatedPaymentQuery({ rideId: req.params.rideId });
+        } else {
+            const ride = await Ride.findById(req.params.rideId);
+            if (!ride) return res.status(404).json({ error: "Payment not found for this ride" });
+
+            const [passenger, driver] = await Promise.all([
+                getPassengerProfileForUser(req.user.userId),
+                getDriverProfileForUser(req.user.userId)
+            ]);
+            const passengerContext = await passengerPaymentContext(ride, passenger);
+
+            if (passengerContext) {
+                payment = await populatedPaymentQuery({
+                    rideId: req.params.rideId,
+                    passengerId: passengerContext.passengerId
+                });
+            } else if (driver && sameId(driver._id, ride.driverId)) {
+                payment = await populatedPaymentQuery({
+                    rideId: req.params.rideId,
+                    driverId: driver._id
+                });
+            } else {
+                return forbidden(res);
+            }
+        }
+
         if (!payment) return res.status(404).json({ error: "Payment not found for this ride" });
-        if (!await canAccessPayment(req, payment)) return forbidden(res);
         res.status(200).json(payment);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+// GET /payments/unresolved
+async function getUnresolvedPaymentForCurrentPassenger(req, res) {
+    try {
+        const passenger = await getPassengerProfileForUser(req.user.userId);
+        if (!passenger) return res.status(200).json({ payment: null });
+
+        const payment = await findUnresolvedPaymentForPassenger(passenger._id, { populateRide: true });
+        res.status(200).json({ payment: payment || null });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -161,20 +222,26 @@ async function simulatePayment(req, res) {
     try {
         const ride = await Ride.findById(req.params.rideId);
         if (!ride) return res.status(404).json({ error: "Ride not found" });
-        if (ride.status !== "completed") {
+        if (ride.status !== "completed" && ride.rideType !== "carpool") {
             return res.status(400).json({ error: "Payment can be approved only after the ride is completed" });
         }
         if (!ride.driverId) return res.status(400).json({ error: "Ride has no assigned driver" });
 
         const passenger = await getPassengerProfileForUser(req.user.userId);
-        if (!passenger || !sameId(passenger._id, ride.passengerId)) {
-            return forbidden(res, "Only the ride passenger can approve payment");
+        const paymentContext = await passengerPaymentContext(ride, passenger);
+        if (!paymentContext) return forbidden(res, "Only an approved ride passenger can approve payment");
+        if (ride.status !== "completed" && !paymentContext.readyForPayment) {
+            return res.status(400).json({ error: "Payment can be approved only after this passenger confirms their ride is completed" });
         }
 
-        const card = validateSimulatedCard(req.body);
+        const useSavedPaymentMethod = req.body.useSavedPaymentMethod === true || req.body.useSavedPaymentMethod === "true";
+        const savePaymentMethod = req.body.savePaymentMethod === true || req.body.savePaymentMethod === "true";
+        const card = useSavedPaymentMethod
+            ? validateStoredPaymentMethod(passenger.defaultPaymentMethod)
+            : validateSimulatedCard(req.body);
         if (card.error) return res.status(400).json({ error: card.error });
 
-        const existing = await Payment.findOne({ rideId: ride._id });
+        const existing = await Payment.findOne({ rideId: ride._id, passengerId: paymentContext.passengerId });
         if (existing?.paymentStatus === "paid") {
             return res.status(200).json({ message: "Payment already approved", payment: existing });
         }
@@ -185,17 +252,18 @@ async function simulatePayment(req, res) {
         const paidAt = new Date();
         const transactionId = `sim_${ride._id}_${paidAt.getTime()}`;
         const payment = await Payment.findOneAndUpdate(
-            { rideId: ride._id },
+            { rideId: ride._id, passengerId: paymentContext.passengerId },
             {
                 $set: {
-                    passengerId: ride.passengerId,
+                    passengerId: paymentContext.passengerId,
                     driverId: ride.driverId,
-                    amount: ride.finalPrice || 0,
+                    amount: paymentContext.amount,
                     currency: "ILS",
                     paymentMethod: "credit_card",
                     paymentStatus: "paid",
                     paymentProvider: "simulated",
                     cardLast4: card.cardLast4,
+                    cardBrand: card.cardBrand,
                     transactionId,
                     paidAt
                 },
@@ -206,9 +274,28 @@ async function simulatePayment(req, res) {
             { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
         );
 
+        let updatedPassenger = null;
+        if (!useSavedPaymentMethod && savePaymentMethod) {
+            const paymentMethod = normalizeSavedPaymentMethod(req.body);
+            if (paymentMethod.error) return res.status(400).json({ error: paymentMethod.error });
+            try {
+                updatedPassenger = await PassengerProfile.findByIdAndUpdate(
+                    passenger._id,
+                    { defaultPaymentMethod: { ...paymentMethod, updatedAt: paidAt } },
+                    { new: true, runValidators: true }
+                );
+            } catch (saveError) {
+                console.warn("Could not save passenger payment method:", saveError.message);
+            }
+        }
+
         await notifyPaymentApproved(req, { ride, payment });
 
-        res.status(200).json({ message: "Simulated payment approved", payment });
+        res.status(200).json({
+            message: "Simulated payment approved",
+            payment,
+            ...(updatedPassenger ? { passenger: updatedPassenger } : {})
+        });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -267,6 +354,7 @@ async function refundPayment(req, res) {
 
 module.exports = {
     createPayment, getAllPayments, getPaymentById,
-    getPaymentByRide, updatePaymentStatus, refundPayment,
+    getPaymentByRide, getUnresolvedPaymentForCurrentPassenger,
+    updatePaymentStatus, refundPayment,
     simulatePayment
 };

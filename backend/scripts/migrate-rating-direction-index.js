@@ -20,6 +20,12 @@ async function main() {
         index.key?.rideId === 1 &&
         Object.keys(index.key).length === 1
     );
+    const legacyDirectionIndex = indexes.find(index =>
+        index.unique === true &&
+        index.key?.rideId === 1 &&
+        index.key?.direction === 1 &&
+        Object.keys(index.key).length === 2
+    );
 
     const missingDirectionCount = await collection.countDocuments({
         direction: { $exists: false }
@@ -35,11 +41,14 @@ async function main() {
     if (!dryRun && legacyRideIndex) {
         await collection.dropIndex(legacyRideIndex.name);
     }
+    if (!dryRun && legacyDirectionIndex) {
+        await collection.dropIndex(legacyDirectionIndex.name);
+    }
 
     if (!dryRun) {
         await collection.createIndex(
-            { rideId: 1, direction: 1 },
-            { unique: true, name: "rideId_1_direction_1" }
+            { rideId: 1, direction: 1, passengerId: 1 },
+            { unique: true, name: "rideId_1_direction_1_passengerId_1" }
         );
     }
 
@@ -47,7 +56,8 @@ async function main() {
         dryRun,
         missingDirectionCount,
         legacyRideIndexName: legacyRideIndex?.name || null,
-        compoundDirectionIndex: "rideId_1_direction_1"
+        legacyDirectionIndexName: legacyDirectionIndex?.name || null,
+        compoundDirectionIndex: "rideId_1_direction_1_passengerId_1"
     }));
 
     await mongoose.disconnect();

@@ -88,7 +88,8 @@ async function cleanupDeletedUserPrivacy(userId) {
 
     if (passenger) {
         await PassengerProfile.findByIdAndUpdate(passenger._id, {
-            savedLocations: []
+            savedLocations: [],
+            defaultPaymentMethod: null
         });
     }
 

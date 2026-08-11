@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const CarpoolRequest = require("../db/models/CarpoolRequest");
 const PassengerProfile = require("../db/models/PassengerProfile");
+const Payment = require("../db/models/payment");
 const Ride = require("../db/models/Ride");
 const { createRide } = require("../controllers/rideController");
 const { createCarpoolRequest } = require("../controllers/carpoolController");
@@ -46,7 +47,8 @@ function stubPassenger() {
     ));
 }
 
-function stubOpenBooking({ ride = null, carpoolRequest = null } = {}) {
+function stubOpenBooking({ ride = null, carpoolRequest = null, payment = null } = {}) {
+    patchMethod(patches, Payment, "findOne", async () => payment);
     patchMethod(patches, Ride, "findOne", async () => ride);
     patchMethod(patches, CarpoolRequest, "findOne", async () => carpoolRequest);
 }
@@ -120,6 +122,29 @@ test("a queued carpool request blocks a new ride", async () => {
     assert.equal(res.body.activeBooking.requestId, "request-1");
 });
 
+test("a pending payment from a completed ride blocks a new ride", async () => {
+    stubPassenger();
+    stubOpenBooking({
+        payment: {
+            _id: "payment-1",
+            rideId: "ride-1",
+            passengerId: "passenger-1",
+            paymentStatus: "pending",
+            amount: 42,
+            currency: "ILS"
+        }
+    });
+    refuseCreation();
+
+    const res = makeRes();
+    await createRide(passengerRequest({ pickupLocation, destinationLocation }), res);
+
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.body.code, "PENDING_PAYMENT_REQUIRED");
+    assert.equal(res.body.pendingPayment.type, "payment");
+    assert.equal(res.body.pendingPayment.rideId, "ride-1");
+});
+
 test("an active ride blocks a new carpool request", async () => {
     stubPassenger();
     stubOpenBooking({ ride: { _id: "ride-1", status: "driver_arriving" } });
@@ -130,6 +155,28 @@ test("an active ride blocks a new carpool request", async () => {
 
     assert.equal(res.statusCode, 409);
     assert.equal(res.body.code, "ACTIVE_BOOKING_EXISTS");
+});
+
+test("a failed unresolved payment blocks a new carpool request", async () => {
+    stubPassenger();
+    stubOpenBooking({
+        payment: {
+            _id: "payment-1",
+            rideId: "ride-1",
+            passengerId: "passenger-1",
+            paymentStatus: "failed",
+            amount: 42,
+            currency: "ILS"
+        }
+    });
+    refuseCreation();
+
+    const res = makeRes();
+    await createCarpoolRequest(passengerRequest(carpoolBody()), res);
+
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.body.code, "PENDING_PAYMENT_REQUIRED");
+    assert.equal(res.body.pendingPayment.status, "failed");
 });
 
 test("an approved carpool seat blocks another carpool request", async () => {

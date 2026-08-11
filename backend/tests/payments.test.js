@@ -4,11 +4,13 @@ const assert = require("node:assert/strict");
 const DriverProfile = require("../db/models/DriverProfile");
 const Notification = require("../db/models/Notification");
 const PassengerProfile = require("../db/models/PassengerProfile");
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const Payment = require("../db/models/payment");
 const Ride = require("../db/models/Ride");
 const {
     createPayment,
     getAllPayments,
+    getUnresolvedPaymentForCurrentPassenger,
     refundPayment,
     simulatePayment,
     updatePaymentStatus
@@ -93,6 +95,38 @@ test("payment listing prevents forged passenger filters", async () => {
 
     assert.equal(res.statusCode, 403);
     assert.equal(paymentFindCalled, false);
+});
+
+test("passenger can fetch the unresolved payment that blocks the next booking", async () => {
+    const capture = {};
+    const unresolvedPayment = {
+        _id: "payment-1",
+        rideId: "ride-1",
+        passengerId: "own-passenger",
+        paymentStatus: "pending"
+    };
+
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => (
+        userId === "passenger-user" ? { _id: "own-passenger" } : null
+    ));
+    patchMethod(patches, Payment, "findOne", (filter) => {
+        capture.filter = filter;
+        return queryResult(unresolvedPayment, capture);
+    });
+
+    const res = makeRes();
+    await getUnresolvedPaymentForCurrentPassenger({
+        user: { userId: "passenger-user", role: "passenger" }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.payment, unresolvedPayment);
+    assert.deepEqual(capture.filter, {
+        passengerId: "own-passenger",
+        paymentStatus: { $in: ["pending", "failed"] }
+    });
+    assert.deepEqual(capture.populates, ["rideId"]);
+    assert.deepEqual(capture.sort, { createdAt: 1 });
 });
 
 test("admins create payments from the assigned ride and cannot refund more than the payment amount", async () => {
@@ -223,6 +257,213 @@ test("ride passenger can approve a completed ride with simulated card details", 
     assert.ok(paymentUpsert.update.$set.paidAt instanceof Date);
     assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cardNumber"), false);
     assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cvv"), false);
+});
+
+test("approved carpool passenger can approve their own ride payment", async () => {
+    const ride = {
+        _id: "ride-1",
+        rideType: "carpool",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 72.5
+    };
+    let existingPaymentFilter;
+    let paymentUpsert;
+
+    stubPaymentNotifications();
+    patchMethod(patches, Ride, "findById", async (id) => id === ride._id ? ride : null);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        return userId === "second-passenger-user" ? { _id: "passenger-2" } : null;
+    });
+    patchMethod(patches, CarpoolRequest, "findOne", async (filter) => {
+        assert.deepEqual(filter, {
+            rideId: ride._id,
+            passengerId: "passenger-2",
+            status: { $in: ["matched", "confirmed", "completed"] }
+        });
+        return {
+            _id: "request-2",
+            passengerId: "passenger-2",
+            status: "completed",
+            seatsNeeded: 1,
+            finalPrice: 31,
+            pricePerSeat: 31
+        };
+    });
+    patchMethod(patches, Payment, "findOne", async (filter) => {
+        existingPaymentFilter = filter;
+        return null;
+    });
+    patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update, options) => {
+        paymentUpsert = { filter, update, options };
+        return { _id: "payment-2", ...update.$setOnInsert, ...update.$set };
+    });
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "second-passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Second Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(existingPaymentFilter, { rideId: ride._id, passengerId: "passenger-2" });
+    assert.deepEqual(paymentUpsert.filter, { rideId: ride._id, passengerId: "passenger-2" });
+    assert.equal(paymentUpsert.update.$set.passengerId, "passenger-2");
+    assert.equal(paymentUpsert.update.$set.amount, 31);
+    assert.equal(res.body.payment.paymentStatus, "paid");
+});
+
+test("completed carpool passenger can approve payment before the whole ride is completed", async () => {
+    const ride = {
+        _id: "ride-1",
+        rideType: "carpool",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "in_progress",
+        finalPrice: 72.5
+    };
+    let paymentUpsert;
+
+    stubPaymentNotifications();
+    patchMethod(patches, Ride, "findById", async (id) => id === ride._id ? ride : null);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        return userId === "second-passenger-user" ? { _id: "passenger-2" } : null;
+    });
+    patchMethod(patches, CarpoolRequest, "findOne", async () => ({
+        _id: "request-2",
+        passengerId: "passenger-2",
+        status: "completed",
+        passengerCompletedAt: new Date("2026-01-01T10:05:00Z"),
+        seatsNeeded: 1,
+        finalPrice: 31,
+        pricePerSeat: 31
+    }));
+    patchMethod(patches, Payment, "findOne", async () => null);
+    patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update, options) => {
+        paymentUpsert = { filter, update, options };
+        return { _id: "payment-2", ...update.$setOnInsert, ...update.$set };
+    });
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "second-passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Second Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(paymentUpsert.filter, { rideId: ride._id, passengerId: "passenger-2" });
+    assert.equal(paymentUpsert.update.$set.amount, 31);
+    assert.equal(res.body.payment.paymentStatus, "paid");
+});
+
+test("ride passenger can approve payment with a saved profile payment method", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 72.5
+    };
+    let paymentUpsert;
+
+    stubPaymentNotifications();
+    patchMethod(patches, Ride, "findById", async (id) => id === ride._id ? ride : null);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => {
+        return userId === "passenger-user"
+            ? {
+                _id: ride.passengerId,
+                defaultPaymentMethod: {
+                    cardholderName: "Saved Passenger",
+                    cardBrand: "visa",
+                    cardLast4: "4242",
+                    expiry: "2099-12"
+                }
+            }
+            : null;
+    });
+    patchMethod(patches, Payment, "findOne", async () => null);
+    patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update, options) => {
+        paymentUpsert = { filter, update, options };
+        return { _id: "payment-1", ...update.$setOnInsert, ...update.$set };
+    });
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: { useSavedPaymentMethod: true }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.payment.paymentStatus, "paid");
+    assert.equal(paymentUpsert.update.$set.cardLast4, "4242");
+    assert.equal(paymentUpsert.update.$set.cardBrand, "visa");
+    assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cardNumber"), false);
+    assert.equal(Object.hasOwn(paymentUpsert.update.$set, "cvv"), false);
+});
+
+test("ride passenger can save a new payment method to their profile while paying", async () => {
+    const ride = {
+        _id: "ride-1",
+        passengerId: "passenger-1",
+        driverId: "driver-1",
+        status: "completed",
+        finalPrice: 72.5
+    };
+    let passengerUpdate;
+
+    stubPaymentNotifications();
+    patchMethod(patches, Ride, "findById", async (id) => id === ride._id ? ride : null);
+    patchMethod(patches, PassengerProfile, "findOne", async ({ userId }) => (
+        userId === "passenger-user" ? { _id: ride.passengerId } : null
+    ));
+    patchMethod(patches, PassengerProfile, "findByIdAndUpdate", async (id, update, options) => {
+        passengerUpdate = { id, update, options };
+        return { _id: id, ...update };
+    });
+    patchMethod(patches, Payment, "findOne", async () => null);
+    patchMethod(patches, Payment, "findOneAndUpdate", async (filter, update) => ({
+        _id: "payment-1",
+        ...update.$setOnInsert,
+        ...update.$set
+    }));
+
+    const res = makeRes();
+    await simulatePayment({
+        user: { userId: "passenger-user", role: "passenger" },
+        params: { rideId: ride._id },
+        body: {
+            cardholderName: "Test Passenger",
+            cardNumber: "4111 1111 1111 1111",
+            expiry: "2099-12",
+            cvv: "123",
+            savePaymentMethod: true
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(passengerUpdate.id, ride.passengerId);
+    assert.equal(passengerUpdate.update.defaultPaymentMethod.cardholderName, "Test Passenger");
+    assert.equal(passengerUpdate.update.defaultPaymentMethod.cardBrand, "visa");
+    assert.equal(passengerUpdate.update.defaultPaymentMethod.cardLast4, "1111");
+    assert.equal(passengerUpdate.update.defaultPaymentMethod.expiry, "2099-12");
+    assert.ok(passengerUpdate.update.defaultPaymentMethod.updatedAt instanceof Date);
+    assert.equal(Object.hasOwn(passengerUpdate.update.defaultPaymentMethod, "cardNumber"), false);
+    assert.equal(Object.hasOwn(passengerUpdate.update.defaultPaymentMethod, "cvv"), false);
+    assert.equal(passengerUpdate.options.runValidators, true);
 });
 
 test("approving a payment notifies the passenger and the driver", async () => {

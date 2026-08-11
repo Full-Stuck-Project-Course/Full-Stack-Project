@@ -4,6 +4,7 @@ const Rating = require("../db/models/rating");
 const DriverProfile = require("../db/models/DriverProfile");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const Ride = require("../db/models/Ride");
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const User = require("../db/models/User");
 const Notification = require("../db/models/Notification");
 const {
@@ -60,6 +61,71 @@ async function authorizeRating(req, ride, direction) {
 
     const passenger = await getPassengerProfileForUser(req.user.userId);
     return passenger && sameId(passenger._id, ride.passengerId);
+}
+
+async function findCompletedCarpoolSeat(ride, passengerId) {
+    if (ride?.rideType !== "carpool" || !passengerId) return null;
+    return CarpoolRequest.findOne({
+        rideId: ride._id,
+        passengerId,
+        status: "completed"
+    });
+}
+
+async function resolveRatingParticipants(req, ride, direction) {
+    const driverId = ride.driverId;
+    if (!driverId) {
+        const error = new Error("Ride has no assigned driver");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (direction === DRIVER_TO_PASSENGER) {
+        if (!await authorizeRating(req, ride, direction)) {
+            const error = new Error("Only the assigned driver can rate this passenger");
+            error.statusCode = 403;
+            throw error;
+        }
+
+        const passengerId = req.body.passengerId || ride.passengerId;
+        if (ride.rideType === "carpool" && !sameId(passengerId, ride.passengerId)) {
+            const seat = await findCompletedCarpoolSeat(ride, passengerId);
+            if (!seat) {
+                const error = new Error("Passenger is not part of this completed carpool ride");
+                error.statusCode = 400;
+                throw error;
+            }
+        }
+
+        return { passengerId, driverId };
+    }
+
+    if (isAdmin(req) && req.body.passengerId) {
+        const passengerId = req.body.passengerId;
+        if (ride.rideType === "carpool" && !sameId(passengerId, ride.passengerId)) {
+            const seat = await findCompletedCarpoolSeat(ride, passengerId);
+            if (!seat) {
+                const error = new Error("Passenger is not part of this completed carpool ride");
+                error.statusCode = 400;
+                throw error;
+            }
+        }
+        return { passengerId, driverId };
+    }
+
+    const passenger = await getPassengerProfileForUser(req.user.userId);
+    if (passenger && sameId(passenger._id, ride.passengerId)) {
+        return { passengerId: passenger._id, driverId };
+    }
+
+    if (passenger && ride.rideType === "carpool") {
+        const seat = await findCompletedCarpoolSeat(ride, passenger._id);
+        if (seat) return { passengerId: passenger._id, driverId };
+    }
+
+    const error = new Error("Only the passenger of this ride can rate it");
+    error.statusCode = 403;
+    throw error;
 }
 
 async function notifyAdminsAboutComplaint({ rideId, complaintText, direction }) {
@@ -119,21 +185,18 @@ async function createRating(req, res) {
             return res.status(400).json({ error: "Only completed rides can be rated" });
         }
 
-        if (!await authorizeRating(req, ride, direction)) {
-            return forbidden(
-                res,
-                direction === DRIVER_TO_PASSENGER
-                    ? "Only the assigned driver can rate this passenger"
-                    : "Only the passenger of this ride can rate it"
-            );
+        let participants;
+        try {
+            participants = await resolveRatingParticipants(req, ride, direction);
+        } catch (authError) {
+            if (authError.statusCode === 403) return forbidden(res, authError.message);
+            return res.status(authError.statusCode || 400).json({ error: authError.message });
         }
 
-        const passengerId = ride.passengerId;
-        const driverId = ride.driverId;
-        if (!driverId) return res.status(400).json({ error: "Ride has no assigned driver" });
+        const { passengerId, driverId } = participants;
 
-        // Prevent duplicate ratings in the same direction for the ride.
-        const existing = await Rating.findOne(scopedRatingQuery({ rideId }, direction));
+        // Prevent duplicate ratings in the same direction for the same rider.
+        const existing = await Rating.findOne(scopedRatingQuery({ rideId, passengerId }, direction));
         if (existing) return res.status(409).json({ error: duplicateRatingMessage(direction) });
 
         const complaintText = String(complaint || "").trim().slice(0, 1000);
