@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import { extractItems } from "../api/pagination";
+import { createSocket } from "../api/socket";
 import MapComponent, { AddressInput } from "../components/MapComponent";
 
 const s = {
@@ -175,6 +176,26 @@ export function findActiveBooking(rides, carpoolRequests, passengerId) {
     return null;
 }
 
+async function loadPassengerBooking(passengerId) {
+    const [ridesRes, carpoolRes, paymentRes] = await Promise.all([
+        api.get("/rides", { params: { passengerId } }),
+        api.get("/carpool", { params: { passengerId } }).catch(() => ({ data: [] })),
+        api.get("/payments/unresolved").catch(() => ({ data: { payment: null } }))
+    ]);
+
+    return {
+        activeBooking: findActiveBooking(extractItems(ridesRes.data), carpoolRes.data, passengerId),
+        pendingPayment: paymentRes.data?.payment || null
+    };
+}
+
+function activeBookingNotice(booking) {
+    if (booking?.type === "carpool" && booking.rideId) {
+        return "בקשת הקרפול אושרה והנהג בדרך. אפשר לעקוב אחרי הנסיעה הפעילה.";
+    }
+    return ACTIVE_BOOKING_MESSAGE;
+}
+
 const LOYALTY_POINT_VALUE_ILS = 0.1;
 
 export function getMaxRedeemablePoints(availablePoints, ridePrice) {
@@ -224,8 +245,16 @@ export default function BookRidePage() {
     const [savedAddresses, setSavedAddresses] = useState([]);
 
     // The one booking the passenger is allowed to have open at a time
+    const [passengerId, setPassengerId] = useState(null);
     const [activeBooking, setActiveBooking] = useState(null);
     const [pendingPayment, setPendingPayment] = useState(null);
+
+    const refreshActiveBooking = useCallback(async (id = passengerId) => {
+        if (!id) return;
+        const snapshot = await loadPassengerBooking(id);
+        setActiveBooking(snapshot.activeBooking);
+        setPendingPayment(snapshot.pendingPayment);
+    }, [passengerId]);
 
     // Get user location
     useEffect(() => {
@@ -285,24 +314,54 @@ export default function BookRidePage() {
         (async () => {
             try {
                 const { data: passengers } = await api.get("/passengers");
-                const passengerId = passengers.find(p => p.userId === userId || p.userId?._id === userId)?._id;
-                if (!passengerId) return;
-
-                // Both are scoped to the passenger: a user who also drives would
-                // otherwise get their driving rides and the whole carpool queue.
-                const [ridesRes, carpoolRes, paymentRes] = await Promise.all([
-                    api.get("/rides", { params: { passengerId } }),
-                    api.get("/carpool", { params: { passengerId } }).catch(() => ({ data: [] })),
-                    api.get("/payments/unresolved").catch(() => ({ data: { payment: null } }))
-                ]);
+                const foundPassengerId = passengers.find(p => p.userId === userId || p.userId?._id === userId)?._id;
                 if (cancelled) return;
-                setActiveBooking(findActiveBooking(extractItems(ridesRes.data), carpoolRes.data, passengerId));
-                setPendingPayment(paymentRes.data?.payment || null);
+                setPassengerId(foundPassengerId || null);
+                if (!foundPassengerId) return;
+
+                const snapshot = await loadPassengerBooking(foundPassengerId);
+                if (cancelled) return;
+                setActiveBooking(snapshot.activeBooking);
+                setPendingPayment(snapshot.pendingPayment);
             } catch { /* the server still refuses a second booking */ }
         })();
 
         return () => { cancelled = true; };
     }, [userId]);
+
+    useEffect(() => {
+        if (!userId) return;
+
+        const socket = createSocket();
+        socket.on("carpool-request-approved", ({ requestId, rideId }) => {
+            setActiveBooking(current => {
+                if (current?.type === "carpool" && current.requestId && requestId &&
+                    String(current.requestId) !== String(requestId)) {
+                    return current;
+                }
+
+                return {
+                    type: "carpool",
+                    status: "confirmed",
+                    rideId: rideId || current?.rideId || null,
+                    requestId: current?.requestId || requestId || null
+                };
+            });
+            setSuccess("בקשת הקרפול אושרה והנהג בדרך. אפשר לעקוב אחרי הנסיעה.");
+            refreshActiveBooking().catch(() => {});
+        });
+
+        return () => socket.disconnect();
+    }, [refreshActiveBooking, userId]);
+
+    useEffect(() => {
+        if (activeBooking?.type !== "carpool" || activeBooking.rideId || !passengerId) return;
+
+        const timer = setInterval(() => {
+            refreshActiveBooking(passengerId).catch(() => {});
+        }, 5000);
+        return () => clearInterval(timer);
+    }, [activeBooking?.rideId, activeBooking?.type, passengerId, refreshActiveBooking]);
 
     // Calculate price
     const calcPrice = useCallback(async () => {
@@ -400,16 +459,22 @@ export default function BookRidePage() {
         try {
             if (rideType === "carpool") {
                 const pricePerSeat = Number(priceData?.pricePerPerson ?? Math.ceil((priceData?.price || 0) / passengerCount));
-                await api.post("/carpool", {
+                const { data } = await api.post("/carpool", {
                     pickupLocation:      { address: pickup.address, lat: pickup.lat, lng: pickup.lng },
                     destinationLocation: { address: dest.address,   lat: dest.lat,   lng: dest.lng },
                     requestedTime: toScheduledInstant(scheduledTime) || new Date().toISOString(),
+                    vehicleType,
                     seatsNeeded: passengerCount,
                     maxDetourMinutes: 10,
                     pricePerSeat: Number.isFinite(pricePerSeat) ? pricePerSeat : 0
                 });
                 setSuccess("בקשת הקרפול נשלחה וממתינה לאישור נהג.");
-                setActiveBooking({ type: "carpool", status: "pending", rideId: null, requestId: null });
+                setActiveBooking({
+                    type: "carpool",
+                    status: data.request?.status || "pending",
+                    rideId: data.request?.rideId?._id || data.request?.rideId || null,
+                    requestId: data.request?._id || null
+                });
                 return;
             }
 
@@ -484,7 +549,7 @@ export default function BookRidePage() {
             {/* One booking at a time */}
             {activeBooking && (
                 <div role="alert" style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 14, color: "#92400e" }}>
-                    ⚠️ {ACTIVE_BOOKING_MESSAGE}
+                    ⚠️ {activeBookingNotice(activeBooking)}
                     <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {activeBooking.rideId && (
                             <button type="button" onClick={() => navigate(`/ride/${activeBooking.rideId}`)}

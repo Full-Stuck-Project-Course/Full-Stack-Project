@@ -54,11 +54,90 @@ function isAssignedDriverUser(ride, user) {
     ));
 }
 
+function idOf(value) {
+    if (!value) return "";
+    return String(value?._id || value);
+}
+
+function sameIdValue(left, right) {
+    return Boolean(idOf(left) && idOf(left) === idOf(right));
+}
+
+function profileBelongsToUser(profile, user) {
+    return sameIdValue(profile?.userId?._id || profile?.userId, user?.userId);
+}
+
+function carpoolPassengerSeats(ride) {
+    return Array.isArray(ride?.carpoolPassengers) ? ride.carpoolPassengers : [];
+}
+
+function carpoolPassengerCount(ride) {
+    const seatCount = carpoolPassengerSeats(ride)
+        .reduce((sum, seat) => sum + Number(seat.seatsNeeded || 0), 0);
+    return Math.max(Number(ride?.passengerCount || 0), seatCount || 0);
+}
+
+function carpoolDisplayStatus(ride) {
+    if (ride?.rideType === "carpool" && ride?.status === "accepted" && ride?.driverId) {
+        return STATUS_LABELS.driver_arriving;
+    }
+    return STATUS_LABELS[ride?.status] || STATUS_LABELS.searching;
+}
+
+function isPrimaryPassengerUser(ride, user) {
+    return Boolean(ride?.passengerId && (
+        sameIdValue(ride.passengerId?._id || ride.passengerId, user?.passengerId) ||
+        profileBelongsToUser(ride.passengerId, user)
+    ));
+}
+
+function isCarpoolPassengerUser(ride, user) {
+    return carpoolPassengerSeats(ride).some(seat => {
+        const passenger = seat?.passengerId;
+        return sameIdValue(passenger?._id || passenger, user?.passengerId) ||
+            profileBelongsToUser(passenger, user);
+    });
+}
+
+function currentCarpoolSeatForUser(ride, user) {
+    return carpoolPassengerSeats(ride).find(seat => {
+        const passenger = seat?.passengerId;
+        return sameIdValue(passenger?._id || passenger, user?.passengerId) ||
+            profileBelongsToUser(passenger, user);
+    }) || null;
+}
+
+function isRidePassengerUser(ride, user) {
+    return isPrimaryPassengerUser(ride, user) || isCarpoolPassengerUser(ride, user);
+}
+
+function completionPassengerRows(ride) {
+    const carpoolPassengers = carpoolPassengerSeats(ride);
+    if (ride?.rideType === "carpool" && carpoolPassengers.length > 0) {
+        return carpoolPassengers.map((seat, index) => ({
+            key: `completion-${idOf(seat.requestId || seat._id || seat.passengerId?._id || index)}`,
+            label: seat.passengerId?.userId?.fullName || `נוסע קרפול ${index + 1}`,
+            completed: Boolean(seat.passengerCompletedAt)
+        }));
+    }
+
+    return [{
+        key: "completion-passenger",
+        label: "הנוסע",
+        completed: Boolean(ride?.passengerCompletedAt)
+    }];
+}
+
 function getChatPeerInfo(ride, user) {
     const driverView = isAssignedDriverUser(ride, user);
-    const peerRole = driverView ? "הנוסע" : "הנהג";
+    const carpoolPassengers = carpoolPassengerSeats(ride);
+    const multipleCarpoolPassengers = driverView && ride?.rideType === "carpool" && carpoolPassengers.length > 1;
+    const peerRole = driverView
+        ? (multipleCarpoolPassengers ? "נוסעי הקרפול" : "הנוסע")
+        : "הנהג";
+    const firstCarpoolPassenger = carpoolPassengers[0]?.passengerId;
     const peerName = driverView
-        ? ride?.passengerId?.userId?.fullName
+        ? (multipleCarpoolPassengers ? "" : firstCarpoolPassenger?.userId?.fullName || ride?.passengerId?.userId?.fullName)
         : ride?.driverId?.userId?.fullName;
 
     return {
@@ -68,8 +147,9 @@ function getChatPeerInfo(ride, user) {
 }
 
 function getIncomingChatNoticeTitle(ride, user) {
+    const manyCarpoolPassengers = ride?.rideType === "carpool" && carpoolPassengerSeats(ride).length > 1;
     return isAssignedDriverUser(ride, user)
-        ? "מחכה לך הודעה חדשה מהנוסע"
+        ? (manyCarpoolPassengers ? "מחכה לך הודעה חדשה מנוסעי הקרפול" : "מחכה לך הודעה חדשה מהנוסע")
         : "מחכה לך הודעה חדשה מהנהג";
 }
 
@@ -79,8 +159,29 @@ function messagePreview(message) {
 }
 
 function getRideParticipantInfo(ride) {
-    return [
-        {
+    const carpoolPassengers = carpoolPassengerSeats(ride);
+    const passengerCards = ride?.rideType === "carpool" && carpoolPassengers.length > 0
+        ? carpoolPassengers.map((seat, index) => {
+            const passenger = seat.passengerId;
+            const seatsText = Number(seat.seatsNeeded || 1) > 1
+                ? `${seat.seatsNeeded} מושבים`
+                : "מושב אחד";
+            return {
+                key: `carpool-${idOf(seat.requestId || seat._id || passenger?._id || index)}`,
+                title: `נוסע קרפול ${index + 1}`,
+                icon: "👤",
+                name: passenger?.userId?.fullName || "נוסע קרפול",
+                meta: passenger
+                    ? `⭐ ${passenger.ratingAverage || 5} · ${passenger.totalRides || 0} נסיעות`
+                    : "פרטי הנוסע יופיעו כאן",
+                extra: [
+                    seatsText,
+                    seat.finalPrice !== undefined ? `₪${seat.finalPrice}` : ""
+                ].filter(Boolean),
+                muted: !passenger
+            };
+        })
+        : [{
             key: "passenger",
             title: "פרטי הנוסע",
             icon: "👤",
@@ -89,7 +190,10 @@ function getRideParticipantInfo(ride) {
                 ? `⭐ ${ride.passengerId.ratingAverage || 5} · ${ride.passengerId.totalRides || 0} נסיעות`
                 : "פרטי הנוסע יופיעו כאן",
             muted: !ride?.passengerId
-        },
+        }];
+
+    return [
+        ...passengerCards,
         {
             key: "driver",
             title: "פרטי הנהג",
@@ -332,7 +436,7 @@ export default function RideStatusPage() {
     if (loading) return <div className="spinner" aria-label={"טוען..."} />;
     if (!ride)   return null;
 
-    const st = STATUS_LABELS[ride.status] || STATUS_LABELS.searching;
+    const st = carpoolDisplayStatus(ride);
     const inRide = ["accepted", "driver_arriving", "in_progress"].includes(ride.status);
     const pickupLoc = ride.pickupLocation?.lat ? { lat: ride.pickupLocation.lat, lng: ride.pickupLocation.lng } : null;
     const isAssignedDriver = ride.driverId && (
@@ -340,12 +444,20 @@ export default function RideStatusPage() {
         ride.driverId?.userId?._id === user?.userId ||
         user?.role === "admin"
     );
+    const isRidePassenger = isRidePassengerUser(ride, user);
+    const canConfirmCompletion = Boolean(isAssignedDriver || isRidePassenger);
+    const currentCarpoolSeat = currentCarpoolSeatForUser(ride, user);
+    const passengerCompletionRows = completionPassengerRows(ride);
+    const isCarpoolRide = ride.rideType === "carpool";
     const chatPeer = getChatPeerInfo(ride, user);
     const participantInfo = getRideParticipantInfo(ride);
     // Whether this viewer has already confirmed the ride ended.
     const myCompletionConfirmed = isAssignedDriver
         ? Boolean(ride.driverCompletedAt)
-        : Boolean(ride.passengerCompletedAt);
+        : Boolean(isRidePassenger && (currentCarpoolSeat ? currentCarpoolSeat.passengerCompletedAt : ride.passengerCompletedAt));
+    const canPayAfterOwnCarpoolCompletion = Boolean(
+        isCarpoolRide && isRidePassenger && !isAssignedDriver && myCompletionConfirmed
+    );
 
     // Map markers: nearby drivers for passenger
     const driverMarkers = ride.status === "searching"
@@ -404,7 +516,7 @@ export default function RideStatusPage() {
                     ["🏁 יעד", ride.destinationLocation?.address],
                     ["סוג נסיעה",            ride.rideType === "carpool" ? "🤝 קרפול" : "🚕 נסיעה"],
                     ["מחיר כולל",          ride.finalPrice ? `₪${ride.finalPrice}` : "טרם נקבע"],
-                    ["נוסעים",          ride.passengerCount],
+                    ["נוסעים",          carpoolPassengerCount(ride) || ride.passengerCount],
                     ...(ride.scheduledTime ? [["זמן מתוכנן", new Date(ride.scheduledTime).toLocaleString("he-IL")]] : []),
                 ].map(([label, val]) => (
                     <div key={label} style={s.row}>
@@ -516,11 +628,13 @@ export default function RideStatusPage() {
                 </button>
             )}
             {/* A ride ends only when both sides confirm it did. */}
-            {ride.status === "in_progress" && (
+            {ride.status === "in_progress" && canConfirmCompletion && (
                 <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 10 }}>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>סיום הנסיעה</div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
-                        הנסיעה נסגרת רק כששני הצדדים מאשרים.
+                        {isCarpoolRide
+                            ? "כל נוסע מאשר כשהוא יורד ויכול לשלם מיד. הנסיעה נסגרת סופית רק כשהנהג וכל נוסעי הקרפול מאשרים."
+                            : "הנסיעה נסגרת רק כששני הצדדים מאשרים."}
                     </div>
 
                     <div style={{ display: "grid", gap: 6, marginBottom: 12, fontSize: 13 }}>
@@ -530,17 +644,26 @@ export default function RideStatusPage() {
                                 {ride.driverCompletedAt ? "✅ אישר" : "⏳ ממתין לאישור"}
                             </span>
                         </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span>🧍 הנוסע</span>
-                            <span style={{ fontWeight: 700, color: ride.passengerCompletedAt ? "var(--success)" : "var(--text-muted)" }}>
-                                {ride.passengerCompletedAt ? "✅ אישר" : "⏳ ממתין לאישור"}
-                            </span>
-                        </div>
+                        {passengerCompletionRows.map(row => (
+                            <div key={row.key} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span>🧍 {row.label}</span>
+                                <span style={{ fontWeight: 700, color: row.completed ? "var(--success)" : "var(--text-muted)" }}>
+                                    {row.completed ? "✅ אישר" : "⏳ ממתין לאישור"}
+                                </span>
+                            </div>
+                        ))}
                     </div>
 
                     {myCompletionConfirmed ? (
-                        <div role="status" style={{ background: "#d1fae5", color: "#065f46", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700 }}>
-                            ✅ אישרת. ממתינים לאישור {isAssignedDriver ? "הנוסע" : "הנהג"}.
+                        <div style={{ display: "grid", gap: 10 }}>
+                            <div role="status" style={{ background: "#d1fae5", color: "#065f46", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700 }}>
+                                ✅ אישרת. ממתינים לאישור {isAssignedDriver ? (isCarpoolRide ? "כל הנוסעים" : "הנוסע") : "הנהג"}.
+                            </div>
+                            {canPayAfterOwnCarpoolCompletion && (
+                                <button className="btn-primary" onClick={() => navigate(`/payment/${id}`)} style={{ width: "100%" }}>
+                                    המשך לתשלום →
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <button className="btn-primary" onClick={() => updateRideStep("complete")} style={{ width: "100%" }}>
@@ -555,9 +678,34 @@ export default function RideStatusPage() {
                     {"בטל נסיעה"}
                 </button>
             )}
-            {ride.status === "completed" && (
-                <button className="btn-primary" onClick={() => navigate(isAssignedDriver ? `/rate/${id}?direction=driver_to_passenger` : `/payment/${id}`)}>
-                    ⭐ {isAssignedDriver ? "דרג נוסע" : "המשך לתשלום"} →
+            {ride.status === "completed" && isAssignedDriver && (
+                isCarpoolRide && carpoolPassengerSeats(ride).length > 0 ? (
+                    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 10 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 10 }}>דרג נוסעי קרפול</div>
+                        <div style={{ display: "grid", gap: 8 }}>
+                            {carpoolPassengerSeats(ride).map((seat, index) => {
+                                const passenger = seat.passengerId;
+                                const passengerId = idOf(passenger?._id || passenger);
+                                return (
+                                    <button key={idOf(seat.requestId || seat._id || passengerId || index)}
+                                        className="btn-primary"
+                                        onClick={() => navigate(`/rate/${id}?direction=driver_to_passenger&passengerId=${passengerId}`)}
+                                        disabled={!passengerId}>
+                                        ⭐ דרג {passenger?.userId?.fullName || `נוסע ${index + 1}`} →
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ) : (
+                    <button className="btn-primary" onClick={() => navigate(`/rate/${id}?direction=driver_to_passenger`)}>
+                        ⭐ דרג נוסע →
+                    </button>
+                )
+            )}
+            {ride.status === "completed" && !isAssignedDriver && isRidePassenger && (
+                <button className="btn-primary" onClick={() => navigate(`/payment/${id}`)}>
+                    ⭐ המשך לתשלום →
                 </button>
             )}
             {inRide && (

@@ -18,6 +18,7 @@ const originals = {
     rideCreate: Ride.create,
     rideFindById: Ride.findById,
     rideFindOne: Ride.findOne,
+    rideFindOneAndUpdate: Ride.findOneAndUpdate,
     rideFindByIdAndUpdate: Ride.findByIdAndUpdate,
     paymentFindOne: Payment.findOne,
     passengerFindOne: PassengerProfile.findOne,
@@ -89,6 +90,7 @@ async function assertCarpoolPostCreatesPendingRequest() {
             requestedTime: new Date(Date.now() + 60_000).toISOString(),
             seatsNeeded: 2,
             maxDetourMinutes: 12,
+            vehicleType: "comfort",
             pricePerSeat: 18
         }),
         res
@@ -98,6 +100,10 @@ async function assertCarpoolPostCreatesPendingRequest() {
     assert.strictEqual(createdPayload.status, "pending", "POST /carpool must enter the matching queue as pending");
     assert.strictEqual(createdPayload.rideId, null, "POST /carpool must not bind to a ride before matching");
     assert.strictEqual(createdPayload.seatsNeeded, 2, "POST /carpool should preserve the requested seat count");
+    assert.strictEqual(createdPayload.vehicleType, "comfort", "POST /carpool should store the quoted vehicle type");
+    assert.ok(createdPayload.finalPrice > 0, "POST /carpool should store the server-side total quote");
+    assert.ok(createdPayload.pricePerSeat > 0, "POST /carpool should store the server-side seat quote");
+    assert.notStrictEqual(createdPayload.pricePerSeat, 18, "POST /carpool must not trust the client-submitted price");
 }
 
 async function assertCarpoolRideCreationDoesNotBypassQueue() {
@@ -130,6 +136,7 @@ async function assertCarpoolRideCreationDoesNotBypassQueue() {
 
 async function assertOnlyPendingRequestsCanBeMatched() {
     let updatePayload = null;
+    let rideSeatUpdate = null;
 
     Ride.findById = async () => ({
         _id: "ride-id",
@@ -162,6 +169,11 @@ async function assertOnlyPendingRequestsCanBeMatched() {
         expiresAt: null,
         seatsNeeded: 1
     });
+    CarpoolRequest.find = async () => [];
+    Ride.findOneAndUpdate = async (filter, update) => {
+        rideSeatUpdate = { filter, update };
+        return { _id: "ride-id", passengerCount: update.$set.passengerCount };
+    };
     CarpoolRequest.findOneAndUpdate = async (filter, update) => {
         updatePayload = { filter, update };
         return { _id: "request-id", status: update.status, rideId: update.rideId };
@@ -176,6 +188,45 @@ async function assertOnlyPendingRequestsCanBeMatched() {
     assert.strictEqual(matched.statusCode, 200, "pending carpool requests should be matchable");
     assert.strictEqual(updatePayload.filter.status, "pending", "matching must claim only pending requests");
     assert.strictEqual(updatePayload.update.status, "matched", "matching should move requests from pending to matched");
+    assert.strictEqual(rideSeatUpdate.update.$set.passengerCount, 2,
+        "matching should reserve the passenger's seat on the ride itself");
+}
+
+async function assertFailedMatchReleasesReservedRideSeats() {
+    let rollbackUpdate = null;
+
+    Ride.findById = async () => ({
+        _id: "ride-id",
+        rideType: "carpool",
+        status: "searching",
+        vehicleId: null,
+        passengerCount: 1
+    });
+    CarpoolRequest.findById = async () => ({
+        _id: "request-id",
+        status: "pending",
+        expiresAt: null,
+        seatsNeeded: 1
+    });
+    CarpoolRequest.find = async () => [];
+    Ride.findOneAndUpdate = async () => ({ _id: "ride-id", passengerCount: 2 });
+    CarpoolRequest.findOneAndUpdate = async () => null;
+    Ride.findByIdAndUpdate = async (id, update) => {
+        rollbackUpdate = { id, update };
+        return { _id: id };
+    };
+
+    const res = makeRes();
+    await matchCarpoolRequest(
+        { user: { userId: "admin-user", role: "admin" }, params: { id: "request-id" }, body: { rideId: "ride-id" } },
+        res
+    );
+
+    assert.strictEqual(res.statusCode, 409, "a lost match claim should report a conflict");
+    assert.deepStrictEqual(rollbackUpdate, {
+        id: "ride-id",
+        update: { $inc: { passengerCount: -1 } }
+    }, "a failed match must release the reserved passenger seat");
 }
 
 async function assertMatchedRequestsReserveVehicleSeats() {
@@ -189,7 +240,7 @@ async function assertMatchedRequestsReserveVehicleSeats() {
         vehicleId: "vehicle-id",
         passengerCount: 1
     });
-    Vehicle.findById = async () => ({ _id: "vehicle-id", seats: 4 });
+    Vehicle.findById = async () => ({ _id: "vehicle-id", seats: 3 });
     CarpoolRequest.findById = async () => ({
         _id: "request-id",
         status: "pending",
@@ -240,6 +291,13 @@ async function assertDriverApprovalOpensCarpoolRide() {
             status: "pending",
             expiresAt: null,
             seatsNeeded: 2,
+            vehicleType: "regular",
+            distanceKm: 7.2,
+            estimatedDurationMinutes: 18,
+            basePrice: 40,
+            surgeMultiplier: 1,
+            finalPrice: 44,
+            pricePerSeat: 22,
             pickupLocation,
             destinationLocation,
             requestedTime: new Date(Date.now() + 60_000)
@@ -289,6 +347,8 @@ async function assertDriverApprovalOpensCarpoolRide() {
         assert.strictEqual(ridePayload.driverId, "driver-profile", "the approving driver must own the opened ride");
         assert.strictEqual(ridePayload.passengerId, "passenger-profile", "the approved passenger must own the opened ride");
         assert.strictEqual(ridePayload.passengerCount, 2, "the ride must seat the requested number of passengers");
+        assert.strictEqual(ridePayload.finalPrice, 44, "approval must open the ride from the stored passenger quote");
+        assert.strictEqual(ridePayload.basePrice, 40, "approval must preserve the stored quote breakdown");
         assert.strictEqual(confirmUpdate.update.status, "confirmed", "an approved request must end up confirmed");
         assert.strictEqual(confirmUpdate.update.rideId, "carpool-ride", "an approved request must point at the opened ride");
     } finally {
@@ -420,6 +480,7 @@ async function assertPendingPaymentBlocksNewBookings() {
         await assertCarpoolPostCreatesPendingRequest();
         await assertCarpoolRideCreationDoesNotBypassQueue();
         await assertOnlyPendingRequestsCanBeMatched();
+        await assertFailedMatchReleasesReservedRideSeats();
         await assertMatchedRequestsReserveVehicleSeats();
         await assertDriverApprovalOpensCarpoolRide();
         await assertDriversWhoOptedOutSeeNoApproval();
@@ -431,6 +492,7 @@ async function assertPendingPaymentBlocksNewBookings() {
         Ride.create = originals.rideCreate;
         Ride.findById = originals.rideFindById;
         Ride.findOne = originals.rideFindOne;
+        Ride.findOneAndUpdate = originals.rideFindOneAndUpdate;
         Ride.findByIdAndUpdate = originals.rideFindByIdAndUpdate;
         Payment.findOne = originals.paymentFindOne;
         Vehicle.findById = originals.vehicleFindById;

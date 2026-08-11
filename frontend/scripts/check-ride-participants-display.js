@@ -23,8 +23,24 @@ assert(
 
 assert(
     rideStatusPage.includes("ride?.passengerId?.userId?.fullName") &&
-        rideStatusPage.includes("ride?.driverId?.userId?.fullName"),
-    "RideStatusPage must show populated passenger and driver names when available."
+        rideStatusPage.includes("ride?.driverId?.userId?.fullName") &&
+        rideStatusPage.includes("carpoolPassengers.map") &&
+        rideStatusPage.includes("passenger?.userId?.fullName"),
+    "RideStatusPage must show populated passenger, carpool passenger, and driver names when available."
+);
+
+assert(
+    rideStatusPage.includes("isRidePassengerUser") &&
+        rideStatusPage.includes("carpoolPassengerCount(ride)") &&
+        rideStatusPage.includes("carpoolPassengers.length > 0"),
+    "RideStatusPage must treat approved carpool passengers as ride participants for display and actions."
+);
+
+assert(
+    rideStatusPage.includes("completionPassengerRows") &&
+        rideStatusPage.includes("canPayAfterOwnCarpoolCompletion") &&
+        rideStatusPage.includes("passengerCompletedAt"),
+    "RideStatusPage must show per-passenger carpool completion state and payment access after the current passenger confirms."
 );
 
 assert(

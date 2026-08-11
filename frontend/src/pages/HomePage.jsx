@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "../routing";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
+import { extractItems } from "../api/pagination";
 
 const s = {
     page: { padding: "32px 24px", maxWidth: 960, margin: "0 auto" },
@@ -34,6 +35,22 @@ const s = {
     stat: { background: "var(--surface)", borderRadius: 12, padding: 16, textAlign: "center", boxShadow: "var(--shadow)" }
 };
 
+const ACTIVE_RIDE_STATUSES = ["searching", "accepted", "driver_arriving", "in_progress"];
+
+const rideStatusText = {
+    searching: "מחפש נהג",
+    accepted: "אושר",
+    driver_arriving: "הנהג בדרך",
+    in_progress: "בנסיעה"
+};
+
+function rideStatusLabel(ride) {
+    if (ride?.rideType === "carpool" && ride?.status === "accepted" && ride?.driverId) {
+        return rideStatusText.driver_arriving;
+    }
+    return rideStatusText[ride?.status] || ride?.status;
+}
+
 function hover(el, enter) {
     if (enter) {
         el.style.transform = "translateY(-4px)";
@@ -50,6 +67,7 @@ export default function HomePage() {
     const navigate   = useNavigate();
     const [demand, setDemand] = useState(null);
     const [passenger, setPassenger] = useState(null);
+    const [activeRides, setActiveRides] = useState([]);
 
     const isDriver    = user?.role === "driver" || user?.role === "both";
     const isPassenger = user?.role === "passenger" || user?.role === "both";
@@ -67,6 +85,13 @@ export default function HomePage() {
                 const p = r.data.find(p => p.userId === userId || p.userId?._id === userId);
                 setPassenger(p);
             }).catch(() => {});
+        }
+        if (userId) {
+            api.get("/rides", { params: { limit: 20 } }).then(r => {
+                setActiveRides(extractItems(r.data)
+                    .filter(ride => ACTIVE_RIDE_STATUSES.includes(ride.status))
+                    .slice(0, 3));
+            }).catch(() => setActiveRides([]));
         }
     }, [isPassenger, userId]);
 
@@ -103,6 +128,31 @@ export default function HomePage() {
                     </div>
                     <div style={{ fontSize: 13, color: "#b45309" }}>
                         {demand.openRequests} {"בקשות פתוחות"} · מכפיל מחיר: ×{demand.surgeMultiplier}
+                    </div>
+                </div>
+            )}
+
+            {activeRides.length > 0 && (
+                <div style={{ ...s.demandBox, borderColor: "var(--primary)", background: "linear-gradient(135deg, rgba(79,70,229,0.08), #fff)" }}>
+                    <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 12 }}>נסיעה פעילה</div>
+                    <div style={{ display: "grid", gap: 10 }}>
+                        {activeRides.map(ride => (
+                            <div key={ride._id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                        {ride.pickupLocation?.address} → {ride.destinationLocation?.address}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
+                                        {rideStatusLabel(ride)}
+                                        {ride.finalPrice > 0 && ` · ₪${ride.finalPrice}`}
+                                    </div>
+                                </div>
+                                <button type="button" onClick={() => navigate(`/ride/${ride._id}`)}
+                                    style={{ background: "var(--primary)", color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                                    חזור לנסיעה
+                                </button>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}

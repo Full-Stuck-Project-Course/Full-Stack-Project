@@ -1,11 +1,13 @@
 const assert = require("assert");
 
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const Ride = require("../db/models/Ride");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const DriverProfile = require("../db/models/DriverProfile");
 const { getAllRides } = require("../controllers/rideController");
 
 const originals = {
+    carpoolFind: CarpoolRequest.find,
     rideFind: Ride.find,
     rideCountDocuments: Ride.countDocuments,
     passengerFindOne: PassengerProfile.findOne,
@@ -50,9 +52,18 @@ function makeRideFind(capture) {
     };
 }
 
-async function exercise({ user, query = {}, passenger = null, driver = null }) {
+async function exercise({ user, query = {}, passenger = null, driver = null, carpoolSeats = [] }) {
     const capture = { filter: null, sort: null };
 
+    CarpoolRequest.find = (filter) => {
+        capture.carpoolFilter = filter;
+        return {
+            select(selection) {
+                capture.carpoolSelection = selection;
+                return Promise.resolve(carpoolSeats);
+            }
+        };
+    };
     Ride.find = makeRideFind(capture);
     Ride.countDocuments = async (filter) => {
         capture.countFilter = filter;
@@ -84,6 +95,21 @@ function assertOwnFilter(filter, expected) {
             passenger: { _id: "passenger-profile" }
         });
         assertOwnFilter(passengerOnly.capture.filter, [{ passengerId: "passenger-profile" }]);
+        assert.deepStrictEqual(passengerOnly.capture.carpoolFilter, {
+            passengerId: "passenger-profile",
+            rideId: { $ne: null },
+            status: { $in: ["matched", "confirmed", "completed"] }
+        });
+
+        const passengerWithCarpoolSeat = await exercise({
+            user: { userId: "passenger-user", role: "passenger" },
+            passenger: { _id: "passenger-profile" },
+            carpoolSeats: [{ rideId: "carpool-ride-1" }]
+        });
+        assertOwnFilter(passengerWithCarpoolSeat.capture.filter, [
+            { passengerId: "passenger-profile" },
+            { _id: { $in: ["carpool-ride-1"] } }
+        ]);
 
         const driverOnly = await exercise({
             user: { userId: "driver-user", role: "driver" },
@@ -94,11 +120,24 @@ function assertOwnFilter(filter, expected) {
         const bothRoles = await exercise({
             user: { userId: "both-user", role: "both" },
             passenger: { _id: "both-passenger-profile" },
-            driver: { _id: "both-driver-profile" }
+            driver: { _id: "both-driver-profile" },
+            carpoolSeats: [{ rideId: "carpool-ride-2" }]
         });
         assertOwnFilter(bothRoles.capture.filter, [
             { passengerId: "both-passenger-profile" },
+            { _id: { $in: ["carpool-ride-2"] } },
             { driverId: "both-driver-profile" }
+        ]);
+
+        const scopedPassengerId = await exercise({
+            user: { userId: "passenger-user", role: "passenger" },
+            query: { passengerId: "passenger-profile" },
+            passenger: { _id: "passenger-profile" },
+            carpoolSeats: [{ rideId: "carpool-ride-3" }]
+        });
+        assertOwnFilter(scopedPassengerId.capture.filter, [
+            { passengerId: "passenger-profile" },
+            { _id: { $in: ["carpool-ride-3"] } }
         ]);
 
         const unrelated = await exercise({
@@ -136,6 +175,7 @@ function assertOwnFilter(filter, expected) {
 
         console.log("Ride history access check passed: history is limited to involved users, while admins can see all rides.");
     } finally {
+        CarpoolRequest.find = originals.carpoolFind;
         Ride.find = originals.rideFind;
         Ride.countDocuments = originals.rideCountDocuments;
         PassengerProfile.findOne = originals.passengerFindOne;

@@ -59,9 +59,45 @@ const carpoolRequestSchema = new mongoose.Schema({
         default: 10
     },
 
+    vehicleType: {
+        type: String,
+        enum: ["regular", "comfort", "luxury", "van", null],
+        default: "regular"
+    },
+
+    distanceKm: {
+        type: Number,
+        default: 0
+    },
+
+    estimatedDurationMinutes: {
+        type: Number,
+        default: 0
+    },
+
+    basePrice: {
+        type: Number,
+        default: 0
+    },
+
+    surgeMultiplier: {
+        type: Number,
+        default: 1
+    },
+
+    finalPrice: {
+        type: Number,
+        default: 0
+    },
+
     pricePerSeat: {
         type: Number,
         default: 0
+    },
+
+    passengerCompletedAt: {
+        type: Date,
+        default: null
     },
 
     notes: {

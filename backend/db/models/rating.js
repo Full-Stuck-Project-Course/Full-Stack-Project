@@ -68,7 +68,7 @@ const ratingSchema = new mongoose.Schema({
     timestamps: true
 });
 
-ratingSchema.index({ rideId: 1, direction: 1 }, { unique: true });
+ratingSchema.index({ rideId: 1, direction: 1, passengerId: 1 }, { unique: true });
 ratingSchema.index({ driverId: 1, direction: 1, createdAt: -1 });
 ratingSchema.index({ passengerId: 1, direction: 1, createdAt: -1 });
 

@@ -30,6 +30,12 @@ assert(
 );
 
 assert(
+    /const\s+canApproveCarpoolRequest\s*=\s*Boolean\(activeCarpoolRide\)[\s\S]*driver\?\.status\s*===\s*"busy"/.test(driverDashboard) &&
+    /disabled=\{approvingRequestId\s*===\s*request\._id\s*\|\|\s*!canApproveCarpoolRequest\}/.test(driverDashboard),
+    "A busy driver must still be able to approve another passenger for an open carpool ride."
+);
+
+assert(
     /ride\.rideType\s*===\s*"carpool"\s*&&\s*\n?\s*ACTIVE_RIDE_STATUSES\.includes\(ride\.status\)/.test(driverDashboard),
     "DriverDashboard must track the driver's own open carpool ride to add passengers to."
 );

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const DriverProfile = require("../db/models/DriverProfile");
 const PassengerProfile = require("../db/models/PassengerProfile");
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const Rating = require("../db/models/rating");
 const Ride = require("../db/models/Ride");
 const User = require("../db/models/User");
@@ -36,6 +37,7 @@ test("rating schema allows one rating in each direction for the same ride", () =
     assert.ok(indexes.some(([fields, options]) =>
         fields.rideId === 1 &&
         fields.direction === 1 &&
+        fields.passengerId === 1 &&
         options.unique === true
     ));
     assert.equal(indexes.some(([fields, options]) =>
@@ -98,6 +100,7 @@ test("passenger rating targets the driver, updates driver average, and awards lo
     assert.equal(res.statusCode, 201);
     assert.deepEqual(duplicateFilter, {
         rideId: ride._id,
+        passengerId: ride.passengerId,
         $or: [
             { direction: "passenger_to_driver" },
             { direction: { $exists: false } }
@@ -174,6 +177,7 @@ test("assigned driver rating targets the passenger and updates passenger average
     assert.equal(res.statusCode, 201);
     assert.deepEqual(duplicateFilter, {
         rideId: ride._id,
+        passengerId: ride.passengerId,
         direction: "driver_to_passenger"
     });
     assert.equal(createdRating.direction, "driver_to_passenger");
@@ -186,5 +190,76 @@ test("assigned driver rating targets the passenger and updates passenger average
     assert.deepEqual(passengerAverageUpdate, {
         id: ride.passengerId,
         update: { ratingAverage: 4 }
+    });
+});
+
+test("assigned driver can rate a specific completed carpool passenger", async () => {
+    const ride = makeCompletedRide({
+        rideType: "carpool",
+        passengerId: "passenger-1"
+    });
+    let carpoolSeatFilter;
+    let duplicateFilter;
+    let createdRating;
+    let passengerAverageUpdate;
+
+    patchMethod(patches, Ride, "findById", async id => {
+        assert.equal(id, ride._id);
+        return ride;
+    });
+    patchMethod(patches, DriverProfile, "findOne", async ({ userId }) => (
+        userId === "driver-user" ? { _id: ride.driverId, userId } : null
+    ));
+    patchMethod(patches, CarpoolRequest, "findOne", async filter => {
+        carpoolSeatFilter = filter;
+        return {
+            _id: "request-2",
+            rideId: ride._id,
+            passengerId: "passenger-2",
+            status: "completed"
+        };
+    });
+    patchMethod(patches, Rating, "findOne", async filter => {
+        duplicateFilter = filter;
+        return null;
+    });
+    patchMethod(patches, Rating, "create", async doc => {
+        createdRating = doc;
+        return { _id: "rating-3", ...doc };
+    });
+    patchMethod(patches, Rating, "find", async () => [{ rating: 5 }]);
+    patchMethod(patches, PassengerProfile, "findByIdAndUpdate", async (id, update) => {
+        passengerAverageUpdate = { id, update };
+        return { _id: id, ...update };
+    });
+
+    const res = makeRes();
+    await createRating({
+        user: { userId: "driver-user", role: "driver" },
+        body: {
+            rideId: ride._id,
+            passengerId: "passenger-2",
+            direction: "driver_to_passenger",
+            rating: 4,
+            comment: "Good carpool passenger"
+        }
+    }, res);
+
+    assert.equal(res.statusCode, 201);
+    assert.deepEqual(carpoolSeatFilter, {
+        rideId: ride._id,
+        passengerId: "passenger-2",
+        status: "completed"
+    });
+    assert.deepEqual(duplicateFilter, {
+        rideId: ride._id,
+        passengerId: "passenger-2",
+        direction: "driver_to_passenger"
+    });
+    assert.equal(createdRating.passengerId, "passenger-2");
+    assert.equal(createdRating.driverId, ride.driverId);
+    assert.deepEqual(passengerAverageUpdate, {
+        id: "passenger-2",
+        update: { ratingAverage: 5 }
     });
 });

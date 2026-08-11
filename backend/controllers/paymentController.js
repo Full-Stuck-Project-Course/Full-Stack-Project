@@ -1,6 +1,7 @@
 // controllers/paymentController.js
 
 const Payment = require("../db/models/payment");
+const CarpoolRequest = require("../db/models/CarpoolRequest");
 const PassengerProfile = require("../db/models/PassengerProfile");
 const Ride = require("../db/models/Ride");
 const { notifyPaymentApproved } = require("../utils/approvalNotifications");
@@ -28,6 +29,56 @@ async function canAccessPayment(req, payment) {
         (passenger && sameId(passenger._id, payment.passengerId)) ||
         (driver && sameId(driver._id, payment.driverId))
     );
+}
+
+const CARPOOL_PAYMENT_SEAT_STATUSES = ["matched", "confirmed", "completed"];
+
+function carpoolPaymentAmount(seat, ride) {
+    const finalPrice = Number(seat?.finalPrice);
+    if (Number.isFinite(finalPrice) && finalPrice >= 0) return finalPrice;
+
+    const pricePerSeat = Number(seat?.pricePerSeat);
+    const seatsNeeded = Number(seat?.seatsNeeded || 1);
+    if (Number.isFinite(pricePerSeat) && pricePerSeat >= 0) {
+        return Number((pricePerSeat * seatsNeeded).toFixed(2));
+    }
+
+    return Number(ride?.finalPrice || 0);
+}
+
+async function passengerPaymentContext(ride, passenger) {
+    if (!passenger) return null;
+
+    if (ride?.rideType === "carpool") {
+        const seat = await CarpoolRequest.findOne({
+            rideId: ride._id,
+            passengerId: passenger._id,
+            status: { $in: CARPOOL_PAYMENT_SEAT_STATUSES }
+        });
+        if (seat) {
+            return {
+                passengerId: passenger._id,
+                amount: carpoolPaymentAmount(seat, ride),
+                readyForPayment: Boolean(ride.status === "completed" || seat.passengerCompletedAt || seat.status === "completed")
+            };
+        }
+    }
+
+    if (sameId(passenger._id, ride?.passengerId)) {
+        return {
+            passengerId: passenger._id,
+            amount: Number(ride.finalPrice || 0),
+            readyForPayment: Boolean(ride.status === "completed" || ride.passengerCompletedAt)
+        };
+    }
+
+    return null;
+}
+
+function populatedPaymentQuery(filter) {
+    return Payment.findOne(filter)
+        .populate("passengerId")
+        .populate("driverId");
 }
 
 // POST /payments
@@ -117,11 +168,36 @@ async function getPaymentById(req, res) {
 // GET /payments/ride/:rideId
 async function getPaymentByRide(req, res) {
     try {
-        const payment = await Payment.findOne({ rideId: req.params.rideId })
-            .populate("passengerId")
-            .populate("driverId");
+        let payment = null;
+
+        if (isAdmin(req)) {
+            payment = await populatedPaymentQuery({ rideId: req.params.rideId });
+        } else {
+            const ride = await Ride.findById(req.params.rideId);
+            if (!ride) return res.status(404).json({ error: "Payment not found for this ride" });
+
+            const [passenger, driver] = await Promise.all([
+                getPassengerProfileForUser(req.user.userId),
+                getDriverProfileForUser(req.user.userId)
+            ]);
+            const passengerContext = await passengerPaymentContext(ride, passenger);
+
+            if (passengerContext) {
+                payment = await populatedPaymentQuery({
+                    rideId: req.params.rideId,
+                    passengerId: passengerContext.passengerId
+                });
+            } else if (driver && sameId(driver._id, ride.driverId)) {
+                payment = await populatedPaymentQuery({
+                    rideId: req.params.rideId,
+                    driverId: driver._id
+                });
+            } else {
+                return forbidden(res);
+            }
+        }
+
         if (!payment) return res.status(404).json({ error: "Payment not found for this ride" });
-        if (!await canAccessPayment(req, payment)) return forbidden(res);
         res.status(200).json(payment);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -146,14 +222,16 @@ async function simulatePayment(req, res) {
     try {
         const ride = await Ride.findById(req.params.rideId);
         if (!ride) return res.status(404).json({ error: "Ride not found" });
-        if (ride.status !== "completed") {
+        if (ride.status !== "completed" && ride.rideType !== "carpool") {
             return res.status(400).json({ error: "Payment can be approved only after the ride is completed" });
         }
         if (!ride.driverId) return res.status(400).json({ error: "Ride has no assigned driver" });
 
         const passenger = await getPassengerProfileForUser(req.user.userId);
-        if (!passenger || !sameId(passenger._id, ride.passengerId)) {
-            return forbidden(res, "Only the ride passenger can approve payment");
+        const paymentContext = await passengerPaymentContext(ride, passenger);
+        if (!paymentContext) return forbidden(res, "Only an approved ride passenger can approve payment");
+        if (ride.status !== "completed" && !paymentContext.readyForPayment) {
+            return res.status(400).json({ error: "Payment can be approved only after this passenger confirms their ride is completed" });
         }
 
         const useSavedPaymentMethod = req.body.useSavedPaymentMethod === true || req.body.useSavedPaymentMethod === "true";
@@ -163,7 +241,7 @@ async function simulatePayment(req, res) {
             : validateSimulatedCard(req.body);
         if (card.error) return res.status(400).json({ error: card.error });
 
-        const existing = await Payment.findOne({ rideId: ride._id });
+        const existing = await Payment.findOne({ rideId: ride._id, passengerId: paymentContext.passengerId });
         if (existing?.paymentStatus === "paid") {
             return res.status(200).json({ message: "Payment already approved", payment: existing });
         }
@@ -174,12 +252,12 @@ async function simulatePayment(req, res) {
         const paidAt = new Date();
         const transactionId = `sim_${ride._id}_${paidAt.getTime()}`;
         const payment = await Payment.findOneAndUpdate(
-            { rideId: ride._id },
+            { rideId: ride._id, passengerId: paymentContext.passengerId },
             {
                 $set: {
-                    passengerId: ride.passengerId,
+                    passengerId: paymentContext.passengerId,
                     driverId: ride.driverId,
-                    amount: ride.finalPrice || 0,
+                    amount: paymentContext.amount,
                     currency: "ILS",
                     paymentMethod: "credit_card",
                     paymentStatus: "paid",

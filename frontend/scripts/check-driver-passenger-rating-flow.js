@@ -23,8 +23,15 @@ assert(
 );
 
 assert(
-    /isDriverRatingPassenger\s*\?\s*ride\?\.passengerId\s*:\s*ride\?\.driverId/.test(ratingPage),
-    "RatingPage must show the passenger as the target when the driver rates."
+    ratingPage.includes("ratingTargetPassenger") &&
+        ratingPage.includes('searchParams.get("passengerId")') &&
+        /isDriverRatingPassenger\s*\?\s*ratingTargetPassenger\(ride,\s*requestedPassengerId\)\s*:\s*ride\?\.driverId/.test(ratingPage),
+    "RatingPage must show the selected passenger as the target when the driver rates."
+);
+
+assert(
+    ratingPage.includes("passengerId: idOf(target?._id || target)"),
+    "RatingPage must submit the selected passenger id when a driver rates a passenger."
 );
 
 assert(
@@ -33,13 +40,16 @@ assert(
 );
 
 assert(
-    rideStatusPage.includes("direction=driver_to_passenger"),
-    "RideStatusPage must route assigned drivers to the passenger-rating flow."
+    rideStatusPage.includes("direction=driver_to_passenger") &&
+        rideStatusPage.includes("passengerId=${passengerId}"),
+    "RideStatusPage must route assigned drivers to passenger-specific rating in carpool rides."
 );
 
 assert(
-    driverDashboard.includes("completedRides") && driverDashboard.includes("direction=driver_to_passenger"),
-    "DriverDashboard must expose completed rides with a passenger-rating action."
+    driverDashboard.includes("completedRides") &&
+        driverDashboard.includes("direction=driver_to_passenger") &&
+        driverDashboard.includes("passengerId=${passengerId}"),
+    "DriverDashboard must expose completed rides with passenger-specific rating actions."
 );
 
 console.log("Driver passenger-rating flow check passed: drivers can rate passengers after completed rides.");

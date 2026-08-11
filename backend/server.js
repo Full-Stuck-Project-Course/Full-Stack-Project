@@ -80,7 +80,18 @@ async function canAccessRide(socket, rideId) {
     const { passenger, driver } = await getSocketProfiles(socket);
     const allowed = (passenger && sameId(passenger._id, ride.passengerId)) ||
         (driver && sameId(driver._id, ride.driverId));
-    return { allowed, ride, passenger, driver };
+    if (allowed) return { allowed, ride, passenger, driver };
+
+    if (passenger && ride.rideType === "carpool") {
+        const seat = await CarpoolRequest.findOne({
+            rideId: ride._id,
+            passengerId: passenger._id,
+            status: { $in: ["matched", "confirmed", "completed"] }
+        });
+        if (seat) return { allowed: true, ride, passenger, driver };
+    }
+
+    return { allowed: false, ride, passenger, driver };
 }
 
 function socketError(socket, message) {

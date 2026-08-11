@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "../routing";
+import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 
 const PHASES = {
@@ -163,9 +164,71 @@ function hasSavedPaymentMethod(method) {
     return Boolean(method?.cardLast4 && method?.expiry);
 }
 
+function idOf(value) {
+    if (!value) return "";
+    return String(value?._id || value);
+}
+
+function profileBelongsToCurrentUser(profile, user) {
+    return Boolean(idOf(profile?.userId?._id || profile?.userId) && idOf(profile?.userId?._id || profile?.userId) === idOf(user?.userId));
+}
+
+function carpoolPassengerIds(ride) {
+    return new Set((ride?.carpoolPassengers || [])
+        .map(seat => idOf(seat?.passengerId?._id || seat?.passengerId))
+        .filter(Boolean));
+}
+
+function passengerForCurrentRide(ride, passengers, user) {
+    const primaryPassengerId = idOf(ride?.passengerId?._id || ride?.passengerId);
+    const carpoolIds = carpoolPassengerIds(ride);
+    const currentPassenger = (passengers || []).find(profile => profileBelongsToCurrentUser(profile, user));
+    const currentPassengerId = idOf(currentPassenger?._id);
+
+    if (currentPassenger && (currentPassengerId === primaryPassengerId || carpoolIds.has(currentPassengerId))) {
+        return currentPassenger;
+    }
+
+    return (passengers || []).find(profile => idOf(profile._id) === primaryPassengerId) || null;
+}
+
+function amountForPassenger(ride, passenger) {
+    const passengerId = idOf(passenger?._id);
+    const seat = currentCarpoolSeatForPassenger(ride, passenger);
+    if (seat?.finalPrice !== undefined) return seat.finalPrice;
+
+    const pricePerSeat = Number(seat?.pricePerSeat);
+    const seatsNeeded = Number(seat?.seatsNeeded || 1);
+    if (Number.isFinite(pricePerSeat) && pricePerSeat >= 0) {
+        return Number((pricePerSeat * seatsNeeded).toFixed(2));
+    }
+
+    return ride?.finalPrice ?? ride?.estimatedPrice ?? 0;
+}
+
+function currentCarpoolSeatForPassenger(ride, passenger) {
+    const passengerId = idOf(passenger?._id);
+    if (!passengerId) return null;
+    return (ride?.carpoolPassengers || [])
+        .find(item => idOf(item?.passengerId?._id || item?.passengerId) === passengerId) || null;
+}
+
+function passengerCanPayRide(ride, passenger) {
+    if (ride?.status === "completed") return true;
+    if (ride?.rideType !== "carpool") return false;
+
+    const seat = currentCarpoolSeatForPassenger(ride, passenger);
+    if (seat) return Boolean(seat.passengerCompletedAt || seat.status === "completed");
+
+    const passengerId = idOf(passenger?._id);
+    const primaryPassengerId = idOf(ride?.passengerId?._id || ride?.passengerId);
+    return Boolean(passengerId && passengerId === primaryPassengerId && ride?.passengerCompletedAt);
+}
+
 export default function PaymentSimulationPage() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [ride, setRide] = useState(null);
     const [payment, setPayment] = useState(null);
     const [passenger, setPassenger] = useState(null);
@@ -198,8 +261,7 @@ export default function PaymentSimulationPage() {
 
                 const passengerRes = await api.get("/passengers").catch(() => ({ data: [] }));
                 if (!active.current) return;
-                const ridePassengerId = String(rideRes.data?.passengerId?._id || rideRes.data?.passengerId || "");
-                const passengerProfile = (passengerRes.data || []).find(p => String(p._id) === ridePassengerId) || null;
+                const passengerProfile = passengerForCurrentRide(rideRes.data, passengerRes.data || [], user);
                 setPassenger(passengerProfile);
                 setShowManualCard(!hasSavedPaymentMethod(passengerProfile?.defaultPaymentMethod));
 
@@ -225,12 +287,16 @@ export default function PaymentSimulationPage() {
             timers.current.forEach(clearTimeout);
             timers.current = [];
         };
-    }, [id]);
+    }, [id, user?.userId]);
 
-    const amount = payment?.amount ?? ride?.finalPrice ?? ride?.estimatedPrice ?? 0;
+    const amount = payment?.amount ?? amountForPassenger(ride, passenger);
+    const currentCarpoolSeat = currentCarpoolSeatForPassenger(ride, passenger);
     const disabled = submitting || phase !== PHASES.form;
     const isApproved = phase === PHASES.approved || payment?.paymentStatus === "paid";
-    const canPay = ride?.status === "completed";
+    const canPay = passengerCanPayRide(ride, passenger);
+    const paymentLockedMessage = ride?.rideType === "carpool" && currentCarpoolSeat
+        ? "ניתן לשלם אחרי שתאשר שהחלק שלך בנסיעה הסתיים."
+        : "ניתן לשלם רק אחרי שהנסיעה הושלמה.";
     const savedPaymentMethod = passenger?.defaultPaymentMethod;
     const hasSavedCard = hasSavedPaymentMethod(savedPaymentMethod);
     const useSavedCard = hasSavedCard && !showManualCard;
@@ -298,7 +364,7 @@ export default function PaymentSimulationPage() {
                 <div style={s.successBox}>
                     <div style={s.icon}>⏳</div>
                     <h1 style={s.title}>התשלום עדיין לא פתוח</h1>
-                    <p style={s.subtitle}>ניתן לשלם רק אחרי שהנסיעה הושלמה.</p>
+                    <p style={s.subtitle}>{paymentLockedMessage}</p>
                     <button className="btn-primary" style={{ marginTop: 18 }} onClick={() => navigate(`/ride/${id}`)}>
                         חזור לנסיעה
                     </button>

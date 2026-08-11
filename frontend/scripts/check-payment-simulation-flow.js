@@ -56,6 +56,22 @@ assert(
 );
 
 assert(
+    paymentPage.includes("useAuth") &&
+        paymentPage.includes("passengerForCurrentRide") &&
+        paymentPage.includes("carpoolPassengers") &&
+        paymentPage.includes("amountForPassenger") &&
+        paymentPage.includes("currentCarpoolSeatForPassenger"),
+    "PaymentSimulationPage must select the current user's carpool passenger profile, seat, and amount."
+);
+
+assert(
+    paymentPage.includes("passengerCanPayRide") &&
+        paymentPage.includes("passengerCompletedAt") &&
+        paymentPage.includes('seat.status === "completed"'),
+    "PaymentSimulationPage must allow a carpool passenger to pay after their own ride segment is completed."
+);
+
+assert(
     profilePage.includes("defaultPaymentMethod") &&
         profilePage.includes("שמור אמצעי תשלום") &&
         profilePage.includes("מספר מלא ו-CVV לא נשמרים"),

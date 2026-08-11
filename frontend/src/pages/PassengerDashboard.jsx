@@ -24,9 +24,23 @@ const s = {
 const carpoolStatusText = {
     pending: "ממתין לאישור נהג",
     matched: "הותאם לנסיעה",
-    confirmed: "אושר על ידי נהג",
+    confirmed: "הנהג בדרך",
     completed: "הושלם"
 };
+
+const rideStatusText = {
+    searching: "מחפש נהג",
+    accepted: "אושר",
+    driver_arriving: "הנהג בדרך",
+    in_progress: "בנסיעה"
+};
+
+function rideStatusLabel(ride) {
+    if (ride?.rideType === "carpool" && ride?.status === "accepted" && ride?.driverId) {
+        return rideStatusText.driver_arriving;
+    }
+    return rideStatusText[ride?.status] || ride?.status || "בתהליך";
+}
 
 // Statuses that still hold the passenger's single booking slot, so giving one
 // up has to stay possible.
@@ -161,7 +175,7 @@ export default function PassengerDashboard() {
                             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
                                 {ride.scheduledTime
                                     ? `🕐 ${new Date(ride.scheduledTime).toLocaleString("he-IL")}`
-                                    : ride.status === "searching" ? "🔍 מחפש נהג..." : "בתהליך"}
+                                    : rideStatusLabel(ride)}
                                 {ride.finalPrice > 0 && ` · ₪${ride.finalPrice}`}
                             </div>
                         </div>
@@ -195,6 +209,7 @@ export default function PassengerDashboard() {
                                     </div>
                                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
                                         {carpoolStatusText[request.status] || request.status} · {request.seatsNeeded || 1} מושבים
+                                        {request.finalPrice > 0 && ` · ₪${request.finalPrice}`}
                                         {request.requestedTime && ` · ${new Date(request.requestedTime).toLocaleString("he-IL")}`}
                                     </div>
                                     {request.driverId?.userId?.fullName && (

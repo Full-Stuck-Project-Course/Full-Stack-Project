@@ -18,8 +18,9 @@ assert(
 
 assert(
     /function\s+getChatPeerInfo\s*\(ride,\s*user\)/.test(rideStatusPage) &&
-        /const\s+peerRole\s*=\s*driverView\s*\?\s*"הנוסע"\s*:\s*"הנהג"/.test(rideStatusPage),
-    "RideStatusPage must label the chat peer by the current user's ride role."
+        rideStatusPage.includes('multipleCarpoolPassengers ? "נוסעי הקרפול" : "הנוסע"') &&
+        rideStatusPage.includes(': "הנהג"'),
+    "RideStatusPage must label the chat peer by the current user's ride role, including multi-passenger carpool rides."
 );
 
 assert(
