@@ -47,6 +47,194 @@ Socket.IO משמש לעדכוני זמן אמת כמו צ'אט, מיקום נה�
 
 ב-production שרת ה-backend יכול להגיש גם את build הסטטי של React מתוך `frontend/dist`, כך שאפשר להריץ את האפליקציה מתהליך Node אחד אחרי בניית ה-frontend.
 
+## מודל הנתונים
+
+כל הסכמות מוגדרות ב-`backend/db/models/` כסכמות Mongoose, וזהו המקור היחיד לאמת לגבי מבנה הנתונים. הקשרים בין הקולקציות מוצהרים בשדות `ObjectId` עם `ref`, ונטענים בעת הצורך באמצעות `populate`. שמות הקולקציות נגזרים אוטומטית משמות המודלים — ברבים ובאותיות קטנות, כך `User` הופך ל-`users`.
+
+### דיאגרמת קשרים
+
+```mermaid
+erDiagram
+    USER ||--o| PASSENGER_PROFILE : "profile"
+    USER ||--o| DRIVER_PROFILE : "profile"
+    USER ||--o{ NOTIFICATION : "receives"
+    USER ||--o{ UPLOAD : "uploads"
+
+    DRIVER_PROFILE ||--o{ VEHICLE : "owns"
+    DRIVER_PROFILE ||--o{ DRIVER_ALERT : "receives"
+
+    PASSENGER_PROFILE ||--o{ RIDE : "books"
+    DRIVER_PROFILE ||--o{ RIDE : "drives"
+    VEHICLE ||--o{ RIDE : "used in"
+
+    PASSENGER_PROFILE ||--o{ CARPOOL_REQUEST : "requests"
+    DRIVER_PROFILE ||--o{ CARPOOL_REQUEST : "approves"
+    RIDE ||--o{ CARPOOL_REQUEST : "seats"
+
+    RIDE ||--o{ PAYMENT : "billed by"
+    RIDE ||--o{ RATING : "rated by"
+    RIDE ||--o{ RIDE_STOP : "stops at"
+
+    USER {
+        ObjectId _id PK
+        string   email UK
+        string   phone UK
+        string   passwordHash
+        string   role "passenger / driver / both / admin"
+        number   loyaltyPoints
+        boolean  isActive
+    }
+    PASSENGER_PROFILE {
+        ObjectId _id PK
+        ObjectId userId FK "unique"
+        number   ratingAverage
+        array    savedLocations
+        object   defaultPaymentMethod
+    }
+    DRIVER_PROFILE {
+        ObjectId _id PK
+        ObjectId userId FK "unique"
+        string   licenseNumber UK
+        boolean  isVerified
+        string   status "available / busy / offline"
+        object   currentLocation
+        boolean  acceptsCarpoolRides
+    }
+    VEHICLE {
+        ObjectId _id PK
+        ObjectId driverId FK
+        string   licensePlate UK
+        string   vehicleType
+        number   seats
+        boolean  testApproval
+        boolean  insuranceApproval
+    }
+    RIDE {
+        ObjectId _id PK
+        ObjectId passengerId FK
+        ObjectId driverId FK
+        ObjectId vehicleId FK
+        string   rideType "ride / delivery / carpool"
+        string   status
+        object   pickupLocation
+        object   destinationLocation
+        date     scheduledTime
+        number   finalPrice
+        date     driverCompletedAt
+        date     passengerCompletedAt
+    }
+    CARPOOL_REQUEST {
+        ObjectId _id PK
+        ObjectId passengerId FK
+        ObjectId driverId FK "null until approved"
+        ObjectId rideId FK "null while pending"
+        string   status
+        number   seatsNeeded
+        number   pricePerSeat
+        date     requestedTime
+    }
+    PAYMENT {
+        ObjectId _id PK
+        ObjectId rideId FK
+        ObjectId passengerId FK
+        ObjectId driverId FK
+        number   amount
+        string   paymentStatus "pending / paid / failed / refunded"
+        string   cardLast4
+    }
+    RATING {
+        ObjectId _id PK
+        ObjectId rideId FK
+        ObjectId passengerId FK
+        ObjectId driverId FK
+        string   direction "passenger_to_driver / driver_to_passenger"
+        number   rating
+    }
+    RIDE_STOP {
+        ObjectId _id PK
+        ObjectId rideId FK
+        number   order
+        string   stopType
+    }
+    NOTIFICATION {
+        ObjectId _id PK
+        ObjectId userId FK
+        ObjectId rideId FK
+        string   type
+        boolean  isRead
+    }
+    DRIVER_ALERT {
+        ObjectId _id PK
+        ObjectId driverId FK
+        string   alertType
+        boolean  isRead
+    }
+    UPLOAD {
+        ObjectId _id PK
+        ObjectId uploadedBy FK
+        string   kind "profiles / ids / licenses / vehicle-docs"
+        string   filename UK
+        buffer   data
+    }
+```
+
+### הקולקציות
+
+| מודל | קולקציה | תפקיד |
+| --- | --- | --- |
+| `User` | `users` | זהות והרשאות: שם, אימייל, טלפון, סיסמה מגובבת, תפקיד ונקודות נאמנות. |
+| `PassengerProfile` | `passengerprofiles` | נתוני נוסע: דירוג, כתובות שמורות, העדפות ואמצעי תשלום שמור. |
+| `DriverProfile` | `driverprofiles` | נתוני נהג: רישיון, אימות, זמינות, מיקום נוכחי ותנאי רכב. |
+| `Vehicle` | `vehicles` | רכב של נהג, כולל מספר מושבים ואישורי טסט וביטוח. |
+| `Ride` | `rides` | נסיעה: מוצא ויעד, סטטוס, תמחור, העדפות התאמה וזמני סיום. |
+| `CarpoolRequest` | `carpoolrequests` | בקשת קרפול: מושבים, תמחור למושב, וקישור לנהג ולנסיעה לאחר אישור. |
+| `Payment` | `payments` | תשלום עבור נסיעה. שומר ארבע ספרות אחרונות בלבד, לא מספר כרטיס. |
+| `Rating` | `ratings` | דירוג הדדי. `direction` מבחין בין דירוג נוסע לנהג ולהפך. |
+| `RideStop` | `ridestops` | עצירות ביניים בנסיעה. |
+| `Notification` | `notifications` | התראות למשתמש. |
+| `DriverAlert` | `driveralerts` | התראות לנהגים, למשל אזורי ביקוש. |
+| `Upload` | `uploads` | קבצי תמונה שהועלו, כולל התוכן הבינארי. ראו סעיף האחסון להלן. |
+| `RuntimeLease` | `runtimeleases` | תשתית בלבד: נעילה מבוזרת למשימות רקע. אינו חלק ממודל התחום. |
+
+### שלושה קשרים שחשוב להכיר
+
+**1. משתמש מול פרופילים.** `User` מחזיק זהות בלבד. הנתונים התפעוליים יושבים ב-`PassengerProfile` וב-`DriverProfile`, שלשניהם `userId` ייחודי. משתמש יכול להחזיק את שני הפרופילים במקביל (`role: "both"`), והמערכת יוצרת פרופיל נוסע לכל משתמש — כולל מנהלים.
+
+**2. נסיעת קרפול מחזיקה נוסע ראשי אחד בלבד.** זהו הקשר הפחות מובן מאליו במערכת. ל-`Ride` יש שדה `passengerId` יחיד — הנוסע שעבורו נפתחה הנסיעה. שאר הנוסעים בקרפול מקושרים אליה דרך `CarpoolRequest.rideId`, ולא דרך `Ride`. לכן כל בדיקת הרשאה או סיום נסיעה בקרפול חייבת לבדוק גם את `carpoolrequests`, וכך אכן נעשה ב-`canAccessRide` וב-`completionActorFor` שב-`controllers/rideController.js`.
+
+**3. בקשת קרפול מתחילה בלי נהג ובלי נסיעה.** בעת יצירתה `driverId` ו-`rideId` הם `null`, והיא ממתינה בסטטוס `pending`. שני השדות מתמלאים רק כשנהג מאשר אותה ב-`PUT /carpool/:id/accept`.
+
+### שדות סטטוס
+
+| `Ride.status` | משמעות |
+| --- | --- |
+| `searching` | נוצרה ומחפשת נהג. |
+| `accepted` | נהג שויך, טרם יצא. |
+| `driver_arriving` | הנהג בדרך לאיסוף. |
+| `in_progress` | הנסיעה בעיצומה. |
+| `completed` | הסתיימה — רק לאחר אישור שני הצדדים. |
+| `cancelled` | בוטלה על ידי נוסע, נהג או המערכת. |
+
+| `CarpoolRequest.status` | משמעות |
+| --- | --- |
+| `pending` | ממתינה בתור לאישור נהג. |
+| `matched` | נתפסה על ידי נהג, לפני קיבוע הנסיעה. |
+| `confirmed` | אושרה ומקושרת לנסיעה. |
+| `completed` | הנוסע אישר שהנסיעה הסתיימה. |
+| `cancelled` | בוטלה, או פגה לאחר 30 דקות מהמועד המבוקש. |
+
+### אינדקסים
+
+האינדקסים נגזרים מהשאילתות החוזרות, ומוגדרים בתחתית כל קובץ מודל. שלושה ראויים לציון:
+
+- `DriverProfile` — אינדקס משולב `{ status, isVerified, lastActiveAt, geoLocation: "2dsphere" }` המשמש לאיתור נהגים זמינים בקרבת מקום.
+- `Rating` — אינדקס ייחודי `{ rideId, direction, passengerId }` המונע דירוג כפול לאותה נסיעה באותו כיוון.
+- `Ride` — אינדקסים על `{ passengerId, status }` ו-`{ driverId, status }`, המשמשים את בדיקת "נסיעה פעילה אחת בלבד" ואת לוחות המחוונים.
+
+### אחסון קבצים
+
+בניגוד לדפוס המקובל, קבצים שהועלו אינם נשמרים בדיסק אלא בקולקציה `uploads`, כאשר התוכן עצמו נשמר בשדה `data` מסוג `Buffer`. הסיבה היא שסביבת האירוח היא ephemeral והדיסק נמחק בכל פריסה מחדש. שאר המודלים מחזיקים נתיב לוגי בלבד, למשל `DriverProfile.licenseImagePath` בצורה `/uploads/licenses/<filename>`.
+
 ## דרישות מקדימות
 
 - Node.js 18 ומעלה.
