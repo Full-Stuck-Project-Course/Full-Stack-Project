@@ -30,10 +30,16 @@ function toLocalResetPath(resetLink) {
     }
 }
 
+// The server distinguishes "no mail settings at all" from "we tried and the mail
+// server refused", and they need different fixes. Collapsing both into one
+// message left nobody able to tell which had happened.
 function forgotPasswordErrorMessage(message) {
     if (!message) return "שגיאה";
-    if (message.includes("delivery") || message.includes("send password reset email")) {
-        return "שליחת מייל איפוס הסיסמה לא מוגדרת או נכשלה.";
+    if (message.includes("delivery is not configured")) {
+        return "שליחת מיילים לא מוגדרת בשרת, ולכן לא נשלח קוד אימות. יש להשלים את הגדרות שרת הדואר.";
+    }
+    if (message.includes("send password reset email")) {
+        return "שרת הדואר לא הגיב ולכן המייל לא נשלח. ייתכן שהחיבור לשרת הדואר חסום מהסביבה שבה רץ השרת.";
     }
     return message;
 }
