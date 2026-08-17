@@ -287,7 +287,7 @@ npm start
 
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:5000`
-- Health check: `http://localhost:5000/api/health`
+- Health check: `http://localhost:5000/api/health` - מחזיר גם `mail` עם מסלול שליחת המיילים בפועל: `brevo`, `smtp`, `webhook` או `disabled`.
 
 ## בדיקות
 
@@ -332,7 +332,7 @@ npm start
 | `GOOGLE_CLIENT_ID_FILE_FALLBACK` | לא | אם `false`, השרת לא ינסה לקרוא Client ID מתוך קבצי frontend env. |
 | `GOOGLE_SERVER_MAPS_API_KEY` | מומלץ | מפתח Google Maps לשרת עבור חישוב מסלול, מרחק, מחיר ו-ETA. |
 | `GOOGLE_MAPS_API_KEY` | לא | fallback ישן ל-`GOOGLE_SERVER_MAPS_API_KEY`. |
-| `CLIENT_BASE_URL` | כן לאיפוס סיסמה | כתובת ה-frontend לקישורי reset, למשל `http://localhost:3000`. |
+| `CLIENT_BASE_URL` | לא | כתובת ה-frontend לקישורי reset, למשל `http://localhost:3000`. אם לא מוגדר, הקישור נבנה מכתובת הבקשה עצמה. |
 | `RETURN_RESET_TOKEN` | לא | בפיתוח בלבד, אם `true` מחזיר reset token בתגובה. לא להשתמש ב-production. |
 | `RESET_EMAIL_WEBHOOK_URL` | לא | webhook לשליחת מייל איפוס סיסמה במקום SMTP. |
 | `BREVO_API_KEY` | מומלץ ב-production | מפתח API של Brevo לשליחת מיילים דרך HTTPS. נחוץ כשסביבת ההרצה חוסמת SMTP יוצא, מה שנפוץ בתוכניות אחסון חינמיות. כשהוא מוגדר הוא גובר על הגדרות SMTP, ואז צריך רק אותו ואת `MAIL_FROM`. הכתובת ב-`MAIL_FROM` חייבת להיות sender מאומת ב-Brevo. |
