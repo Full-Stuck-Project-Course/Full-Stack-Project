@@ -395,6 +395,7 @@ Backend:
 - `npm start` - הרצת שרת production.
 - `npm test` - בדיקות backend.
 - `npm run bootstrap:admin` - יצירת/קידום אדמין ראשוני.
+- `npm run check:smtp` - בדיקה למה מייל איפוס הסיסמה לא נשלח. מדפיס את שגיאת ה-SMTP האמיתית ומה לתקן. עם `-- --send` גם שולח מייל בדיקה ל-`SMTP_USER`. כדאי להריץ גם מקומית וגם בסביבה שבה השרת רץ - אם מקומית זה עובד ובסביבה לא, הסביבה חוסמת SMTP יוצא.
 - `npm run migrate:rating-direction-index` - מיגרציה לאינדקס דירוגים לפי כיוון ונוסע.
 - `npm run privacy:purge-gps` - ניקוי נתוני GPS ישנים.
 

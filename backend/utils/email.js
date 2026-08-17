@@ -94,6 +94,28 @@ function createTransporter() {
     });
 }
 
+// Opens the connection and authenticates without sending anything, so the real
+// reason a send fails can be read directly instead of inferred from a 503.
+// "Connection timeout" means the network is blocking SMTP; an auth failure
+// means the credentials are wrong. The two need opposite fixes.
+async function verifySmtpConnection() {
+    if (!isSmtpConfigured()) {
+        return { ok: false, reason: "smtp-not-configured", missing: missingSmtpSettings() };
+    }
+
+    try {
+        await createTransporter().verify();
+        return { ok: true };
+    } catch (error) {
+        return {
+            ok: false,
+            reason: error.message.split("\n")[0],
+            code: error.code || null,
+            command: error.command || null
+        };
+    }
+}
+
 async function sendPasswordResetEmail({ to, fullName, resetLink, resetCode, expiresMinutes = 60 }) {
     if (!isSmtpConfigured()) {
         return { sent: false, reason: "smtp-not-configured" };
@@ -146,5 +168,6 @@ module.exports = {
     isSmtpConfigured,
     missingSmtpSettings,
     describePasswordResetDelivery,
-    normalizeSmtpPassword
+    normalizeSmtpPassword,
+    verifySmtpConnection
 };

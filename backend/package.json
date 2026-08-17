@@ -9,6 +9,7 @@
     "test": "node scripts/check-branding.js && node scripts/check-single-instance-safety.js && node scripts/check-syntax.js && node scripts/check-loyalty-source.js && node scripts/check-admin-capabilities.js && node scripts/check-ride-history-access.js && node scripts/check-carpool-flow.js && node scripts/check-api-surface-cleanup.js && npm run unit",
     "unit": "node --test \"tests/**/*.test.js\"",
     "bootstrap:admin": "node scripts/bootstrap-admin.js",
+    "check:smtp": "node scripts/check-smtp.js",
     "privacy:purge-gps": "node scripts/purge-gps-retention.js",
     "migrate:approve-pending": "node scripts/approve-pending-approvals.js",
     "migrate:loyalty-points": "node scripts/migrate-loyalty-points-to-user.js",
