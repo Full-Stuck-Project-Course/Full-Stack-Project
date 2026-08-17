@@ -133,7 +133,7 @@ router.post("/drivers/setup", uploadLimiter, upload.fields([
 ]), driverController.completeDriverSetup);
 router.get("/drivers", driverController.getAllDrivers);
 router.get("/drivers/available", driverController.getAvailableDrivers);
-router.post("/drivers/check-license-number", authLimiter, driverController.checkLicenseNumber);
+router.get("/drivers/check-setup", driverController.checkDriverSetupAvailability);
 router.get("/drivers/:id", driverController.getDriverById);
 router.put("/drivers/:id", driverController.updateDriver);
 router.put("/drivers/:id/status", driverController.updateDriverStatus);
@@ -152,7 +152,6 @@ router.delete("/passengers/:id/saved-locations/:locationId", passengerController
 // Vehicles.
 router.post("/vehicles", vehicleController.createVehicle);
 router.get("/vehicles", vehicleController.getAllVehicles);
-router.post("/vehicles/check-license-plate", authLimiter, driverController.checkLicensePlate);
 router.get("/vehicles/driver/:driverId", vehicleController.getVehiclesByDriver);
 router.get("/vehicles/:id", vehicleController.getVehicleById);
 router.put("/vehicles/:id", vehicleController.updateVehicle);
@@ -161,7 +160,6 @@ router.delete("/vehicles/:id", vehicleController.deleteVehicle);
 // Payments.
 router.post("/payments", paymentController.createPayment);
 router.get("/payments", paymentController.getAllPayments);
-router.get("/payments/unresolved", paymentController.getUnresolvedPaymentForCurrentPassenger);
 router.get("/payments/ride/:rideId", paymentController.getPaymentByRide);
 router.post("/payments/ride/:rideId/simulate", paymentController.simulatePayment);
 router.get("/payments/:id", paymentController.getPaymentById);

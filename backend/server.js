@@ -152,6 +152,16 @@ async function hasDriverOwnerSocket(driverId, driverUserId) {
     ));
 }
 
+async function getConnectedDriverIds() {
+    const sockets = await io.fetchSockets();
+    return [...new Set(
+        sockets
+            .map(socket => socket.data?.driverId)
+            .filter(Boolean)
+            .map(String)
+    )];
+}
+
 function scheduleDriverOfflineIfDisconnected(driverId, driverUserId) {
     const timer = setTimeout(async () => {
         try {
@@ -423,8 +433,14 @@ async function notifyNearbyDrivers() {
 
 async function markStaleAvailableDriversOffline(date = new Date()) {
     try {
+        const filter = staleAvailableDriverFilter(date);
+        const connectedDriverIds = await getConnectedDriverIds();
+        if (connectedDriverIds.length > 0) {
+            filter._id = { $nin: connectedDriverIds };
+        }
+
         const result = await DriverProfile.updateMany(
-            staleAvailableDriverFilter(date),
+            filter,
             { $set: { status: "offline" } }
         );
         if (result.modifiedCount > 0) {
