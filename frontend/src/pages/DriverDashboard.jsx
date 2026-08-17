@@ -241,7 +241,10 @@ export default function DriverDashboard() {
     const acceptRide = async (rideId) => {
         if (!driver) return;
         try {
-            await api.put(`/rides/${rideId}/accept`, { vehicleId: vehicle?._id || null });
+            await api.put(`/rides/${rideId}/accept`, {
+                driverId: driver._id,
+                vehicleId: vehicle?._id || null
+            });
             setPopup(null);
             navigate(`/ride/${rideId}`);
         } catch (err) {
@@ -349,7 +352,7 @@ export default function DriverDashboard() {
                     {demand.surgeMultiplier > 1 && ` · מכפיל מחיר: ×${demand.surgeMultiplier}`}
                     {demand.hotspots?.length > 0 && (
                         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                            📍 אזורים חמים: {demand.hotspots.slice(0, 3).map((h, i) => `(${h.count} בקשות)`).join(" · ")}
+                            📍 אזורים חמים: {demand.hotspots.slice(0, 3).map(h => `(${h.count} בקשות)`).join(" · ")}
                         </div>
                     )}
                 </div>
