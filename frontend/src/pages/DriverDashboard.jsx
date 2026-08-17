@@ -107,6 +107,9 @@ export default function DriverDashboard() {
     const canApproveCarpoolRequest = Boolean(activeCarpoolRide) ||
         driver?.status === "available" ||
         driver?.status === "busy";
+    // The server sends an empty queue to a driver who turned carpool off, which
+    // is indistinguishable from "nobody is waiting" unless the section says so.
+    const carpoolDisabled = driver?.acceptsCarpoolRides === false;
 
     const fetchAll = useCallback(async () => {
         try {
@@ -510,23 +513,35 @@ export default function DriverDashboard() {
                 ))}
             </div>
 
-            {/* Waiting carpool passengers — approved by the driver, one seat group at a time */}
-            {driver.acceptsCarpoolRides !== false && (
-                <div style={s.card}>
-                    <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 15 }}>
-                        🤝 בקשות קרפול ממתינות ({carpoolRequests.length})
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
-                        {activeCarpoolRide
+            {/* Waiting carpool passengers — approved by the driver, one seat group
+                at a time. This section is always on the dashboard, next to the
+                open ride requests above, so a driver can tell an empty queue
+                apart from a carpool setting that is switched off. */}
+            <div style={s.card}>
+                <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 15 }}>
+                    🤝 בקשות קרפול ממתינות ({carpoolRequests.length})
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+                    {carpoolDisabled
+                        ? "נסיעות קרפול כבויות בפרופיל שלך, ולכן לא מגיעות אליך בקשות."
+                        : activeCarpoolRide
                             ? "אישור נוסע יצרף אותו לנסיעת הקרפול הפעילה שלך."
                             : "אישור נוסע יפתח נסיעת קרפול חדשה שתוכל לצרף אליה נוסעים נוספים."}
+                </div>
+                {carpoolError && <div className="error-msg" style={{ marginBottom: 10 }}>{carpoolError}</div>}
+                {carpoolDisabled ? (
+                    <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)" }}>
+                        <div style={{ marginBottom: 10 }}>🚫 קרפול כבוי</div>
+                        <button type="button" onClick={() => navigate("/driver-setup")}
+                            style={{ background: "var(--primary)", color: "#fff", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
+                            הפעל קרפול בהגדרות הנהג
+                        </button>
                     </div>
-                    {carpoolError && <div className="error-msg" style={{ marginBottom: 10 }}>{carpoolError}</div>}
-                    {carpoolRequests.length === 0 ? (
-                        <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)" }}>
-                            אין בקשות קרפול כרגע
-                        </div>
-                    ) : carpoolRequests.map(request => {
+                ) : carpoolRequests.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)" }}>
+                        אין בקשות קרפול כרגע
+                    </div>
+                ) : carpoolRequests.map(request => {
                         const requestFinalPrice = Number(request.finalPrice || 0);
                         const requestSeatPrice = Number(request.pricePerSeat || 0);
                         const requestSeats = Number(request.seatsNeeded || 1);
@@ -572,13 +587,12 @@ export default function DriverDashboard() {
                             </div>
                         );
                     })}
-                    {!canApproveCarpoolRequest && carpoolRequests.length > 0 && (
-                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
-                            עבור לסטטוס "זמין" כדי לפתוח נסיעת קרפול חדשה.
-                        </div>
-                    )}
-                </div>
-            )}
+                {!canApproveCarpoolRequest && carpoolRequests.length > 0 && (
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                        עבור לסטטוס "זמין" כדי לפתוח נסיעת קרפול חדשה.
+                    </div>
+                )}
+            </div>
 
             {/* Map — driver location + all request locations + demand hotspots */}
             <div style={s.card}>

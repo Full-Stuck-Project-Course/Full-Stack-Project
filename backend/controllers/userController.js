@@ -11,7 +11,7 @@ const { OAuth2Client } = require("google-auth-library");
 const DriverProfile    = require("../db/models/DriverProfile");
 const { sameId, isAdmin } = require("../utils/authz");
 const { signAuthToken } = require("../utils/jwtConfig");
-const { sendPasswordResetEmail, isSmtpConfigured } = require("../utils/email");
+const { sendPasswordResetEmail, isSmtpConfigured, describePasswordResetDelivery } = require("../utils/email");
 const { needsProfileCompletion } = require("../utils/profileCompletion");
 const {
     cleanupDeletedUserPrivacy,
@@ -88,6 +88,10 @@ function clearPasswordResetFields(user) {
 
 function isPasswordResetDeliveryConfigured() {
     return Boolean(process.env.RESET_EMAIL_WEBHOOK_URL || isSmtpConfigured());
+}
+
+function logPasswordResetNotConfigured() {
+    console.error(`Password reset email not sent — ${describePasswordResetDelivery()}`);
 }
 
 async function ensurePassengerProfileForUser(user) {
@@ -279,14 +283,20 @@ async function forgotPassword(req, res) {
         try {
             const delivery = await deliverPasswordReset(req, user, token, resetCode);
             resetLink = delivery.resetLink;
-            if (!delivery.sent && process.env.NODE_ENV === "production") {
-                return res.status(503).json({ error: "Password reset email delivery is not configured" });
+            if (!delivery.sent) {
+                logPasswordResetNotConfigured();
+                if (process.env.NODE_ENV === "production") {
+                    return res.status(503).json({ error: "Password reset email delivery is not configured" });
+                }
             }
         } catch (deliveryError) {
+            // Log before the production branch returns: the response is
+            // deliberately generic, so this line is the only record of why the
+            // mail server refused it.
+            console.error("Password reset email delivery failed:", deliveryError.message);
             if (process.env.NODE_ENV === "production") {
                 return res.status(503).json({ error: "Could not send password reset email" });
             }
-            console.warn("Password reset email delivery failed:", deliveryError.message);
         }
 
         const response = {
@@ -552,14 +562,17 @@ async function adminSendPasswordReset(req, res) {
         let delivery = { resetLink: "", sent: false };
         try {
             delivery = await deliverPasswordReset(req, user, token, resetCode);
-            if (!delivery.sent && process.env.NODE_ENV === "production") {
-                return res.status(503).json({ error: "Password reset email delivery is not configured" });
+            if (!delivery.sent) {
+                logPasswordResetNotConfigured();
+                if (process.env.NODE_ENV === "production") {
+                    return res.status(503).json({ error: "Password reset email delivery is not configured" });
+                }
             }
         } catch (deliveryError) {
+            console.error("Admin password reset delivery failed:", deliveryError.message);
             if (process.env.NODE_ENV === "production") {
                 return res.status(503).json({ error: "Could not send password reset email" });
             }
-            console.warn("Admin password reset delivery failed:", deliveryError.message);
         }
 
         const response = {

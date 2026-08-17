@@ -16,6 +16,7 @@ const DriverProfile = require("./db/models/DriverProfile");
 const { sameId } = require("./utils/authz");
 const { hasValidCoordinates } = require("./utils/pricing");
 const { configuredOrigins, isAllowedOrigin } = require("./utils/corsOrigins");
+const { describePasswordResetDelivery } = require("./utils/email");
 const { findNearbyAvailableDrivers } = require("./utils/driverDiscovery");
 const { expiredCarpoolRequestFilter, expiredRideFilter } = require("./utils/bookingExpiry");
 const {
@@ -530,6 +531,7 @@ async function startServer() {
     await listen(server, PORT);
     console.log(`HailNow server running on port ${PORT}`);
     console.log(`Allowed origins: ${configuredOrigins().join(", ")}`);
+    console.log(describePasswordResetDelivery());
 
     startScheduledTasks();
 }

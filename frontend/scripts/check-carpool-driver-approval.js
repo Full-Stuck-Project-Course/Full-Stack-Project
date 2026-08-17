@@ -51,6 +51,25 @@ assert(
     "DriverDashboard must surface why an approval was refused."
 );
 
+// The carpool queue is its own section alongside the open ride requests, and it
+// stays on the page when it is empty. Hiding it behind the driver's carpool
+// setting made a switched-off profile look identical to a quiet queue.
+assert(
+    !/\{driver\.acceptsCarpoolRides\s*!==\s*false\s*&&/.test(driverDashboard),
+    "The carpool section must always render, not only for drivers who accept carpool rides."
+);
+
+assert(
+    /const\s+carpoolDisabled\s*=\s*driver\?\.acceptsCarpoolRides\s*===\s*false/.test(driverDashboard) &&
+    driverDashboard.includes("נסיעות קרפול כבויות בפרופיל שלך"),
+    "An empty carpool section must say when the queue is empty because carpool is switched off."
+);
+
+assert(
+    /אין בקשות קרפול כרגע/.test(driverDashboard),
+    "The carpool section must show an empty state instead of disappearing when nobody is waiting."
+);
+
 // One booking at a time, explained on the page that does the booking.
 assert(
     /export const ACTIVE_BOOKING_MESSAGE\s*=/.test(bookRidePage) &&

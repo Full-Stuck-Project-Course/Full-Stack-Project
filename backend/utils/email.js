@@ -28,6 +28,30 @@ function isSmtpConfigured() {
     return Boolean(process.env.SMTP_HOST && process.env.SMTP_PORT && getFromAddress() && isSmtpAuthComplete());
 }
 
+// Which settings stop mail going out. isSmtpConfigured() is a yes/no, which
+// leaves an operator guessing at the one thing they missed — most often a
+// password without the matching username, which silently disables SMTP.
+function missingSmtpSettings() {
+    const missing = [];
+    if (!process.env.SMTP_HOST) missing.push("SMTP_HOST");
+    if (!process.env.SMTP_PORT) missing.push("SMTP_PORT");
+    if (process.env.SMTP_PASS && !process.env.SMTP_USER) missing.push("SMTP_USER (required because SMTP_PASS is set)");
+    if (process.env.SMTP_USER && !process.env.SMTP_PASS) missing.push("SMTP_PASS (required because SMTP_USER is set)");
+    return missing;
+}
+
+// One line for the startup log, so a misconfigured deployment is visible
+// before a user ever asks for a reset link.
+function describePasswordResetDelivery() {
+    if (process.env.RESET_EMAIL_WEBHOOK_URL) return "Password reset delivery: webhook (RESET_EMAIL_WEBHOOK_URL)";
+    if (isSmtpConfigured()) return `Password reset delivery: SMTP via ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}`;
+
+    const missing = missingSmtpSettings();
+    return "Password reset delivery: DISABLED — " + (missing.length
+        ? `missing ${missing.join(", ")}`
+        : "set SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS, or RESET_EMAIL_WEBHOOK_URL");
+}
+
 function createTransporter() {
     const port = Number(process.env.SMTP_PORT);
     const secure = parseBoolean(process.env.SMTP_SECURE);
@@ -92,5 +116,7 @@ async function sendPasswordResetEmail({ to, fullName, resetLink, resetCode, expi
 
 module.exports = {
     sendPasswordResetEmail,
-    isSmtpConfigured
+    isSmtpConfigured,
+    missingSmtpSettings,
+    describePasswordResetDelivery
 };
