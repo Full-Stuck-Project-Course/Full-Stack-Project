@@ -18,8 +18,14 @@ function getFromAddress() {
     return process.env.MAIL_FROM || process.env.SMTP_FROM || "HailNow <no-reply@hailnow.local>";
 }
 
+function isSmtpAuthComplete() {
+    const hasUser = Boolean(process.env.SMTP_USER);
+    const hasPass = Boolean(process.env.SMTP_PASS);
+    return hasUser === hasPass;
+}
+
 function isSmtpConfigured() {
-    return Boolean(process.env.SMTP_HOST && process.env.SMTP_PORT && getFromAddress());
+    return Boolean(process.env.SMTP_HOST && process.env.SMTP_PORT && getFromAddress() && isSmtpAuthComplete());
 }
 
 function createTransporter() {
