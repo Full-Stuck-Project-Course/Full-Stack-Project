@@ -241,7 +241,10 @@ export default function DriverDashboard() {
     const acceptRide = async (rideId) => {
         if (!driver) return;
         try {
-            await api.put(`/rides/${rideId}/accept`, { vehicleId: vehicle?._id || null });
+            await api.put(`/rides/${rideId}/accept`, {
+                driverId: driver._id,
+                vehicleId: vehicle?._id || null
+            });
             setPopup(null);
             navigate(`/ride/${rideId}`);
         } catch (err) {

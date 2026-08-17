@@ -700,14 +700,16 @@ async function getRideById(req, res) {
 async function acceptRide(req, res) {
     try {
         let driverId = req.body.driverId;
+        let driver = null;
 
-        if (!isAdmin(req)) {
-            const driver = await getDriverProfileForUser(req.user.userId);
+        if (isAdmin(req) && driverId) {
+            driver = await DriverProfile.findById(driverId);
+        } else {
+            driver = await getDriverProfileForUser(req.user.userId);
             if (!driver) return res.status(400).json({ error: "Driver profile not found" });
             driverId = driver._id;
         }
 
-        const driver = await DriverProfile.findById(driverId);
         if (!driver) return res.status(404).json({ error: "Driver not found" });
         if (!driver.isVerified) return res.status(403).json({ error: "Driver must be verified before accepting rides" });
         if (driver.status !== "available") return res.status(400).json({ error: "Driver must be available to accept rides" });

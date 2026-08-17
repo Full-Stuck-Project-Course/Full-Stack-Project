@@ -461,6 +461,72 @@ test("verified driver can claim, start, and complete a ride while payment/profil
     assert.equal(paymentNotifications.length, 0, "the approval notice belongs to the card submission, not ride completion");
 });
 
+test("admin using the driver dashboard can accept a ride as their own driver profile", async () => {
+    const driver = {
+        _id: "admin-driver-1",
+        userId: "admin-user",
+        status: "available",
+        isVerified: true,
+        acceptsCarpoolRides: true
+    };
+    const vehicle = {
+        _id: "vehicle-1",
+        driverId: driver._id,
+        isActive: true,
+        seats: 4,
+        testApproval: true,
+        insuranceApproval: true
+    };
+    const ride = makeRide({
+        status: "searching",
+        driverId: null,
+        vehicleId: null,
+        passengerCount: 1
+    });
+
+    let claimedDriverFilter = null;
+
+    patchMethod(patches, DriverProfile, "findOne", async ({ userId }) => {
+        return userId === "admin-user" ? driver : null;
+    });
+    patchMethod(patches, DriverProfile, "findById", async () => {
+        throw new Error("admin dashboard accept should not require an explicit driverId");
+    });
+    patchMethod(patches, Ride, "findOne", async (filter) => {
+        assert.equal(filter._id, ride._id);
+        assert.equal(filter.status, "searching");
+        return ride;
+    });
+    patchMethod(patches, Vehicle, "findOne", async (filter) => {
+        assert.deepEqual(filter, { _id: vehicle._id, driverId: driver._id, isActive: true });
+        return vehicle;
+    });
+    patchMethod(patches, DriverProfile, "findOneAndUpdate", async (filter, update) => {
+        claimedDriverFilter = filter;
+        assert.deepEqual(update, { status: "busy" });
+        return { ...driver, status: "busy" };
+    });
+    patchMethod(patches, Ride, "findOneAndUpdate", async (filter, update) => {
+        assert.equal(filter._id, ride._id);
+        ride.driverId = update.$set.driverId;
+        ride.vehicleId = update.$set.vehicleId;
+        ride.status = update.$set.status;
+        return ride;
+    });
+
+    const res = makeRes();
+    await acceptRide({
+        user: { userId: "admin-user", role: "admin" },
+        params: { id: ride._id },
+        body: { vehicleId: vehicle._id }
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(claimedDriverFilter, { _id: driver._id, status: "available", isVerified: true });
+    assert.equal(ride.driverId, driver._id);
+    assert.equal(ride.status, "driver_arriving");
+});
+
 test("assigned driver is released when an accepted ride is cancelled", async () => {
     const ride = makeRide({ status: "accepted", driverId: "driver-1" });
     let releasedDriverId;
