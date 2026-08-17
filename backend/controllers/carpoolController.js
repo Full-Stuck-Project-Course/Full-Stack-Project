@@ -219,22 +219,21 @@ async function canReadCarpoolRequest(req, request) {
 // POST /carpool
 async function createCarpoolRequest(req, res) {
     try {
+        // Only an admin may book on someone else's behalf, and only by naming
+        // them. Everyone else — passenger, driver or admin — books against
+        // their own profile, which is created here if the account has never
+        // had one. The booking page sends no passengerId for either ride type,
+        // and refusing that used to deny an admin their own carpool booking.
         let passengerId = req.body.passengerId;
-        if (!isAdmin(req)) {
-            const passenger = await getPassengerProfileForUser(req.user.userId);
-            if (!passenger) return res.status(403).json({ error: "Passenger profile required" });
-            passengerId = passenger._id;
-        } else if (passengerId) {
+        if (isAdmin(req) && passengerId) {
             if (!await canAccessPassenger(req, passengerId)) return forbidden(res);
         } else {
-            // An admin booking for themselves, which createRide already allows.
-            // Refusing here denied an admin their own carpool booking, because
-            // the booking page never sends a passengerId for either ride type.
-            const passenger = await PassengerProfile.findOneAndUpdate(
-                { userId: req.user.userId },
-                { $setOnInsert: { userId: req.user.userId } },
-                { upsert: true, new: true, setDefaultsOnInsert: true }
-            );
+            const passenger = await getPassengerProfileForUser(req.user.userId)
+                || await PassengerProfile.findOneAndUpdate(
+                    { userId: req.user.userId },
+                    { $setOnInsert: { userId: req.user.userId } },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
             passengerId = passenger._id;
         }
 
