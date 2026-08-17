@@ -3,7 +3,16 @@ const assert = require("node:assert/strict");
 
 const net = require("node:net");
 
-const { isSmtpConfigured, normalizeSmtpPassword, missingSmtpSettings, sendPasswordResetEmail } = require("../utils/email");
+const {
+    isSmtpConfigured,
+    isBrevoConfigured,
+    isEmailDeliveryConfigured,
+    normalizeSmtpPassword,
+    missingSmtpSettings,
+    parseFromAddress,
+    describePasswordResetDelivery,
+    sendPasswordResetEmail
+} = require("../utils/email");
 
 const originalEnv = {
     SMTP_HOST: process.env.SMTP_HOST,
@@ -12,7 +21,8 @@ const originalEnv = {
     SMTP_PASS: process.env.SMTP_PASS,
     MAIL_FROM: process.env.MAIL_FROM,
     SMTP_FROM: process.env.SMTP_FROM,
-    SMTP_TIMEOUT_MS: process.env.SMTP_TIMEOUT_MS
+    SMTP_TIMEOUT_MS: process.env.SMTP_TIMEOUT_MS,
+    BREVO_API_KEY: process.env.BREVO_API_KEY
 };
 
 function restoreEnv() {
@@ -95,6 +105,34 @@ test("a mail server that never answers gives up instead of hanging the request",
     const elapsed = Date.now() - startedAt;
     assert.ok(elapsed < 5000, `gave up after ${elapsed}ms, which means the configured timeout was ignored`);
     silentServer.close();
+});
+
+// Brevo goes out over HTTPS, so it works on hosts that block outbound SMTP.
+test("a Brevo key and a verified sender are enough on their own, with no SMTP settings", () => {
+    clearSmtpEnv();
+    process.env.BREVO_API_KEY = "xkeysib-test";
+    process.env.MAIL_FROM = "HailNow <noreply@hailnow.app>";
+
+    assert.equal(isBrevoConfigured(), true);
+    assert.equal(isSmtpConfigured(), false, "no SMTP settings are present");
+    assert.equal(isEmailDeliveryConfigured(), true, "mail can still be delivered");
+    assert.match(describePasswordResetDelivery(), /Brevo HTTPS API, from noreply@hailnow\.app/);
+});
+
+test("a Brevo key without a sender address is not usable, and says so", () => {
+    clearSmtpEnv();
+    process.env.BREVO_API_KEY = "xkeysib-test";
+
+    assert.equal(isBrevoConfigured(), false, "Brevo refuses a sender it has not verified");
+    assert.deepEqual(missingSmtpSettings(), [
+        "MAIL_FROM (required because BREVO_API_KEY is set; it must be a sender Brevo has verified)"
+    ]);
+});
+
+test("the sender address is split into the name and address Brevo expects", () => {
+    assert.deepEqual(parseFromAddress("HailNow <noreply@hailnow.app>"), { name: "HailNow", email: "noreply@hailnow.app" });
+    assert.deepEqual(parseFromAddress('"HailNow" <noreply@hailnow.app>'), { name: "HailNow", email: "noreply@hailnow.app" });
+    assert.deepEqual(parseFromAddress("noreply@hailnow.app"), { name: "HailNow", email: "noreply@hailnow.app" });
 });
 
 test("SMTP config can be complete for a no-auth relay", () => {

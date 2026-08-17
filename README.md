@@ -335,6 +335,7 @@ npm start
 | `CLIENT_BASE_URL` | כן לאיפוס סיסמה | כתובת ה-frontend לקישורי reset, למשל `http://localhost:3000`. |
 | `RETURN_RESET_TOKEN` | לא | בפיתוח בלבד, אם `true` מחזיר reset token בתגובה. לא להשתמש ב-production. |
 | `RESET_EMAIL_WEBHOOK_URL` | לא | webhook לשליחת מייל איפוס סיסמה במקום SMTP. |
+| `BREVO_API_KEY` | מומלץ ב-production | מפתח API של Brevo לשליחת מיילים דרך HTTPS. נחוץ כשסביבת ההרצה חוסמת SMTP יוצא, מה שנפוץ בתוכניות אחסון חינמיות. כשהוא מוגדר הוא גובר על הגדרות SMTP, ואז צריך רק אותו ואת `MAIL_FROM`. הכתובת ב-`MAIL_FROM` חייבת להיות sender מאומת ב-Brevo. |
 | `SMTP_HOST` | לא | שרת SMTP לשליחת מיילים. |
 | `SMTP_PORT` | לא | פורט SMTP, למשל `587`. |
 | `SMTP_SECURE` | לא | האם להשתמש ב-TLS מלא. בדרך כלל `false` עם פורט `587`. |

@@ -11,7 +11,7 @@ const { OAuth2Client } = require("google-auth-library");
 const DriverProfile    = require("../db/models/DriverProfile");
 const { sameId, isAdmin } = require("../utils/authz");
 const { signAuthToken } = require("../utils/jwtConfig");
-const { sendPasswordResetEmail, isSmtpConfigured, describePasswordResetDelivery } = require("../utils/email");
+const { sendPasswordResetEmail, isEmailDeliveryConfigured, describePasswordResetDelivery } = require("../utils/email");
 const { needsProfileCompletion } = require("../utils/profileCompletion");
 const {
     cleanupDeletedUserPrivacy,
@@ -87,7 +87,7 @@ function clearPasswordResetFields(user) {
 }
 
 function isPasswordResetDeliveryConfigured() {
-    return Boolean(process.env.RESET_EMAIL_WEBHOOK_URL || isSmtpConfigured());
+    return Boolean(process.env.RESET_EMAIL_WEBHOOK_URL || isEmailDeliveryConfigured());
 }
 
 function logPasswordResetNotConfigured() {

@@ -14,7 +14,9 @@ const {
 } = require("../utils/email");
 
 const ADVICE = {
-    ETIMEDOUT: "The mail server never answered. This network is almost certainly blocking outbound SMTP — common on free hosting tiers. Use a host that allows it, or send over HTTPS with RESET_EMAIL_WEBHOOK_URL.",
+    HTTP_401: "Brevo rejected the API key. Copy it again from Brevo > SMTP & API > API Keys, and set it as BREVO_API_KEY.",
+    HTTP_400: "Brevo refused the request. The usual cause is MAIL_FROM using an address Brevo has not verified — add it under Senders, Domains & Dedicated IPs > Senders, and confirm the mail Brevo sends you.",
+    ETIMEDOUT: "The mail server never answered. This network is almost certainly blocking outbound SMTP — common on free hosting tiers. Set BREVO_API_KEY to send over HTTPS instead, which this environment does allow.",
     ECONNECTION: "Could not open the connection. Check SMTP_HOST and SMTP_PORT, and whether this network allows outbound SMTP.",
     EAUTH: "The mail server rejected the credentials. With Gmail, SMTP_PASS must be a 16-character App Password (not the account password) and SMTP_USER must be the full address that generated it.",
     ESOCKET: "The socket failed. A common cause is SMTP_SECURE=true on port 587 — it must be false there, and true only on 465.",
@@ -27,7 +29,9 @@ const ADVICE = {
     const result = await verifySmtpConnection();
 
     if (result.ok) {
-        console.log("SMTP connection and login succeeded.");
+        console.log(result.via === "brevo"
+            ? "Brevo API key accepted."
+            : "SMTP connection and login succeeded.");
     } else if (result.reason === "smtp-not-configured") {
         console.error(`Not configured. Missing: ${result.missing.join(", ") || "(sender address)"}`);
         process.exitCode = 1;
@@ -46,9 +50,10 @@ const ADVICE = {
         return;
     }
 
-    const to = process.env.SMTP_USER;
+    const { parseFromAddress } = require("../utils/email");
+    const to = process.env.SMTP_USER || parseFromAddress(process.env.MAIL_FROM || process.env.SMTP_FROM).email;
     if (!to) {
-        console.error("Cannot send a test message: SMTP_USER is not set.");
+        console.error("Cannot send a test message: set SMTP_USER or MAIL_FROM to the address to send it to.");
         process.exitCode = 1;
         return;
     }

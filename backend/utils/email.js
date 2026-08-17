@@ -1,4 +1,11 @@
 const nodemailer = require("nodemailer");
+const axios = require("axios");
+
+// Brevo delivers over HTTPS, which matters because most hosting tiers block
+// outbound SMTP entirely — the connection to port 587 simply never completes.
+// When BREVO_API_KEY is set it is preferred over SMTP.
+const BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email";
+const BREVO_ACCOUNT_URL = "https://api.brevo.com/v3/account";
 
 function parseBoolean(value) {
     if (value === undefined) return undefined;
@@ -14,8 +21,26 @@ function escapeHtml(value) {
         .replace(/'/g, "&#039;");
 }
 
+// Only what the operator actually set. Brevo refuses to send from an address
+// nobody verified, so the built-in placeholder must not count as a sender.
+function configuredFromAddress() {
+    return process.env.MAIL_FROM || process.env.SMTP_FROM || "";
+}
+
 function getFromAddress() {
-    return process.env.MAIL_FROM || process.env.SMTP_FROM || "HailNow <no-reply@hailnow.local>";
+    return configuredFromAddress() || "HailNow <no-reply@hailnow.local>";
+}
+
+// "HailNow <a@b.com>" -> { name: "HailNow", email: "a@b.com" }, which is the
+// shape Brevo wants. A bare address works too.
+function parseFromAddress(value) {
+    const withName = /^\s*"?(.*?)"?\s*<\s*([^>]+?)\s*>\s*$/.exec(String(value || ""));
+    if (withName) return { name: withName[1].trim() || "HailNow", email: withName[2].trim() };
+    return { name: "HailNow", email: String(value || "").trim() };
+}
+
+function isBrevoConfigured() {
+    return Boolean(process.env.BREVO_API_KEY && configuredFromAddress());
 }
 
 function isSmtpAuthComplete() {
@@ -32,6 +57,10 @@ function isSmtpConfigured() {
 // leaves an operator guessing at the one thing they missed — most often a
 // password without the matching username, which silently disables SMTP.
 function missingSmtpSettings() {
+    if (process.env.BREVO_API_KEY && !configuredFromAddress()) {
+        return ["MAIL_FROM (required because BREVO_API_KEY is set; it must be a sender Brevo has verified)"];
+    }
+
     const missing = [];
     if (!process.env.SMTP_HOST) missing.push("SMTP_HOST");
     if (!process.env.SMTP_PORT) missing.push("SMTP_PORT");
@@ -40,16 +69,22 @@ function missingSmtpSettings() {
     return missing;
 }
 
+// Any route that can actually deliver, not just SMTP.
+function isEmailDeliveryConfigured() {
+    return isBrevoConfigured() || isSmtpConfigured();
+}
+
 // One line for the startup log, so a misconfigured deployment is visible
 // before a user ever asks for a reset link.
 function describePasswordResetDelivery() {
     if (process.env.RESET_EMAIL_WEBHOOK_URL) return "Password reset delivery: webhook (RESET_EMAIL_WEBHOOK_URL)";
+    if (isBrevoConfigured()) return `Password reset delivery: Brevo HTTPS API, from ${parseFromAddress(getFromAddress()).email}`;
     if (isSmtpConfigured()) return `Password reset delivery: SMTP via ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}`;
 
     const missing = missingSmtpSettings();
     return "Password reset delivery: DISABLED — " + (missing.length
         ? `missing ${missing.join(", ")}`
-        : "set SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS, or RESET_EMAIL_WEBHOOK_URL");
+        : "set BREVO_API_KEY and MAIL_FROM, or SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS");
 }
 
 // Google shows an app password as four groups of four ("abcd efgh ijkl mnop"),
@@ -99,16 +134,19 @@ function createTransporter() {
 // "Connection timeout" means the network is blocking SMTP; an auth failure
 // means the credentials are wrong. The two need opposite fixes.
 async function verifySmtpConnection() {
+    if (isBrevoConfigured()) return verifyBrevoKey();
+
     if (!isSmtpConfigured()) {
         return { ok: false, reason: "smtp-not-configured", missing: missingSmtpSettings() };
     }
 
     try {
         await createTransporter().verify();
-        return { ok: true };
+        return { ok: true, via: "smtp" };
     } catch (error) {
         return {
             ok: false,
+            via: "smtp",
             reason: error.message.split("\n")[0],
             code: error.code || null,
             command: error.command || null
@@ -116,8 +154,58 @@ async function verifySmtpConnection() {
     }
 }
 
+function brevoFailure(error) {
+    const status = error.response?.status;
+    return {
+        reason: error.response?.data?.message || error.message.split("\n")[0],
+        code: status ? `HTTP_${status}` : (error.code || null)
+    };
+}
+
+// Checks the key without sending, the HTTPS equivalent of transporter.verify().
+async function verifyBrevoKey() {
+    try {
+        await axios.get(BREVO_ACCOUNT_URL, {
+            headers: { "api-key": process.env.BREVO_API_KEY, accept: "application/json" },
+            timeout: smtpTimeoutMs()
+        });
+        return { ok: true, via: "brevo" };
+    } catch (error) {
+        return { ok: false, via: "brevo", command: "account", ...brevoFailure(error) };
+    }
+}
+
+async function sendViaBrevo({ to, toName, subject, text, html }) {
+    const sender = parseFromAddress(getFromAddress());
+
+    try {
+        await axios.post(BREVO_SEND_URL, {
+            sender,
+            to: [toName ? { email: to, name: toName } : { email: to }],
+            subject,
+            textContent: text,
+            htmlContent: html
+        }, {
+            headers: {
+                "api-key": process.env.BREVO_API_KEY,
+                accept: "application/json",
+                "content-type": "application/json"
+            },
+            timeout: smtpTimeoutMs()
+        });
+        return { sent: true };
+    } catch (error) {
+        const { reason, code } = brevoFailure(error);
+        // A 401 is a bad key; a 400 naming the sender means Brevo has not
+        // verified the MAIL_FROM address yet.
+        const failure = new Error(`Brevo rejected the message: ${reason}`);
+        failure.code = code;
+        throw failure;
+    }
+}
+
 async function sendPasswordResetEmail({ to, fullName, resetLink, resetCode, expiresMinutes = 60 }) {
-    if (!isSmtpConfigured()) {
+    if (!isEmailDeliveryConfigured()) {
         return { sent: false, reason: "smtp-not-configured" };
     }
 
@@ -125,10 +213,7 @@ async function sendPasswordResetEmail({ to, fullName, resetLink, resetCode, expi
     const safeLink = escapeHtml(resetLink);
     const safeCode = escapeHtml(resetCode);
 
-    const transporter = createTransporter();
-    await transporter.sendMail({
-        from: getFromAddress(),
-        to,
+    const message = {
         subject: "איפוס הסיסמה שלך ב-HailNow",
         text: [
             `שלום ${fullName || ""},`,
@@ -158,16 +243,24 @@ async function sendPasswordResetEmail({ to, fullName, resetLink, resetCode, expi
                 <p style="color:#64748b;font-size:13px">אם לא ביקשת איפוס סיסמה, אפשר להתעלם מהמייל הזה.</p>
             </div>
         `
-    });
+    };
 
+    if (isBrevoConfigured()) {
+        return sendViaBrevo({ to, toName: fullName, ...message });
+    }
+
+    await createTransporter().sendMail({ from: getFromAddress(), to, ...message });
     return { sent: true };
 }
 
 module.exports = {
     sendPasswordResetEmail,
     isSmtpConfigured,
+    isBrevoConfigured,
+    isEmailDeliveryConfigured,
     missingSmtpSettings,
     describePasswordResetDelivery,
     normalizeSmtpPassword,
+    parseFromAddress,
     verifySmtpConnection
 };
