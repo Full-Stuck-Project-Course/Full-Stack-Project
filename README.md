@@ -340,7 +340,8 @@ npm start
 | `SMTP_SECURE` | לא | האם להשתמש ב-TLS מלא. בדרך כלל `false` עם פורט `587`. |
 | `SMTP_USER` | לא | שם משתמש SMTP, ב-Gmail כתובת המייל המלאה. אם מוגדר, חובה להגדיר גם `SMTP_PASS`, אחרת SMTP כבוי לגמרי. |
 | `SMTP_PASS` | לא | סיסמת SMTP. ב-Gmail זה App Password בן 16 תווים (לא סיסמת החשבון הרגילה, ונדרש Two-Step Verification). גוגל מציג אותו בארבע קבוצות עם רווחים - אפשר להדביק כך, השרת מסיר את הרווחים. אם מוגדר, חובה להגדיר גם `SMTP_USER`. |
-| `MAIL_FROM` | לא | כתובת השולח, למשל `HailNow <no-reply@example.com>`. |
+| `MAIL_FROM` | לא | כתובת השולח, למשל `HailNow <no-reply@example.com>`. ב-Gmail חייבת להיות זהה ל-`SMTP_USER`, אחרת גוגל דוחה את השליחה. |
+| `SMTP_TIMEOUT_MS` | לא | כמה זמן לחכות לחיבור ולתשובת שרת המייל. ברירת מחדל: `10000`. אם הסביבה חוסמת SMTP יוצא, הבקשה נכשלת מהר עם 503 במקום להיתקע. |
 | `CORS_ORIGINS` | מומלץ ב-production | רשימת origins מופרדת בפסיקים שמותרת בדפדפן. |
 | `NODE_ENV` | מומלץ ב-production | `production` משנה התנהגות CORS וחלק מהודעות השגיאה. |
 | `APP_TIME_ZONE` | לא | אזור זמן לתמחור. ברירת מחדל: `Asia/Jerusalem`. |

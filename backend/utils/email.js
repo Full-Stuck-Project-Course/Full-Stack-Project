@@ -64,18 +64,33 @@ function normalizeSmtpPassword(value) {
     return raw.trim();
 }
 
+// Nodemailer waits 2 minutes to connect and 30 seconds for the greeting. A host
+// that blocks outbound SMTP never completes the handshake at all, so the
+// password reset request hangs for minutes behind a spinner instead of failing.
+// Give up quickly: the caller turns a failure into a 503 the user can act on.
+const DEFAULT_SMTP_TIMEOUT_MS = 10_000;
+
+function smtpTimeoutMs() {
+    const configured = Number(process.env.SMTP_TIMEOUT_MS);
+    return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SMTP_TIMEOUT_MS;
+}
+
 function createTransporter() {
     const port = Number(process.env.SMTP_PORT);
     const secure = parseBoolean(process.env.SMTP_SECURE);
     const auth = process.env.SMTP_USER && process.env.SMTP_PASS
         ? { user: process.env.SMTP_USER.trim(), pass: normalizeSmtpPassword(process.env.SMTP_PASS) }
         : undefined;
+    const timeout = smtpTimeoutMs();
 
     return nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port,
         secure: secure ?? port === 465,
-        auth
+        auth,
+        connectionTimeout: timeout,
+        greetingTimeout: timeout,
+        socketTimeout: timeout * 2
     });
 }
 

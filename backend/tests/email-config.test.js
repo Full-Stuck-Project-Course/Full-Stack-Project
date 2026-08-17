@@ -1,7 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { isSmtpConfigured, normalizeSmtpPassword, missingSmtpSettings } = require("../utils/email");
+const net = require("node:net");
+
+const { isSmtpConfigured, normalizeSmtpPassword, missingSmtpSettings, sendPasswordResetEmail } = require("../utils/email");
 
 const originalEnv = {
     SMTP_HOST: process.env.SMTP_HOST,
@@ -9,7 +11,8 @@ const originalEnv = {
     SMTP_USER: process.env.SMTP_USER,
     SMTP_PASS: process.env.SMTP_PASS,
     MAIL_FROM: process.env.MAIL_FROM,
-    SMTP_FROM: process.env.SMTP_FROM
+    SMTP_FROM: process.env.SMTP_FROM,
+    SMTP_TIMEOUT_MS: process.env.SMTP_TIMEOUT_MS
 };
 
 function restoreEnv() {
@@ -66,6 +69,32 @@ test("missing SMTP settings are named so an operator knows what to set", () => {
     process.env.SMTP_PASS = "app-password";
 
     assert.deepEqual(missingSmtpSettings(), ["SMTP_USER (required because SMTP_PASS is set)"]);
+});
+
+// A host that blocks outbound SMTP leaves nodemailer waiting on its own
+// defaults — two minutes to connect, thirty seconds for the greeting — and the
+// password reset request hangs behind a spinner for all of it.
+test("a mail server that never answers gives up instead of hanging the request", async () => {
+    const silentServer = net.createServer(socket => socket.on("error", () => {}));
+    await new Promise(resolve => silentServer.listen(0, "127.0.0.1", resolve));
+
+    clearSmtpEnv();
+    process.env.SMTP_HOST = "127.0.0.1";
+    process.env.SMTP_PORT = String(silentServer.address().port);
+    process.env.SMTP_USER = "hailnow.app@gmail.com";
+    process.env.SMTP_PASS = "app-password";
+    process.env.MAIL_FROM = "HailNow <hailnow.app@gmail.com>";
+    process.env.SMTP_TIMEOUT_MS = "250";
+
+    const startedAt = Date.now();
+    await assert.rejects(
+        sendPasswordResetEmail({ to: "user@example.com", resetLink: "https://x/y", resetCode: "123456" }),
+        error => /timeout|greeting/i.test(error.message)
+    );
+
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed < 5000, `gave up after ${elapsed}ms, which means the configured timeout was ignored`);
+    silentServer.close();
 });
 
 test("SMTP config can be complete for a no-auth relay", () => {
