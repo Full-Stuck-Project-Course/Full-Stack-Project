@@ -7,6 +7,7 @@ const routes = require("./routes");
 const uploadController = require("./controllers/uploadController");
 const errorHandler = require("./middleware/errorHandler");
 const { isAllowedOrigin } = require("./utils/corsOrigins");
+const { passwordResetDeliveryMode } = require("./utils/email");
 
 const app = express();
 
@@ -35,7 +36,14 @@ app.use(express.json());
 // Uploads live in MongoDB rather than on disk, because the hosting tier is ephemeral.
 app.get("/uploads/profiles/:filename", uploadController.getProfileImage);
 
-app.get("/api/health", (req, res) => res.json({ status: "ok", uptime: process.uptime() }));
+// mail reports which delivery route this instance picked, so a deployment can
+// be checked without server-log access: "disabled" means the environment
+// variables never reached it. Coarse on purpose — no host, key, or address.
+app.get("/api/health", (req, res) => res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    mail: passwordResetDeliveryMode()
+}));
 
 app.use("/api", routes);
 

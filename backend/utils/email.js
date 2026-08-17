@@ -74,6 +74,15 @@ function isEmailDeliveryConfigured() {
     return isBrevoConfigured() || isSmtpConfigured();
 }
 
+// Which route this instance will actually use. Reported by /api/health so a
+// deployment can be checked from a browser.
+function passwordResetDeliveryMode() {
+    if (process.env.RESET_EMAIL_WEBHOOK_URL) return "webhook";
+    if (isBrevoConfigured()) return "brevo";
+    if (isSmtpConfigured()) return "smtp";
+    return "disabled";
+}
+
 // One line for the startup log, so a misconfigured deployment is visible
 // before a user ever asks for a reset link.
 function describePasswordResetDelivery() {
@@ -260,6 +269,7 @@ module.exports = {
     isEmailDeliveryConfigured,
     missingSmtpSettings,
     describePasswordResetDelivery,
+    passwordResetDeliveryMode,
     normalizeSmtpPassword,
     parseFromAddress,
     verifySmtpConnection

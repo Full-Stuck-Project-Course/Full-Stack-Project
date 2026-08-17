@@ -94,6 +94,17 @@ function logPasswordResetNotConfigured() {
     console.error(`Password reset email not sent — ${describePasswordResetDelivery()}`);
 }
 
+// The response stays generic on purpose — this endpoint is unauthenticated — but
+// "the mail did not go out" has causes that need opposite fixes, and a caller
+// who cannot read the server log has no way to tell them apart. The code says
+// which kind of failure it was without revealing hosts, keys, or addresses.
+function deliveryFailureCode(error) {
+    const detail = `${error.code || ""} ${error.message || ""}`;
+    if (/HTTP_4|EAUTH|Invalid login|535/i.test(detail)) return "MAIL_CREDENTIALS_REJECTED";
+    if (/ETIMEDOUT|ECONNECTION|ESOCKET|EDNS|ENOTFOUND|timeout|greeting/i.test(detail)) return "MAIL_SERVER_UNREACHABLE";
+    return "MAIL_SEND_FAILED";
+}
+
 async function ensurePassengerProfileForUser(user) {
     return PassengerProfile.findOneAndUpdate(
         { userId: user._id },
@@ -295,7 +306,10 @@ async function forgotPassword(req, res) {
             // mail server refused it.
             console.error("Password reset email delivery failed:", deliveryError.message);
             if (process.env.NODE_ENV === "production") {
-                return res.status(503).json({ error: "Could not send password reset email" });
+                return res.status(503).json({
+                    error: "Could not send password reset email",
+                    code: deliveryFailureCode(deliveryError)
+                });
             }
         }
 

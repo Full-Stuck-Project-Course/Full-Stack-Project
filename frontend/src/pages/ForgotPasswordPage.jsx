@@ -30,17 +30,21 @@ function toLocalResetPath(resetLink) {
     }
 }
 
-// The server distinguishes "no mail settings at all" from "we tried and the mail
-// server refused", and they need different fixes. Collapsing both into one
-// message left nobody able to tell which had happened.
-function forgotPasswordErrorMessage(message) {
+// "The mail did not go out" has several causes needing opposite fixes, so the
+// server tags each failure with a code rather than leaving the page to guess.
+const DELIVERY_FAILURE_MESSAGES = {
+    MAIL_CREDENTIALS_REJECTED: "שירות הדואר דחה את פרטי ההתחברות של השרת, ולכן המייל לא נשלח. יש לבדוק את מפתח ה-API ואת כתובת השולח המאומתת.",
+    MAIL_SERVER_UNREACHABLE: "לא הצלחנו להגיע לשרת הדואר בזמן. ייתכן שהחיבור חסום מהסביבה שבה רץ השרת.",
+    MAIL_SEND_FAILED: "שליחת המייל נכשלה. יש לבדוק את הגדרות שירות הדואר בשרת."
+};
+
+function forgotPasswordErrorMessage(message, code) {
+    if (DELIVERY_FAILURE_MESSAGES[code]) return DELIVERY_FAILURE_MESSAGES[code];
     if (!message) return "שגיאה";
     if (message.includes("delivery is not configured")) {
         return "שליחת מיילים לא מוגדרת בשרת, ולכן לא נשלח קוד אימות. יש להשלים את הגדרות שרת הדואר.";
     }
-    if (message.includes("send password reset email")) {
-        return "שרת הדואר לא הגיב ולכן המייל לא נשלח. ייתכן שהחיבור לשרת הדואר חסום מהסביבה שבה רץ השרת.";
-    }
+    if (message.includes("send password reset email")) return DELIVERY_FAILURE_MESSAGES.MAIL_SEND_FAILED;
     return message;
 }
 
@@ -68,7 +72,7 @@ export default function ForgotPasswordPage() {
             setDeliveryConfigured(data.deliveryConfigured !== false);
             setSubmitted(true);
         } catch (err) {
-            setError(forgotPasswordErrorMessage(err.response?.data?.error));
+            setError(forgotPasswordErrorMessage(err.response?.data?.error, err.response?.data?.code));
         } finally {
             setLoading(false);
         }
