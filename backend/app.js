@@ -10,6 +10,11 @@ const { isAllowedOrigin } = require("./utils/corsOrigins");
 
 const app = express();
 
+// Hosted behind the platform's TLS terminator, so req.protocol and req.ip come
+// from X-Forwarded-*. Without this, reset links are built as http:// and every
+// visitor shares the proxy's IP in the rate limiter.
+app.set("trust proxy", 1);
+
 app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");

@@ -108,9 +108,21 @@ function createPasswordResetSecrets(user) {
     return { token, resetCode };
 }
 
-async function deliverPasswordReset(user, token, resetCode) {
-    const clientBase = process.env.CLIENT_BASE_URL || "http://localhost:3000";
-    const resetLink = `${clientBase}/reset-password?token=${token}`;
+// Where the emailed reset link points. The deployed app serves the React build
+// from this same process, so the request's own origin is the correct base when
+// CLIENT_BASE_URL is unset — the old localhost default produced reset links
+// that only worked on a developer's machine.
+function passwordResetClientBase(req) {
+    if (process.env.CLIENT_BASE_URL) return process.env.CLIENT_BASE_URL;
+
+    const host = req?.get?.("host");
+    if (host) return `${req.protocol}://${host}`;
+
+    return "http://localhost:3000";
+}
+
+async function deliverPasswordReset(req, user, token, resetCode) {
+    const resetLink = `${passwordResetClientBase(req)}/reset-password?token=${token}`;
 
     if (process.env.RESET_EMAIL_WEBHOOK_URL) {
         await axios.post(process.env.RESET_EMAIL_WEBHOOK_URL, {
@@ -265,7 +277,7 @@ async function forgotPassword(req, res) {
 
         let resetLink = "";
         try {
-            const delivery = await deliverPasswordReset(user, token, resetCode);
+            const delivery = await deliverPasswordReset(req, user, token, resetCode);
             resetLink = delivery.resetLink;
             if (!delivery.sent && process.env.NODE_ENV === "production") {
                 return res.status(503).json({ error: "Password reset email delivery is not configured" });
@@ -539,7 +551,7 @@ async function adminSendPasswordReset(req, res) {
 
         let delivery = { resetLink: "", sent: false };
         try {
-            delivery = await deliverPasswordReset(user, token, resetCode);
+            delivery = await deliverPasswordReset(req, user, token, resetCode);
             if (!delivery.sent && process.env.NODE_ENV === "production") {
                 return res.status(503).json({ error: "Password reset email delivery is not configured" });
             }

@@ -256,10 +256,14 @@ async function createCarpoolRequest(req, res) {
         }
         const parsedRequestedTime = parseFutureDate(requestedTime, "Requested time");
         const parsedExpiresAt = req.body.expiresAt ? parseFutureDate(req.body.expiresAt, "Expiration time") : null;
+        // A carpool passenger rides in whichever car the driver already has, so
+        // the request is quoted at the regular rate and is not bound to a
+        // vehicle class. Binding it hid the request from the pending queue of
+        // every driver whose car was a different class.
         const quote = await calculateCarpoolQuote({
             pickupLocation,
             destinationLocation,
-            vehicleType: req.body.vehicleType,
+            vehicleType: null,
             seatsNeeded: parsedSeats
         });
 
@@ -271,6 +275,7 @@ async function createCarpoolRequest(req, res) {
             seatsNeeded: parsedSeats,
             maxDetourMinutes: parsedDetour,
             ...quote,
+            vehicleType: null,
             notes,
             expiresAt: parsedExpiresAt,
             status: "pending",

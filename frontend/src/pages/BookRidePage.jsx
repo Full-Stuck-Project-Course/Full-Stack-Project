@@ -398,6 +398,9 @@ export default function BookRidePage() {
         setRedeemPoints(false);
         setPointsToUse(0);
         if (stops.length > 0) setStops([]);
+        // A carpool joins a car that is already on the road, so it is always
+        // quoted at the regular rate — see the vehicle type picker below.
+        setVehicleType("regular");
     }, [rideType, stops.length]);
 
     const addStop = () => setStops(s => [...s, { address: "", lat: null, lng: null }]);
@@ -650,15 +653,18 @@ export default function BookRidePage() {
                             onPlaceSelected={loc => setDest(loc)} />
                     </div>
 
-                    {/* Vehicle type */}
-                    <div style={s.group}>
-                        <label style={s.label}>{"סוג רכב"}</label>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {VEHICLE_TYPES.map(vt => (
-                                <button key={vt.value} type="button" style={s.tab(vehicleType === vt.value)} onClick={() => setVehicleType(vt.value)}>{vt.label}</button>
-                            ))}
+                    {/* Vehicle type — a carpool passenger joins whichever car the
+                        driver already drives, so there is nothing to pick. */}
+                    {rideType !== "carpool" && (
+                        <div style={s.group}>
+                            <label style={s.label}>{"סוג רכב"}</label>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {VEHICLE_TYPES.map(vt => (
+                                    <button key={vt.value} type="button" style={s.tab(vehicleType === vt.value)} onClick={() => setVehicleType(vt.value)}>{vt.label}</button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Driver matching filters */}
                     <div style={s.group}>

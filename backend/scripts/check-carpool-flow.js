@@ -100,7 +100,7 @@ async function assertCarpoolPostCreatesPendingRequest() {
     assert.strictEqual(createdPayload.status, "pending", "POST /carpool must enter the matching queue as pending");
     assert.strictEqual(createdPayload.rideId, null, "POST /carpool must not bind to a ride before matching");
     assert.strictEqual(createdPayload.seatsNeeded, 2, "POST /carpool should preserve the requested seat count");
-    assert.strictEqual(createdPayload.vehicleType, "comfort", "POST /carpool should store the quoted vehicle type");
+    assert.strictEqual(createdPayload.vehicleType, null, "POST /carpool must not bind a request to a vehicle class: a carpool passenger rides in whichever car the driver already has, and binding the request hid it from the pending queue of every driver with a different class");
     assert.ok(createdPayload.finalPrice > 0, "POST /carpool should store the server-side total quote");
     assert.ok(createdPayload.pricePerSeat > 0, "POST /carpool should store the server-side seat quote");
     assert.notStrictEqual(createdPayload.pricePerSeat, 18, "POST /carpool must not trust the client-submitted price");
