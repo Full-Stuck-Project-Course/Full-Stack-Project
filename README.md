@@ -338,8 +338,8 @@ npm start
 | `SMTP_HOST` | לא | שרת SMTP לשליחת מיילים. |
 | `SMTP_PORT` | לא | פורט SMTP, למשל `587`. |
 | `SMTP_SECURE` | לא | האם להשתמש ב-TLS מלא. בדרך כלל `false` עם פורט `587`. |
-| `SMTP_USER` | לא | שם משתמש SMTP. אם מוגדר, חובה להגדיר גם `SMTP_PASS`. |
-| `SMTP_PASS` | לא | סיסמת SMTP או app password. אם מוגדר, חובה להגדיר גם `SMTP_USER`. |
+| `SMTP_USER` | לא | שם משתמש SMTP, ב-Gmail כתובת המייל המלאה. אם מוגדר, חובה להגדיר גם `SMTP_PASS`, אחרת SMTP כבוי לגמרי. |
+| `SMTP_PASS` | לא | סיסמת SMTP. ב-Gmail זה App Password בן 16 תווים (לא סיסמת החשבון הרגילה, ונדרש Two-Step Verification). גוגל מציג אותו בארבע קבוצות עם רווחים - אפשר להדביק כך, השרת מסיר את הרווחים. אם מוגדר, חובה להגדיר גם `SMTP_USER`. |
 | `MAIL_FROM` | לא | כתובת השולח, למשל `HailNow <no-reply@example.com>`. |
 | `CORS_ORIGINS` | מומלץ ב-production | רשימת origins מופרדת בפסיקים שמותרת בדפדפן. |
 | `NODE_ENV` | מומלץ ב-production | `production` משנה התנהגות CORS וחלק מהודעות השגיאה. |

@@ -52,11 +52,23 @@ function describePasswordResetDelivery() {
         : "set SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS, or RESET_EMAIL_WEBHOOK_URL");
 }
 
+// Google shows an app password as four groups of four ("abcd efgh ijkl mnop"),
+// and it gets pasted into .env exactly like that. The spaces are for reading
+// only — Gmail rejects the password with them still in — so drop the whitespace
+// when what is left is the sixteen letters Google actually issued. Any other
+// password keeps its spaces, in case a provider allows them.
+function normalizeSmtpPassword(value) {
+    const raw = String(value ?? "");
+    const stripped = raw.replace(/\s+/g, "");
+    if (raw !== stripped && /^[a-z]{16}$/i.test(stripped)) return stripped;
+    return raw.trim();
+}
+
 function createTransporter() {
     const port = Number(process.env.SMTP_PORT);
     const secure = parseBoolean(process.env.SMTP_SECURE);
     const auth = process.env.SMTP_USER && process.env.SMTP_PASS
-        ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+        ? { user: process.env.SMTP_USER.trim(), pass: normalizeSmtpPassword(process.env.SMTP_PASS) }
         : undefined;
 
     return nodemailer.createTransport({
@@ -118,5 +130,6 @@ module.exports = {
     sendPasswordResetEmail,
     isSmtpConfigured,
     missingSmtpSettings,
-    describePasswordResetDelivery
+    describePasswordResetDelivery,
+    normalizeSmtpPassword
 };

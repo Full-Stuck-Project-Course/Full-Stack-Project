@@ -30,9 +30,34 @@ assert(
 );
 
 assert(
-    /senderName:\s*user\?\.fullName\s*\|\|\s*getChatPeerInfo\(ride,\s*user\)\.senderFallback/.test(rideStatusPage) &&
+    /senderName:\s*getChatPeerInfo\(ride,\s*user\)\.senderName/.test(rideStatusPage) &&
         /senderFallback:\s*driverView\s*\?\s*"נהג"\s*:\s*"נוסע"/.test(rideStatusPage),
     "RideStatusPage chat sender fallback must match driver/passenger context."
+);
+
+// An admin supervising someone else's ride is a third party. Falling through to
+// the passenger branch titled their chat "with the driver" and signed their
+// messages as the passenger, to both real participants.
+assert(
+    /function\s+isAdminObserver\s*\(ride,\s*user\)/.test(rideStatusPage) &&
+        /user\?\.role\s*===\s*"admin"\s*&&\s*\n?\s*!isAssignedDriverUser\(ride,\s*user\)\s*&&\s*\n?\s*!isRidePassengerUser\(ride,\s*user\)/.test(rideStatusPage),
+    "RideStatusPage must treat an admin as a ride participant only when they are actually the driver or passenger."
+);
+
+assert(
+    /if\s*\(isAdminObserver\(ride,\s*user\)\)\s*\{[\s\S]*?צ'אט הנסיעה - הנהג והנוסע/.test(rideStatusPage) &&
+        rideStatusPage.includes('senderFallback: "מנהל"'),
+    "An admin must see the ride chat labelled for both sides, not the passenger's view of it."
+);
+
+assert(
+    rideStatusPage.includes('`${user.fullName} (מנהל)`'),
+    "An admin's chat messages must be signed as an admin so the driver and passenger know who is writing."
+);
+
+assert(
+    /isAdminObserver\(ride,\s*user\)\)\s*return\s*"מחכה לך הודעה חדשה בצ'אט הנסיעה"/.test(rideStatusPage),
+    "An admin's incoming-message toast must not claim the message came from the driver."
 );
 
 assert(

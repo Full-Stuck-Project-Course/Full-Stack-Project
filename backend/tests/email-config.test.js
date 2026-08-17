@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { isSmtpConfigured } = require("../utils/email");
+const { isSmtpConfigured, normalizeSmtpPassword, missingSmtpSettings } = require("../utils/email");
 
 const originalEnv = {
     SMTP_HOST: process.env.SMTP_HOST,
@@ -46,6 +46,26 @@ test("SMTP config is complete when host, port, sender, username, and password ar
     process.env.MAIL_FROM = "HailNow <hailnow.app@gmail.com>";
 
     assert.equal(isSmtpConfigured(), true);
+});
+
+test("a Gmail app password pasted with the spaces Google shows still authenticates", () => {
+    assert.equal(normalizeSmtpPassword("abcd efgh ijkl mnop"), "abcdefghijklmnop");
+    assert.equal(normalizeSmtpPassword("  abcd efgh ijkl mnop  "), "abcdefghijklmnop");
+    assert.equal(normalizeSmtpPassword("abcdefghijklmnop"), "abcdefghijklmnop");
+});
+
+test("a password that is not an app password keeps its spaces", () => {
+    assert.equal(normalizeSmtpPassword("correct horse battery staple"), "correct horse battery staple");
+    assert.equal(normalizeSmtpPassword("  trailing-newline-only  "), "trailing-newline-only");
+});
+
+test("missing SMTP settings are named so an operator knows what to set", () => {
+    clearSmtpEnv();
+    process.env.SMTP_HOST = "smtp.gmail.com";
+    process.env.SMTP_PORT = "587";
+    process.env.SMTP_PASS = "app-password";
+
+    assert.deepEqual(missingSmtpSettings(), ["SMTP_USER (required because SMTP_PASS is set)"]);
 });
 
 test("SMTP config can be complete for a no-auth relay", () => {

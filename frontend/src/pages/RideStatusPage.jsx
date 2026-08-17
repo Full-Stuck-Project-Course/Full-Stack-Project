@@ -128,7 +128,26 @@ function completionPassengerRows(ride) {
     }];
 }
 
+// An admin watching someone else's ride is neither side of it. Without a branch
+// of their own they fall through to the passenger view, which titles the chat
+// "with the driver", hides that a passenger is in the room, and signs their
+// messages as the passenger. Admins who are themselves the driver or the
+// passenger on this ride keep the ordinary view.
+function isAdminObserver(ride, user) {
+    return user?.role === "admin" &&
+        !isAssignedDriverUser(ride, user) &&
+        !isRidePassengerUser(ride, user);
+}
+
 function getChatPeerInfo(ride, user) {
+    if (isAdminObserver(ride, user)) {
+        return {
+            title: "צ'אט הנסיעה - הנהג והנוסע",
+            senderFallback: "מנהל",
+            senderName: user?.fullName ? `${user.fullName} (מנהל)` : "מנהל"
+        };
+    }
+
     const driverView = isAssignedDriverUser(ride, user);
     const carpoolPassengers = carpoolPassengerSeats(ride);
     const multipleCarpoolPassengers = driverView && ride?.rideType === "carpool" && carpoolPassengers.length > 1;
@@ -142,11 +161,14 @@ function getChatPeerInfo(ride, user) {
 
     return {
         title: `צ'אט עם ${peerRole}${peerName ? ` - ${peerName}` : ""}`,
-        senderFallback: driverView ? "נהג" : "נוסע"
+        senderFallback: driverView ? "נהג" : "נוסע",
+        senderName: user?.fullName || (driverView ? "נהג" : "נוסע")
     };
 }
 
 function getIncomingChatNoticeTitle(ride, user) {
+    if (isAdminObserver(ride, user)) return "מחכה לך הודעה חדשה בצ'אט הנסיעה";
+
     const manyCarpoolPassengers = ride?.rideType === "carpool" && carpoolPassengerSeats(ride).length > 1;
     return isAssignedDriverUser(ride, user)
         ? (manyCarpoolPassengers ? "מחכה לך הודעה חדשה מנוסעי הקרפול" : "מחכה לך הודעה חדשה מהנוסע")
@@ -413,7 +435,7 @@ export default function RideStatusPage() {
         if (!chatText.trim()) return;
         socketRef.current?.emit("chat-message", {
             rideId: id, message: chatText,
-            sender: user?.userId, senderName: user?.fullName || getChatPeerInfo(ride, user).senderFallback
+            sender: user?.userId, senderName: getChatPeerInfo(ride, user).senderName
         });
         setChatText("");
     };
