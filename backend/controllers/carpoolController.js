@@ -224,8 +224,18 @@ async function createCarpoolRequest(req, res) {
             const passenger = await getPassengerProfileForUser(req.user.userId);
             if (!passenger) return res.status(403).json({ error: "Passenger profile required" });
             passengerId = passenger._id;
-        } else if (!passengerId || !await canAccessPassenger(req, passengerId)) {
-            return forbidden(res);
+        } else if (passengerId) {
+            if (!await canAccessPassenger(req, passengerId)) return forbidden(res);
+        } else {
+            // An admin booking for themselves, which createRide already allows.
+            // Refusing here denied an admin their own carpool booking, because
+            // the booking page never sends a passengerId for either ride type.
+            const passenger = await PassengerProfile.findOneAndUpdate(
+                { userId: req.user.userId },
+                { $setOnInsert: { userId: req.user.userId } },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+            passengerId = passenger._id;
         }
 
         // A carpool request is a booking like any other, so it competes with an

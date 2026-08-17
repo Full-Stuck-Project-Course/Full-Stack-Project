@@ -23,6 +23,7 @@ const originals = {
     paymentFindOne: Payment.findOne,
     passengerFindOne: PassengerProfile.findOne,
     passengerFindById: PassengerProfile.findById,
+    passengerFindOneAndUpdate: PassengerProfile.findOneAndUpdate,
     driverFindOne: DriverProfile.findOne,
     driverFindOneAndUpdate: DriverProfile.findOneAndUpdate,
     driverFindByIdAndUpdate: DriverProfile.findByIdAndUpdate,
@@ -68,6 +69,39 @@ function passengerRequest(body = {}) {
         user: { userId: "passenger-user", role: "passenger" },
         body
     };
+}
+
+// The booking page sends no passengerId for either ride type, and createRide
+// treats that as "book for myself". Carpool used to answer it with 403 Access
+// denied, so an admin could book a ride but never a carpool.
+async function assertAdminCanBookACarpoolForThemselves() {
+    let createdPayload = null;
+
+    stubNoActiveBooking();
+    PassengerProfile.findOne = async () => null;
+    PassengerProfile.findOneAndUpdate = async ({ userId }) => ({ _id: "admin-passenger-profile", userId });
+    CarpoolRequest.create = async (payload) => {
+        createdPayload = payload;
+        return { _id: "carpool-request", ...payload };
+    };
+
+    const res = makeRes();
+    await createCarpoolRequest({
+        user: { userId: "admin-user", role: "admin" },
+        body: {
+            pickupLocation,
+            destinationLocation,
+            requestedTime: new Date(Date.now() + 60_000).toISOString(),
+            seatsNeeded: 1
+        }
+    }, res);
+
+    assert.strictEqual(res.statusCode, 201, "an admin booking a carpool without a passengerId must not be refused");
+    assert.strictEqual(
+        createdPayload.passengerId,
+        "admin-passenger-profile",
+        "the request must be booked against the admin's own passenger profile"
+    );
 }
 
 async function assertCarpoolPostCreatesPendingRequest() {
@@ -478,6 +512,7 @@ async function assertPendingPaymentBlocksNewBookings() {
 (async () => {
     try {
         await assertCarpoolPostCreatesPendingRequest();
+        await assertAdminCanBookACarpoolForThemselves();
         await assertCarpoolRideCreationDoesNotBypassQueue();
         await assertOnlyPendingRequestsCanBeMatched();
         await assertFailedMatchReleasesReservedRideSeats();
@@ -499,6 +534,7 @@ async function assertPendingPaymentBlocksNewBookings() {
         Vehicle.findOne = originals.vehicleFindOne;
         PassengerProfile.findOne = originals.passengerFindOne;
         PassengerProfile.findById = originals.passengerFindById;
+        PassengerProfile.findOneAndUpdate = originals.passengerFindOneAndUpdate;
         DriverProfile.findOne = originals.driverFindOne;
         DriverProfile.findOneAndUpdate = originals.driverFindOneAndUpdate;
         DriverProfile.findByIdAndUpdate = originals.driverFindByIdAndUpdate;
